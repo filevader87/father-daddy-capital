@@ -28,5 +28,5 @@ pytest-xdist>=3.3.0  # Parallel testing
 pytest-benchmark>=4.0.0
 
 # Type Checking
-types-requests>=2.31.0
+types-requests>=2.32.4.20260107
 types-PyYAML>=6.0.0
