@@ -1,0 +1,32 @@
+# Development Dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Include base requirements
+-r requirements.txt
+
+# Development Tools
+jupyter>=1.0.0
+ipython>=8.0.0
+notebook>=6.5.0
+
+# Code Quality
+pre-commit>=3.0.0
+isort>=5.12.0
+bandit>=1.7.0
+
+# Documentation
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+
+# Performance Profiling
+pyinstrument>=4.5.0
+memory-profiler>=0.60.0
+
+# Testing Extensions
+pytest-mock>=3.10.0
+pytest-xdist>=3.3.0  # Parallel testing
+pytest-benchmark>=4.0.0
+
+# Type Checking
+types-requests>=2.31.0
+types-PyYAML>=6.0.0

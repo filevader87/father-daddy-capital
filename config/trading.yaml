@@ -1,0 +1,112 @@
+# Father Daddy Capital - Unified Trading Configuration
+# Single source of truth for all system configuration
+
+trading:
+  mode: paper  # paper, live, backtest
+  symbols: 
+    - BTCUSD
+    - ETHUSD
+    - SOLUSD
+    - AVAXUSD
+  timeframes:
+    - 1h
+    - 4h
+    - 1d
+  
+  # Risk Management
+  risk:
+    max_position_size: 0.1  # 10% of portfolio per position
+    max_leverage: 2.0
+    max_drawdown: 0.15  # 15% max drawdown
+    stop_loss: 0.05  # 5% stop loss
+    take_profit: 0.1  # 10% take profit
+    max_concurrent_trades: 10
+    
+  # Execution Settings
+  execution:
+    max_retries: 3
+    retry_delay_seconds: 1
+    timeout_seconds: 30
+    max_orders_per_second: 10
+    slippage_tolerance: 0.001  # 0.1%
+    
+  # Portfolio Settings
+  portfolio:
+    initial_cash: 100000
+    base_currency: USD
+    rebalance:
+      enabled: true
+      frequency: daily
+      threshold: 0.05  # 5% deviation
+
+# Market Data Configuration
+market_data:
+  providers:
+    - name: primary
+      type: websocket
+      url: wss://stream.binance.com:9443/ws
+    - name: backup
+      type: rest
+      url: https://api.binance.com/api/v3
+  cache:
+    enabled: true
+    ttl_seconds: 60
+
+# Monitoring and Logging
+monitoring:
+  log_level: INFO
+  metrics_enabled: true
+  health_check_interval: 60
+  prometheus_port: 8000
+  
+  # Alert Channels
+  alerts:
+    telegram:
+      enabled: false
+      bot_token: ""
+      chat_id: ""
+    email:
+      enabled: false
+      smtp_server: ""
+      username: ""
+      password: ""
+      recipients: []
+    slack:
+      enabled: false
+      webhook_url: ""
+
+# Agent Configuration
+agents:
+  # Strategy Types: momentum, mean_reversion, breakout, arbitrage
+  strategy_type: momentum
+  asset_class: crypto  # crypto, stocks, forex
+  
+  # Performance Optimization
+  parallel_processing: true
+  max_workers: 4
+  memory_optimization: true
+  
+  # Signal Processing
+  signal_threshold: 0.7  # Minimum confidence for trade signals
+  signal_cooldown: 300  # 5 minutes between signals for same symbol
+
+# Database Configuration
+database:
+  type: sqlite  # sqlite, postgresql, redis
+  path: data/trading.db
+  connection_pool_size: 10
+
+# API Configuration
+api:
+  enabled: true
+  host: 0.0.0.0
+  port: 8000
+  cors_enabled: true
+  rate_limit: 100  # requests per minute
+
+# Development Settings
+development:
+  debug: false
+  profiling: false
+  mock_data: false
+  dry_run: true  # Set to false for live trading

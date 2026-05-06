@@ -1,0 +1,144 @@
+name: Solana DEX Integration Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'src/utils/solana_dex_interface.py'
+      - 'src/utils/test_solana_dex_interface.py'
+      - 'trading_interface.py'
+      - 'config/trading_config.json'
+      - '.github/workflows/solana_dex_validation.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10']
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov black flake8 mypy
+
+    - name: Create backup
+      run: |
+        python scripts/maintenance/backup.py
+        ls -la backups/
+
+    - name: Run linting
+      run: |
+        black --check src/ tests/
+        flake8 src/ tests/
+        mypy src/ tests/
+
+    - name: Run tests with coverage
+      run: |
+        pytest src/utils/test_solana_dex_interface.py --cov=src.utils.solana_dex_interface --cov-report=xml
+      env:
+        SOLANA_RPC_URL: https://api.testnet.solana.com
+        JUPITER_API_URL: https://quote-api.testnet.jup.ag/v4
+        SOLANA_WALLET_KEYPAIR: tests/fixtures/test_keypair.json
+        SOL_MINT_ADDRESS: So11111111111111111111111111111111111111112
+        USDC_MINT_ADDRESS: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+        USDT_MINT_ADDRESS: Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB
+        JUPITER_SLIPPAGE_BPS: 50
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: true
+
+    - name: Validate configuration
+      run: |
+        python -c "
+        import json
+        with open('config/trading_config.json') as f:
+            config = json.load(f)
+        assert 'dex' in config, 'DEX configuration missing'
+        assert 'solana' in config['dex'], 'Solana DEX configuration missing'
+        assert 'symbols' in config['dex']['solana'], 'Solana DEX symbols missing'
+        assert 'slippage_bps' in config['dex']['solana'], 'Slippage configuration missing'
+        assert 'monitoring' in config['dex']['solana'], 'Monitoring configuration missing'
+        "
+
+    - name: Check environment variables
+      run: |
+        python -c "
+        import os
+        required_vars = [
+            'SOLANA_RPC_URL',
+            'JUPITER_API_URL',
+            'SOLANA_WALLET_KEYPAIR',
+            'SOL_MINT_ADDRESS',
+            'USDC_MINT_ADDRESS',
+            'USDT_MINT_ADDRESS',
+            'JUPITER_SLIPPAGE_BPS'
+        ]
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            raise Exception(f'Missing required environment variables: {missing_vars}')
+        "
+
+    - name: Security audit
+      run: |
+        pip install safety
+        safety check
+
+    - name: Dependency audit
+      run: |
+        pip install pip-audit
+        pip-audit
+
+    - name: Performance benchmark
+      run: |
+        python -c "
+        from src.utils.solana_dex_interface import SolanaDEXInterface
+        import time
+        
+        # Initialize with test values
+        dex = SolanaDEXInterface(
+            rpc_url='https://api.testnet.solana.com',
+            jupiter_api='https://quote-api.testnet.jup.ag/v4',
+            wallet_keypair_path='tests/fixtures/test_keypair.json',
+            slippage_bps=50
+        )
+        
+        # Benchmark price fetching
+        start_time = time.time()
+        for _ in range(10):
+            dex.get_dex_price('SOL/USDC')
+        price_fetch_time = (time.time() - start_time) / 10
+        
+        # Benchmark order simulation
+        start_time = time.time()
+        for _ in range(10):
+            dex.simulate_order('SOL/USDC', 1.0, 'BUY')
+        simulation_time = (time.time() - start_time) / 10
+        
+        # Print results
+        print(f'Average price fetch time: {price_fetch_time:.3f}s')
+        print(f'Average simulation time: {simulation_time:.3f}s')
+        
+        # Assert performance thresholds
+        assert price_fetch_time < 0.5, 'Price fetch too slow'
+        assert simulation_time < 1.0, 'Order simulation too slow'
+        "
+
+    - name: Upload backup artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: backup-${{ github.sha }}
+        path: backups/
+        retention-days: 7 

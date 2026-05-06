@@ -1,0 +1,49 @@
+# Bandit configuration file
+# See https://bandit.readthedocs.io/en/latest/config.html
+
+# Skip specific tests
+skips: ['B101']  # Skip assert warnings
+
+# Set minimum severity level
+severity: LOW
+confidence: LOW
+
+# Exclude specific directories
+exclude_dirs: ['tests', 'venv', 'build', 'dist']
+
+# Include specific files
+include: ['*.py']
+
+# Custom test settings
+test_setting:
+  no_shell: True
+  no_subprocess: True
+  no_yaml: True
+  no_pickle: True
+  no_mako: True
+  no_jinja2: True
+  no_crypto: True
+  no_hashlib: True
+  no_ssl: True
+  no_requests: True
+  no_paramiko: True
+  no_ftplib: True
+  no_telnetlib: True
+  no_urllib3: True
+  no_urllib: True
+  no_xml: True
+  no_xmlrpc: True
+  no_zipfile: True
+  no_tarfile: True
+  no_zipimport: True
+  no_importlib: True
+  no_importlib_metadata: True
+  no_importlib_resources: True
+  no_importlib_util: True
+  no_importlib_machinery: True
+  no_importlib_abc: True
+  no_importlib_metadata: True
+  no_importlib_resources: True
+  no_importlib_util: True
+  no_importlib_machinery: True
+  no_importlib_abc: True 

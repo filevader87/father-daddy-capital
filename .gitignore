@@ -1,0 +1,149 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# State and Runtime Data
+state/
+memory_bank.json
+mutation_memory.json
+risk_trade_log.json
+feedback_log.json
+
+# Models and Artifacts
+models/
+*.joblib
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+*.onnx
+*.pb
+*.tflite
+*.pt
+*.pth
+
+# Data Files
+data/
+*.csv
+*.json
+*.parquet
+*.feather
+*.hdf
+*.xlsx
+*.xls
+
+# Build and Distribution
+build/
+dist/
+*.egg-info/
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Monitoring and Metrics
+monitoring/data/
+monitoring/grafana/data/
+monitoring/prometheus/data/
+profiles/
+
+# Temporary Files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+
+# Local Development
+*.local
+local_*
+
+# Archives and Backups
+*.tar.gz
+*.zip
+*.rar
+*.7z
+backup/
+archive/
+
+# Large Binary Files
+*.bin
+*.dat
+*.dump
+*.sqlite
+*.db
+
+# Jupyter Notebooks (optional - uncomment if you want to exclude)
+# *.ipynb
+# .ipynb_checkpoints/
+
+# Documentation builds
+docs/_build/
+docs/build/
+
+# Performance and Profiling
+*.prof
+*.profile
+performance_results_*.json
+
+# Trading Interface
+trading_interface.log 

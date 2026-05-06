@@ -1,0 +1,23 @@
+# Git LFS configuration for large files
+# This file tells Git which files should be handled by Git LFS
+
+# Data files
+*.csv filter=lfs diff=lfs merge=lfs -text
+*.parquet filter=lfs diff=lfs merge=lfs -text
+*.json filter=lfs diff=lfs merge=lfs -text
+data/**/*.csv filter=lfs diff=lfs merge=lfs -text
+data/**/*.json filter=lfs diff=lfs merge=lfs -text
+
+# Model files
+*.joblib filter=lfs diff=lfs merge=lfs -text
+*.pkl filter=lfs diff=lfs merge=lfs -text
+*.h5 filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+models/**/* filter=lfs diff=lfs merge=lfs -text
+
+# Log files (optional - uncomment if you want to track large logs)
+# logs/**/*.log filter=lfs diff=lfs merge=lfs -text
+# logs/**/*.json filter=lfs diff=lfs merge=lfs -text
+
+# State files (optional - uncomment if you want to track state)
+# state/**/*.json filter=lfs diff=lfs merge=lfs -text

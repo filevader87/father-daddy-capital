@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "rules/alerts.yml"
+
+scrape_configs:
+  - job_name: 'father_daddy_capital'
+    static_configs:
+      - targets: ['host.docker.internal:8000']  # Main API service
+        labels:
+          service: 'main_api'
+          env: 'production'
+
+  - job_name: 'backtests'
+    static_configs:
+      - targets: ['host.docker.internal:8001']  # Backtest service
+        labels:
+          service: 'backtest'
+          env: 'production'
+
+  - job_name: 'agents'
+    static_configs:
+      - targets: ['host.docker.internal:8002']  # Agent metrics
+        labels:
+          service: 'agents'
+          env: 'production'
+
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']  # Node exporter
+        labels:
+          service: 'system'
+          env: 'production'
+
+  - job_name: 'python'
+    static_configs:
+      - targets: ['host.docker.internal:9090']  # Python metrics
+        labels:
+          service: 'python'
+          env: 'production' 

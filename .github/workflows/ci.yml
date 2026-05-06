@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libta-lib0 libta-lib-dev
+      - name: Install dependencies
+        run: pip install --upgrade pip && pip install -r requirements.txt
+      - name: Lint with flake8
+        run: flake8 .
+      - name: Type check with mypy
+        run: mypy src tests
+      - name: Run tests
+        run: pytest --maxfail=1 --disable-warnings -q
+      - name: Build Docker image
+        run: docker build -t father-daddy-capital .
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Tag Docker image
+        run: |
+          docker tag father-daddy-capital:latest \
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/father-daddy-capital:latest
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          docker push docker.io/${{ secrets.DOCKERHUB_USERNAME }}/father-daddy-capital:latest
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Retrieve secrets from AWS Secrets Manager
+        id: fetch-secrets
+        run: |
+          echo "ALPACA_API_KEY=$(aws secretsmanager get-secret-value --secret-id alpaca_api_key --query SecretString --output text)" >> $GITHUB_ENV
+          echo "ALPACA_API_SECRET=$(aws secretsmanager get-secret-value --secret-id alpaca_api_secret --query SecretString --output text)" >> $GITHUB_ENV
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.9, 3.10]
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov black mypy flake8
+        
+    - name: Lint with flake8
+      run: flake8 .
+        
+    - name: Type check with mypy
+      run: mypy src tests
+        
+    - name: Run tests
+      run: |
+        pytest --cov=src tests/
+        
+    - name: Upload coverage
+      uses: codecov/codecov-action@v2
+      
+    - name: Check code style
+      run: |
+        black --check src/
+        
+  security:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Run security scan
+      uses: snyk/actions/python@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        
+  deploy:
+    needs: [test, security]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.10'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Deploy to production
+      run: |
+        # Add deployment steps here
+        echo "Deploying to production..." 

@@ -1,0 +1,92 @@
+groups:
+  - name: trading_system_alerts
+    rules:
+      # High error rate alert
+      - alert: HighErrorRate
+        expr: rate(trading_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors per second"
+
+      # High latency alert
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(order_latency_seconds_bucket[5m])) > 1
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High order latency detected"
+          description: "95th percentile latency is {{ $value }} seconds"
+
+      # Circuit breaker alert
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker is open"
+          description: "Circuit breaker has been triggered for {{ $labels.symbol }}"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value | humanizePercentage }}"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      # Disk space alert
+      - alert: LowDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage is {{ $value | humanizePercentage }}"
+
+      # Service down alert
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service is down"
+          description: "Service {{ $labels.service }} is down"
+
+      # Risk limit exceeded
+      - alert: RiskLimitExceeded
+        expr: risk_metrics_daily_risk > 0.1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Daily risk limit exceeded"
+          description: "Daily risk is {{ $value }}"
+
+      # Position limit exceeded
+      - alert: PositionLimitExceeded
+        expr: position_size > 10000
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Position limit exceeded"
+          description: "Position size for {{ $labels.symbol }} is {{ $value }}" 

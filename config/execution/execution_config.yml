@@ -1,0 +1,86 @@
+# Execution Agent Configuration
+
+# Monitoring settings
+monitoring:
+  log_dir: logs
+  log_level: INFO
+  metrics_port: 8000
+  prometheus_job: trading_execution
+  alert_thresholds:
+    drawdown_percent: 10.0
+    slippage_percent: 0.5
+    error_rate: 0.05
+    latency_ms: 500
+
+# Execution settings
+execution:
+  max_retries: 3
+  retry_delay_seconds: 1
+  timeout_seconds: 30
+  batch_size: 100
+  max_orders_per_second: 10
+  market_data_source: live  # Options: live, simulated
+  order_types:
+    - market
+    - limit
+    - stop
+    - stop_limit
+
+# Risk management
+risk:
+  max_position_size: 0.1  # 10% of portfolio
+  max_leverage: 2.0
+  max_drawdown: 0.15  # 15%
+  position_limits:
+    stock: 0.2  # 20% per stock
+    sector: 0.3  # 30% per sector
+    asset_class: 0.5  # 50% per asset class
+  stop_loss:
+    enabled: true
+    percent: 0.05  # 5%
+  take_profit:
+    enabled: true
+    percent: 0.1  # 10%
+
+# Portfolio settings
+portfolio:
+  initial_cash: 1000000
+  base_currency: USD
+  rebalance:
+    enabled: true
+    frequency: daily
+    threshold: 0.05  # 5% deviation
+
+# Market data
+market_data:
+  providers:
+    - name: primary
+      type: websocket
+      url: ws://market-data:8080
+      timeout_ms: 1000
+    - name: backup
+      type: rest
+      url: http://backup-data:8081
+      timeout_ms: 2000
+  cache:
+    enabled: true
+    ttl_seconds: 60
+
+# Reporting
+reporting:
+  enabled: true
+  frequency: hourly
+  metrics:
+    - execution_latency
+    - fill_ratio
+    - slippage
+    - pnl
+    - drawdown
+    - position_size
+  formats:
+    - json
+    - csv
+  destinations:
+    - prometheus
+    - file
+    - s3 

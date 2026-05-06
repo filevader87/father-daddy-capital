@@ -1,0 +1,75 @@
+# Decision Fusion Engine Configuration
+
+# Global parameters
+parameters:
+  lookback_window: 100
+  min_confidence: 0.6
+  performance_decay: 0.95
+
+# Strategy definitions and weights
+strategies:
+  momentum:
+    base_weight: 1.0
+    regime_weights:
+      TRENDING_UP: 1.5
+      TRENDING_DOWN: 1.5
+      RANGING: 0.5
+      VOLATILE: 0.3
+      UNKNOWN: 1.0
+
+  mean_reversion:
+    base_weight: 1.0
+    regime_weights:
+      TRENDING_UP: 0.3
+      TRENDING_DOWN: 0.3
+      RANGING: 1.5
+      VOLATILE: 0.5
+      UNKNOWN: 1.0
+
+  breakout:
+    base_weight: 1.0
+    regime_weights:
+      TRENDING_UP: 1.2
+      TRENDING_DOWN: 1.2
+      RANGING: 0.8
+      VOLATILE: 1.5
+      UNKNOWN: 1.0
+
+# Regime-specific parameters
+regime_parameters:
+  TRENDING_UP:
+    stop_loss: 2.0
+    take_profit: 4.0
+    position_size_multiplier: 1.2
+    trailing_stop: true
+
+  TRENDING_DOWN:
+    stop_loss: 2.0
+    take_profit: 4.0
+    position_size_multiplier: 1.2
+    trailing_stop: true
+
+  RANGING:
+    stop_loss: 1.5
+    take_profit: 2.0
+    position_size_multiplier: 0.8
+    trailing_stop: false
+
+  VOLATILE:
+    stop_loss: 1.2
+    take_profit: 1.8
+    position_size_multiplier: 0.5
+    trailing_stop: true
+
+  UNKNOWN:
+    stop_loss: 1.0
+    take_profit: 1.5
+    position_size_multiplier: 0.5
+    trailing_stop: false
+
+# Monitoring thresholds
+monitoring:
+  min_regime_confidence: 0.7
+  max_drawdown_threshold: 0.1
+  strategy_switch_cooldown: 300  # seconds
+  performance_alert_threshold: -0.05 
