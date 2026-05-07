@@ -32,7 +32,7 @@ MAX_PORTFOLIO_RISK = 0.15      # 15% max total exposure
 STOP_LOSS_PCT = 0.05           # 5% stop loss
 TAKE_PROFIT_PCT = 0.10         # 10% take profit
 LOOKBACK_DAYS = 50             # Historical data window
-SCAN_INTERVAL_MINUTES = 60     # How often to scan
+SCAN_INTERVAL_MINUTES = 15      # How often to scan (faster for Polymarket 5-min signals)
 
 OUTPUT_DIR = Path("/mnt/c/Users/12035/father_daddy_capital/output")
 LOG_DIR = Path("/mnt/c/Users/12035/father_daddy_capital/logs")
@@ -49,6 +49,16 @@ _scalp_module = importlib.util.module_from_spec(_scalp_spec)
 _scalp_spec.loader.exec_module(_scalp_module)
 run_scalp_cycle = _scalp_module.run_scalp_cycle
 scalp_summary = _scalp_module.scalp_summary
+
+# ─── Import Polymarket Engine ─────────────────────────────────────────────────
+_pm_spec = importlib.util.spec_from_file_location(
+    "polymarket_engine",
+    Path(__file__).parent / "fdc_polymarket.py"
+)
+_pm_module = importlib.util.module_from_spec(_pm_spec)
+_pm_spec.loader.exec_module(_pm_module)
+run_polymarket_cycle = _pm_module.run_polymarket_cycle
+polymarket_summary = _pm_module.polymarket_summary
 
 # ─── Signal Generation ───────────────────────────────────────────────────────
 
@@ -127,18 +137,18 @@ def scan_market(symbols: list[str], lookback: int = LOOKBACK_DAYS) -> list[dict]
     results = []
     end = datetime.now()
     start = end - timedelta(days=lookback)
-    
+
     for symbol in symbols:
         try:
             ticker = yf.Ticker(symbol)
             hist = ticker.history(start=start, end=end)
             if len(hist) < 20:
                 continue
-            
+
             prices = hist['Close']
             current_price = float(prices.iloc[-1])
             signal = compute_signals(prices)
-            
+
             results.append({
                 "symbol": symbol,
                 "price": round(current_price, 2),
@@ -147,10 +157,27 @@ def scan_market(symbols: list[str], lookback: int = LOOKBACK_DAYS) -> list[dict]
             })
         except Exception as e:
             print(f"  ⚠ {symbol}: {e}", file=sys.stderr)
-    
+
     # Sort by absolute signal score
     results.sort(key=lambda x: abs(x["score"]), reverse=True)
     return results
+
+
+def fetch_btc_5min() -> list[float]:
+    """Fetch BTC 5-minute candles for Polymarket signal generation.
+    Returns list of closing prices (most recent first)."""
+    try:
+        btc = yf.Ticker("BTC-USD")
+        # 5d of 5m data = ~1440 candles, but we only need ~50 most recent
+        hist = btc.history(period="5d", interval="5m")
+        if len(hist) < 14:
+            return []
+        prices = hist['Close'].tolist()
+        # Keep last 60 candles (5 hours of data)
+        return prices[-60:]
+    except Exception as e:
+        print(f"  ⚠ BTC-USD 5m fetch: {e}", file=sys.stderr)
+        return []
 
 
 # ─── Position Sizing ─────────────────────────────────────────────────────────
@@ -405,9 +432,19 @@ def run_once():
     ] + [
         {**x, "_type": "scalp", "_action": "exit"} for x in scalp_exits
     ]
-    
+
+    # ── Run Polymarket cycle ───────────────────────────────────────────
+    btc_5m = fetch_btc_5min()
+    pm_entries, pm_settlements = run_polymarket_cycle(state, btc_5m)
+    if pm_entries:
+        for e in pm_entries:
+            all_orders.append({**e, "_type": "polymarket", "_action": "entry"})
+    if pm_settlements:
+        for s in pm_settlements:
+            all_orders.append({**s, "_type": "polymarket", "_action": "settle"})
+
     save_state(state)
-    
+
     report = generate_report(state, scan_results, orders)
     if scalp_entries or scalp_exits or state.get("scalp_positions"):
         report += scalp_summary(
@@ -415,6 +452,9 @@ def run_once():
             state.get("scalp_scans", 0),
             state.get("scalp_exits", [])[-5:]
         )
+    # ── Polymarket summary ──
+    if state.get("polymarket_positions") or pm_entries or pm_settlements:
+        report += polymarket_summary(state, pm_settlements)
     
     # Save report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -437,10 +477,12 @@ def run_once():
 
 def run_continuous():
     """Continuous paper trading loop."""
-    print("🚀 Father Daddy Capital — Paper Trading Engine")
+    print("🚀 Father Daddy Capital — Triple-Track Paper Engine")
     print(f"   Target: $100/day → $500/day")
+    print(f"   Track 1 — Swing:   {len(ALL_SYMBOLS)} assets, 5-10% targets, multi-day")
+    print(f"   Track 2 — Scalp:   BTC/ETH/SOL/SPY/QQQ, 0.5-2.5% targets, intraday")
+    print(f"   Track 3 — Polymarket: BTC daily EOD, 5-min signal entry")
     print(f"   Scanning every {SCAN_INTERVAL_MINUTES} min")
-    print(f"   Assets: {len(ALL_SYMBOLS)} ({len(ASSETS['crypto'])} crypto + {len(ASSETS['equities'])} equities)")
     print("   Ctrl+C to stop\n")
     
     while True:
