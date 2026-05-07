@@ -38,6 +38,18 @@ OUTPUT_DIR = Path("/mnt/c/Users/12035/father_daddy_capital/output")
 LOG_DIR = Path("/mnt/c/Users/12035/father_daddy_capital/logs")
 STATE_FILE = Path("/mnt/c/Users/12035/father_daddy_capital/output/paper_state.json")
 
+# ─── Import Scalp Engine ─────────────────────────────────────────────────────
+# Direct import to avoid src/__init__.py legacy torch dependency chain
+import importlib.util
+_scalp_spec = importlib.util.spec_from_file_location(
+    "scalp_engine", 
+    Path(__file__).parent / "src" / "trading" / "scalp_engine.py"
+)
+_scalp_module = importlib.util.module_from_spec(_scalp_spec)
+_scalp_spec.loader.exec_module(_scalp_module)
+run_scalp_cycle = _scalp_module.run_scalp_cycle
+scalp_summary = _scalp_module.scalp_summary
+
 # ─── Signal Generation ───────────────────────────────────────────────────────
 
 def compute_signals(prices: pd.Series) -> dict:
@@ -376,13 +388,33 @@ def run_once():
     
     state = load_state()
     
-    print(f"🔍 Scanning {len(ALL_SYMBOLS)} assets...")
+    # ── Scalp track ────────────────────────────────────────────────────
+    state.setdefault("scalp_positions", {})
+    state.setdefault("scalp_exits", [])
+    state.setdefault("scalp_scans", 0)
+    
+    print(f"🔍 Scanning {len(ALL_SYMBOLS)} swing + {len(state.get('scalp_positions', {}))} scalp positions...")
     scan_results = scan_market(ALL_SYMBOLS)
     
     orders = execute_scan(state, scan_results)
+    
+    # ── Run scalp cycle ────────────────────────────────────────────────
+    scalp_entries, scalp_exits, scalp_signals = run_scalp_cycle(state)
+    all_orders = orders + [
+        {**e, "_type": "scalp", "_action": "entry"} for e in scalp_entries
+    ] + [
+        {**x, "_type": "scalp", "_action": "exit"} for x in scalp_exits
+    ]
+    
     save_state(state)
     
     report = generate_report(state, scan_results, orders)
+    if scalp_entries or scalp_exits or state.get("scalp_positions"):
+        report += scalp_summary(
+            state.get("scalp_positions", {}),
+            state.get("scalp_scans", 0),
+            state.get("scalp_exits", [])[-5:]
+        )
     
     # Save report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
