@@ -1,0 +1,140 @@
+{
+  "capital": 82501.86801672001,
+  "positions": {
+    "TSLA": {
+      "shares": 1,
+      "entry_price": 411.79,
+      "entry_date": "2026-05-07T18:35:35.930273",
+      "asset_class": "equity"
+    },
+    "AVAX-USD": {
+      "shares": 71,
+      "entry_price": 9.43,
+      "entry_date": "2026-05-07T18:35:35.930285",
+      "asset_class": "crypto"
+    },
+    "SOL-USD": {
+      "shares": 8,
+      "entry_price": 87.86,
+      "entry_date": "2026-05-07T18:35:35.930290",
+      "asset_class": "crypto"
+    },
+    "AAPL": {
+      "shares": 2,
+      "entry_price": 287.44,
+      "entry_date": "2026-05-07T18:35:35.930294",
+      "asset_class": "equity"
+    },
+    "BTC-USD": {
+      "shares": 0.010706,
+      "entry_price": 79777.88,
+      "entry_date": "2026-05-07T18:35:35.930306",
+      "asset_class": "crypto"
+    },
+    "SPY": {
+      "shares": 2,
+      "entry_price": 731.58,
+      "entry_date": "2026-05-07T18:35:35.930310",
+      "asset_class": "equity"
+    }
+  },
+  "trade_history": [],
+  "total_pnl": 0.0,
+  "daily_pnl": {},
+  "scans": 6,
+  "started": "2026-05-07T18:35:34.931598",
+  "scalp_positions": {},
+  "scalp_exits": [],
+  "scalp_scans": 6,
+  "polymarket_positions": {},
+  "polymarket_pnl": 0.0,
+  "alt_positions": {
+    "XRP-USD": {
+      "symbol": "XRP-USD",
+      "action": "ALT_UP",
+      "price": 1.3877,
+      "shares": 2076.28,
+      "value": 2881.25,
+      "score": 0.889,
+      "confidence": 0.85,
+      "rsi": 10.5,
+      "stop_loss": 1.366884,
+      "take_profit": 1.429331,
+      "entry_time": "2026-05-07T19:36:20.278487",
+      "max_lifetime": "90m",
+      "_source": "vol_farm",
+      "volume_24h": 149480320.0,
+      "change_24h": -2.6
+    },
+    "DOGE-USD": {
+      "symbol": "DOGE-USD",
+      "action": "ALT_UP",
+      "price": 0.10824,
+      "shares": 24942.32,
+      "value": 2699.76,
+      "score": 0.833,
+      "confidence": 0.85,
+      "rsi": 13.4,
+      "stop_loss": 0.106616,
+      "take_profit": 0.111487,
+      "entry_time": "2026-05-07T19:36:20.278588",
+      "max_lifetime": "90m",
+      "_source": "vol_farm",
+      "volume_24h": 131746816.0,
+      "change_24h": -4.0
+    },
+    "FIRO-USD": {
+      "symbol": "FIRO-USD",
+      "action": "ALT_UP",
+      "price": 1.175717,
+      "shares": 2271.45,
+      "value": 2670.59,
+      "score": 0.824,
+      "confidence": 0.85,
+      "rsi": 13.8,
+      "stop_loss": 1.158081,
+      "take_profit": 1.210989,
+      "entry_time": "2026-05-07T19:36:20.278648",
+      "max_lifetime": "90m",
+      "_source": "trending",
+      "volume_24h": 69987.0,
+      "change_24h": 7.4
+    },
+    "ADA-USD": {
+      "symbol": "ADA-USD",
+      "action": "ALT_UP",
+      "price": 0.2634,
+      "shares": 8820.67,
+      "value": 2323.37,
+      "score": 0.744,
+      "confidence": 0.819,
+      "rsi": 17.8,
+      "stop_loss": 0.259449,
+      "take_profit": 0.271302,
+      "entry_time": "2026-05-07T19:36:20.278688",
+      "max_lifetime": "90m",
+      "_source": "vol_farm",
+      "volume_24h": 68957088.0,
+      "change_24h": -1.1
+    },
+    "DOT-USD": {
+      "symbol": "DOT-USD",
+      "action": "ALT_UP",
+      "price": 1.308,
+      "shares": 1717.75,
+      "value": 2246.82,
+      "score": 0.732,
+      "confidence": 0.805,
+      "rsi": 18.4,
+      "stop_loss": 1.28838,
+      "take_profit": 1.34724,
+      "entry_time": "2026-05-07T19:36:20.278728",
+      "max_lifetime": "90m",
+      "_source": "vol_farm",
+      "volume_24h": 13157056.0,
+      "change_24h": 0.2
+    }
+  },
+  "alt_pnl": 0,
+  "alt_scans": 1
+}

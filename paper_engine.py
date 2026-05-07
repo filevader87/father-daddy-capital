@@ -60,6 +60,17 @@ _pm_spec.loader.exec_module(_pm_module)
 run_polymarket_cycle = _pm_module.run_polymarket_cycle
 polymarket_summary = _pm_module.polymarket_summary
 
+# ─── Import Altcoin Scanner ───────────────────────────────────────────────────
+_alt_spec = importlib.util.spec_from_file_location(
+    "alt_scanner",
+    Path(__file__).parent / "fdc_alt_scanner.py"
+)
+_alt_module = importlib.util.module_from_spec(_alt_spec)
+_alt_spec.loader.exec_module(_alt_module)
+run_alt_cycle = _alt_module.run_alt_cycle
+alt_summary = _alt_module.alt_summary
+ALTCOIN_UNIVERSE = _alt_module.ALTCOIN_UNIVERSE
+
 # ─── Signal Generation ───────────────────────────────────────────────────────
 
 def compute_signals(prices: pd.Series) -> dict:
@@ -443,6 +454,15 @@ def run_once():
         for s in pm_settlements:
             all_orders.append({**s, "_type": "polymarket", "_action": "settle"})
 
+    # ── Run Altcoin cycle ─────────────────────────────────────────────
+    alt_entries, alt_exits, alt_trending = run_alt_cycle(state)
+    if alt_entries:
+        for e in alt_entries:
+            all_orders.append({**e, "_type": "altcoin", "_action": "entry"})
+    if alt_exits:
+        for x in alt_exits:
+            all_orders.append({**x, "_type": "altcoin", "_action": "exit"})
+
     save_state(state)
 
     report = generate_report(state, scan_results, orders)
@@ -455,6 +475,9 @@ def run_once():
     # ── Polymarket summary ──
     if state.get("polymarket_positions") or pm_entries or pm_settlements:
         report += polymarket_summary(state, pm_settlements)
+    # ── Altcoin summary ──
+    if state.get("alt_positions") or alt_entries or alt_exits:
+        report += alt_summary(state, alt_entries, alt_exits)
     
     # Save report
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
@@ -477,11 +500,12 @@ def run_once():
 
 def run_continuous():
     """Continuous paper trading loop."""
-    print("🚀 Father Daddy Capital — Triple-Track Paper Engine")
+    print("🚀 Father Daddy Capital — Quad-Track Paper Engine")
     print(f"   Target: $100/day → $500/day")
-    print(f"   Track 1 — Swing:   {len(ALL_SYMBOLS)} assets, 5-10% targets, multi-day")
-    print(f"   Track 2 — Scalp:   BTC/ETH/SOL/SPY/QQQ, 0.5-2.5% targets, intraday")
-    print(f"   Track 3 — Polymarket: BTC daily EOD, 5-min signal entry")
+    print(f"   Track 1 — Swing:       {len(ALL_SYMBOLS)} assets, 5-10% targets, multi-day")
+    print(f"   Track 2 — Scalp:       BTC/ETH/SOL/SPY/QQQ, 0.5-2.5% targets, intraday")
+    print(f"   Track 3 — Polymarket:  BTC daily EOD, 5-min signal entry")
+    print(f"   Track 4 — Alt Farm:    {len(ALTCOIN_UNIVERSE)} altcoins + trending, 1.5-3% targets")
     print(f"   Scanning every {SCAN_INTERVAL_MINUTES} min")
     print("   Ctrl+C to stop\n")
     
