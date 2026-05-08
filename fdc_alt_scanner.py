@@ -264,6 +264,10 @@ def evaluate_alt_entries(scan_results: list[dict], state: dict,
     alt_positions = state.get("alt_positions", {})
     alt_entries = []
 
+    # HARD CAP: if already at limit, open nothing
+    if len(alt_positions) >= MAX_ALT_POSITIONS:
+        return alt_entries
+
     for candidate in unique:
         sym = candidate["symbol"]
         if sym in alt_positions:
@@ -471,6 +475,16 @@ def run_alt_cycle(state: dict) -> tuple[list, list, list]:
     price_map = {r["symbol"]: r["price"] for r in scan_results}
     for t in trending_signals:
         price_map[t["symbol"]] = t["price"]
+    # Fill missing prices for positions whose symbols didn't generate signals
+    for sym in list(state.get("alt_positions", {}).keys()):
+        if sym not in price_map:
+            try:
+                t = yf.Ticker(sym)
+                h = t.history(period="1d", interval="1h")
+                if len(h) > 0:
+                    price_map[sym] = float(h['Close'].iloc[-1])
+            except Exception:
+                pass
     exits = check_alt_exits(state, price_map)
 
     return entries, exits, trending_signals

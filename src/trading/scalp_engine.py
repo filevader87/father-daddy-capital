@@ -39,8 +39,8 @@ SCALP_TIME_STOP_MINUTES = 90     # Exit if no move after 90 min — capital is o
 # Signal thresholds
 RSI_OVERSOLD = 28                # Lower than standard — we buy panic
 RSI_OVERBOUGHT = 72              # Lower too — we sell euphoria early
-VOLUME_SPIKE_MULTIPLIER = 2.0    # 2x average volume = spike
-MIN_SIGNAL_SCORE = 0.40          # Lower threshold than swing — more trades
+VOLUME_SPIKE_MULTIPLIER = 1.5    # 1.5x average volume = spike (was 2.0 — too strict)
+MIN_SIGNAL_SCORE = 0.30          # Lower threshold — more trades, volume compensates
 
 # Data
 SCALP_LOOKBACK_DAYS = 5          # Only need recent data for intraday patterns

@@ -202,8 +202,8 @@ def evaluate_polymarket_trades(btc_price: float, signal: dict,
         distance_pct = (na["strike"] - btc_price) / btc_price * 100
         yes_price = na["yes_price"]
 
-        # Only enter if strike is close (within 1%) and YES is cheap enough (< 0.75)
-        if distance_pct < 1.0 and yes_price < 0.75:
+        # Enter if strike is within 3% and YES is cheap enough (< 0.80)
+        if distance_pct < 3.0 and yes_price < 0.80:
             # Kelly-inspired: bet size proportional to edge
             edge = confidence - yes_price  # how much we beat the market
             if edge > 0.05:

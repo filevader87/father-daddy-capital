@@ -1,0 +1,424 @@
+/* assets/mobile.css — Mobile Performance & UX Optimization
+ * Dead Society / Father Daddy Ministries
+ * 
+ * Strategy: Preserve the retro CRT aesthetic on desktop.
+ * On mobile (<720px): kill GPU-heavy effects, resize content,
+ * ensure tap targets, respect safe areas, make text readable.
+ */
+
+/* ─── Root: Safe Areas + Dynamic Viewport ─────────────────────────────────── */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --vh: 1vh;
+}
+
+@supports (height: 100dvh) {
+  :root { --vh: 1dvh; }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  min-height: calc(var(--vh) * 100);
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ─── Prevent iOS zoom on inputs ──────────────────────────────────────────── */
+input, textarea, select, button {
+  font-size: 16px !important;
+  touch-action: manipulation;
+}
+
+/* ─── Minimum tap targets (WCAG 2.5.5) ────────────────────────────────────── */
+a, button, .header-btn, [role="button"] {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── Media: prevent overflow ─────────────────────────────────────────────── */
+iframe, video, canvas, img, svg {
+  max-width: 100%;
+  height: auto;
+}
+
+table {
+  max-width: 100%;
+}
+
+/* ─── Global mobile breakpoint (phones + small tablets) ──────────────────── */
+@media (max-width: 720px) {
+  
+  /* ── Kill heavy compositing effects ───────────────────────────────────── */
+  /* Blur → forces GPU compositor on every frame. Kill it on mobile. */
+  body::before,
+  body::after,
+  .main-container,
+  .main-container::before,
+  .main-container::after,
+  .terminal,
+  .window,
+  .terminal-window,
+  .content-window,
+  .container,
+  .card,
+  .box,
+  .panel {
+    filter: none !important;
+    backdrop-filter: none !important;
+    mix-blend-mode: normal !important;
+  }
+
+  /* Perspective transforms → separate compositing layers. Flatten. */
+  .main-container,
+  .window,
+  .terminal-window,
+  .content-window,
+  .container,
+  #vhs-screen {
+    transform: none !important;
+    transform-origin: unset !important;
+  }
+
+  /* Disable animations that cause layout thrashing */
+  body::after,
+  body::before,
+  .main-container,
+  .main-container::before,
+  .main-container::after {
+    animation: none !important;
+  }
+
+  /* Hide the rolling VHS overlay (expensive, invisible on small screens) */
+  .vhs-roll {
+    display: none !important;
+  }
+
+  /* Hide wreckage layer (text drifting in background — CPU drain) */
+  #wreckage-layer {
+    display: none !important;
+  }
+
+  /* Kill camcorder HUD (clutter on small screens) */
+  .camcorder-hud {
+    display: none !important;
+  }
+
+  /* ── Content fills screen ──────────────────────────────────────────────── */
+  body {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  .main-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-left: none !important;
+    border-right: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* ── ASCII title: scale rather than shrink font (keeps it readable) ──── */
+  .ascii-title {
+    font-size: 8px !important;  /* Up from 6px */
+    line-height: 1.1 !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    display: block;
+    max-width: 100%;
+  }
+
+  /* ── Header bar: compact but tappable ─────────────────────────────────── */
+  .header-bar {
+    padding: 8px 12px !important;
+  }
+
+  .header-bar .title {
+    font-size: 16px !important;
+  }
+
+  .header-btn {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 18px !important;
+  }
+
+  /* ── Welcome section ──────────────────────────────────────────────────── */
+  .welcome-section {
+    padding: 16px 12px !important;
+  }
+
+  .subtitle {
+    font-size: 18px !important;
+    margin: 10px 0 !important;
+  }
+
+  .skull {
+    font-size: 18px !important;
+  }
+
+  .tagline {
+    font-size: 13px !important;
+  }
+
+  /* ── Marquee: keep but make it fit ───────────────────────────────────── */
+  .marquee {
+    font-size: 13px !important;
+    animation-duration: 15s !important; /* Faster = less time rendering */
+  }
+
+  /* ── Terminal section ─────────────────────────────────────────────────── */
+  .terminal-section {
+    padding: 12px !important;
+    margin: 8px !important;
+    min-height: 250px !important;
+  }
+
+  .terminal-header {
+    font-size: 14px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .terminal-output {
+    max-height: 200px !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+  }
+
+  .prompt {
+    font-size: 12px !important;
+    white-space: nowrap;
+  }
+
+  #command-input {
+    font-size: 16px !important;
+    padding: 8px 4px !important;
+    line-height: 1.3 !important;
+  }
+
+  .cursor {
+    width: 8px !important;
+    height: 18px !important;
+  }
+
+  /* ── Navigation: stacked, tappable, spaced ────────────────────────────── */
+  .nav-section {
+    padding: 16px 12px !important;
+  }
+
+  .nav-title {
+    font-size: 16px !important;
+    margin-bottom: 14px !important;
+  }
+
+  .nav-links a {
+    display: block !important;
+    margin: 6px 0 !important;
+    padding: 12px 10px !important;
+    font-size: 15px !important;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(199,179,255,0.15);
+    text-align: center;
+    border-radius: 0;
+  }
+
+  .nav-links a:active {
+    background: rgba(199,179,255,0.12);
+  }
+
+  .badge-new {
+    font-size: 10px !important;
+    padding: 3px 8px !important;
+  }
+
+  /* ── Construction banner ──────────────────────────────────────────────── */
+  .construction {
+    font-size: 13px !important;
+    padding: 12px !important;
+  }
+
+  /* ── Guestbook ────────────────────────────────────────────────────────── */
+  .guestbook-section a {
+    font-size: 15px !important;
+    padding: 14px 16px !important;
+    display: block;
+  }
+
+  /* ── Webring: compact but tappable ────────────────────────────────────── */
+  .webring {
+    padding: 14px 8px !important;
+  }
+
+  .webring-title {
+    font-size: 14px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .webring-nav a {
+    display: inline-block;
+    padding: 10px 8px !important;
+    font-size: 13px !important;
+    min-width: 44px;
+  }
+
+  /* ── Hit counter ──────────────────────────────────────────────────────── */
+  .counter-box {
+    font-size: 14px !important;
+    padding: 6px 14px !important;
+  }
+
+  .browser-badge {
+    font-size: 10px !important;
+  }
+
+  /* ── Footer ───────────────────────────────────────────────────────────── */
+  .footer {
+    padding: 20px 12px !important;
+    font-size: 11px !important;
+  }
+
+  .mu-symbol {
+    font-size: 18px !important;
+  }
+
+  /* ── Skip link: move to safe top-right ────────────────────────────────── */
+  .skip-link {
+    top: max(8px, var(--safe-top)) !important;
+    right: max(12px, var(--safe-right)) !important;
+    bottom: auto !important;
+    font-size: 12px !important;
+    padding: 8px 10px !important;
+    background: rgba(0,0,0,0.7);
+    border: 1px solid rgba(199,179,255,0.3);
+    z-index: 10000;
+  }
+
+  /* ── Horizontal scroll fallback for overflow tables ─────────────────── */
+  .ns-table-wrap,
+  .info-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Retro footer table ───────────────────────────────────────────────── */
+  .retro-footer table {
+    font-size: 10px !important;
+  }
+  .retro-footer table td {
+    padding: 4px !important;
+  }
+}
+
+
+/* ─── Small phone breakpoint (iPhone SE, Galaxy S, etc.) ──────────────────── */
+@media (max-width: 400px) {
+  .ascii-title {
+    font-size: 7px !important;  /* Still readable, fits 375px */
+  }
+
+  .subtitle {
+    font-size: 16px !important;
+  }
+
+  .nav-links a {
+    font-size: 14px !important;
+    padding: 10px 8px !important;
+  }
+
+  .terminal-output {
+    max-height: 160px !important;
+  }
+
+  /* Reduce stars (JS already does this, but just in case) */
+  .star {
+    width: 1px !important;
+    height: 1px !important;
+  }
+}
+
+
+/* ─── Reduced motion: freeze all animations ────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .marquee {
+    animation: none !important;
+    white-space: normal !important;
+  }
+
+  .vhs-roll,
+  .camcorder-hud,
+  #wreckage-layer {
+    display: none !important;
+  }
+
+  .skull {
+    animation: none !important;
+  }
+
+  .badge-new {
+    animation: none !important;
+  }
+}
+
+
+/* ─── Intro page (AOL/Netscape church veneer) specific ─────────────────────── */
+@media (max-width: 720px) {
+  body.intro {
+    overflow: auto !important;
+  }
+
+  body.intro .page {
+    width: 100% !important;
+    height: auto !important;
+    min-height: calc(var(--vh) * 100);
+    margin: 0 !important;
+    border: none !important;
+    overflow: auto !important;
+    box-shadow: none !important;
+  }
+
+  body.intro table.layout,
+  body.intro table.layout tbody,
+  body.intro table.layout tr,
+  body.intro table.layout td {
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+  }
+
+  body.intro td.nav,
+  body.intro td.side {
+    width: 100% !important;
+  }
+
+  body.intro td.nav { order: 1; }
+  body.intro td.main { order: 2; }
+  body.intro td.side { order: 3; }
+}
+
+
+/* ─── YouTube embeds (recovered footage page) ──────────────────────────────── */
+@media (max-width: 720px) {
+  iframe#ytiframe {
+    width: 100% !important;
+    height: auto !important;
+    aspect-ratio: 16 / 9;
+  }
+}
