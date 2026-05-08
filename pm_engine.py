@@ -31,22 +31,21 @@ STATE  = Path("/mnt/c/Users/12035/father_daddy_capital/output/pm_state.json")
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 
-SCAN_SECONDS = 120               # 2-minute scan — Polymarket is fast
+SCAN_SECONDS = 120               # 2-minute scan
 INITIAL_BANKROLL = 250.0         # Live starting capital
 PAPER_BANKROLL = 250.0           # Paper mode mirror
 
 MAX_DISTANCE_PCT = 4.0           # Strike within 4% of current price
-MIN_EDGE = 0.03                  # Lower bar — more trades, volume validates
+MIN_EDGE = 0.02                  # Edge threshold (lowered for more entries)
 MAX_YES_PRICE = 0.85             # Max contract price to buy
-MIN_CONTRACT_PRICE = 0.05        # Filter extreme longshots (<5% is lottery noise)
+MIN_CONTRACT_PRICE = 0.05        # Filter extreme longshots
 MAX_POSITIONS = 3                # Concurrent open positions
-MAX_BET_PCT = 0.25               # 25% of bankroll per bet (aggressive)
 KELLY_MULTIPLIER = 1.5           # Amplify Kelly for small accounts
 
-# BTC signal thresholds (permissive — we want entries)
-RSI_OVERSOLD = 38
-RSI_OVERBOUGHT = 62
-VOL_RANGE_MULT = 1.8             # 1.8x prior range = volume expansion
+# Signal thresholds — tuned for 2-3 trades/day
+RSI_OVERSOLD = 48                # Was 38 — too sterile
+RSI_OVERBOUGHT = 52              # Was 62 — same problem
+MIN_VOLUME_USD = 10000           # Minimum volume for any contract
 
 
 # ─── API Helpers ────────────────────────────────────────────────────────────
@@ -63,22 +62,29 @@ def _parse(val):
     return val
 
 
-# ─── Market Discovery — ALL BTC contracts ────────────────────────────────────
+# ─── Market Discovery — ALL crypto contracts ────────────────────────────────
 
-def discover_btc_contracts() -> list[dict]:
-    """Find ALL active BTC above/below contracts from Polymarket.
-    Searches multiple date ranges and contract types."""
+CRYPTO_QUERIES = [
+    "bitcoin above", "ethereum above", "solana above",
+    "bitcoin below", "ethereum below", "solana below",
+    "btc", "eth", "sol",
+]
+
+def discover_contracts() -> list[dict]:
+    """Find ALL active crypto above/below contracts from Polymarket.
+    Cross-searches multiple asset names to catch everything."""
     contracts = []
     today = datetime.now()
     month = today.strftime("%B")
     day = today.day
 
-    queries = [
-        f"Bitcoin above on {month} {day}",
-        f"Bitcoin above on {month} {day+1}",
-        f"Bitcoin above on {month} {day+2}",
-        "bitcoin above",       # catch any time-specific contracts
-    ]
+    # Date-specific queries for the next 3 days per asset
+    assets = ["Bitcoin", "Ethereum", "Solana"]
+    queries = CRYPTO_QUERIES.copy()
+    for asset in assets:
+        for offset in [0, 1, 2, 3]:
+            queries.append(f"{asset} above on {month} {day+offset}")
+            queries.append(f"{asset} below on {month} {day+offset}")
 
     seen_ids = set()
     for query in queries:
@@ -89,6 +95,9 @@ def discover_btc_contracts() -> list[dict]:
                 for m in evt.get("markets", []):
                     cid = m.get("conditionId", "")
                     if cid in seen_ids or m.get("closed", False):
+                        continue
+                    volume = float(m.get("volume", 0))
+                    if volume < MIN_VOLUME_USD:
                         continue
                     seen_ids.add(cid)
 
@@ -102,7 +111,7 @@ def discover_btc_contracts() -> list[dict]:
                         "conditionId": cid,
                         "yes_price": float(prices[0]),
                         "no_price": float(prices[1]),
-                        "volume": float(m.get("volume", 0)),
+                        "volume": volume,
                         "slug": evt.get("slug", ""),
                         "end_date": m.get("endDate", ""),
                     })
@@ -153,27 +162,21 @@ def btc_signal(prices: list[float]) -> dict:
     # Momentum (last 3 candles)
     up = sum(1 for i in range(1, min(4, len(prices))) if prices[-i] > prices[-i-1])
 
-    # Range expansion (volume proxy on yfinance 5m data)
-    r5 = max(prices[-5:]) - min(prices[-5:])
-    r10 = max(prices[-10:-5]) - min(prices[-10:-5]) if len(prices) >= 10 else r5
-    expanding = r5 > r10 * VOL_RANGE_MULT
-
     direction = "neutral"
     confidence = 0.0
 
     if rsi < RSI_OVERSOLD:
         direction = "up"
-        confidence = min(0.80, (RSI_OVERSOLD - rsi) / 20)
+        confidence = min(0.80, (RSI_OVERSOLD - rsi) / 15)
         if up >= 2: confidence += 0.10
-        if expanding: confidence += 0.10
     elif rsi > RSI_OVERBOUGHT:
         direction = "down"
-        confidence = min(0.80, (rsi - RSI_OVERBOUGHT) / 20)
+        confidence = min(0.80, (rsi - RSI_OVERBOUGHT) / 15)
         if up < 2: confidence += 0.10
-        if expanding: confidence += 0.10
-    elif expanding:
+    else:
+        # RSI between 48-52 — trade the momentum direction
         direction = "up" if up >= 2 else "down"
-        confidence = 0.25
+        confidence = 0.20
 
     confidence = min(0.90, confidence)
 
@@ -183,7 +186,6 @@ def btc_signal(prices: list[float]) -> dict:
         "rsi": round(rsi, 1),
         "macd": round(macd, 2),
         "momentum": up,
-        "expanding": expanding,
         "price": current,
     }
 
@@ -364,7 +366,7 @@ def run_once(state):
         return [], [], None
 
     sig = btc_signal(btc_prices)
-    contracts = discover_btc_contracts()
+    contracts = discover_contracts()
     btc_price = sig["price"]
 
     # Settle crossed contracts
@@ -428,7 +430,7 @@ if __name__ == "__main__":
         print(f"\nSignal: {sig['direction']} @ {sig['confidence']:.2f} "
               f"(RSI={sig['rsi']}, BTC=${sig['price']:,.2f})")
     elif "--discover" in sys.argv:
-        cs = discover_btc_contracts()
+        cs = discover_contracts()
         print(f"{len(cs)} active BTC contracts:")
         for c in sorted(cs, key=lambda x: x["volume"], reverse=True)[:10]:
             print(f"  {c['question']} — YES {c['yes_price']*100:.0f}% | "
