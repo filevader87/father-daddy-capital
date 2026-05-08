@@ -38,6 +38,7 @@ PAPER_BANKROLL = 250.0           # Paper mode mirror
 MAX_DISTANCE_PCT = 4.0           # Strike within 4% of current price
 MIN_EDGE = 0.03                  # Lower bar — more trades, volume validates
 MAX_YES_PRICE = 0.85             # Max contract price to buy
+MIN_CONTRACT_PRICE = 0.05        # Filter extreme longshots (<5% is lottery noise)
 MAX_POSITIONS = 3                # Concurrent open positions
 MAX_BET_PCT = 0.25               # 25% of bankroll per bet (aggressive)
 KELLY_MULTIPLIER = 1.5           # Amplify Kelly for small accounts
@@ -219,11 +220,11 @@ def evaluate_entries(signal: dict, contracts: list[dict],
         dist = (strike - btc) / btc * 100
 
         if direction == "up":
-            if strike > btc and dist < MAX_DISTANCE_PCT and c["yes_price"] < MAX_YES_PRICE:
+            if strike > btc and dist < MAX_DISTANCE_PCT and MIN_CONTRACT_PRICE < c["yes_price"] < MAX_YES_PRICE:
                 candidates.append({"contract": c, "strike": strike, "distance": dist,
                                    "side": "YES", "price": c["yes_price"]})
         else:  # down
-            if strike < btc and abs(dist) < MAX_DISTANCE_PCT and c["no_price"] < MAX_YES_PRICE:
+            if strike < btc and abs(dist) < MAX_DISTANCE_PCT and MIN_CONTRACT_PRICE < c["no_price"] < MAX_YES_PRICE:
                 candidates.append({"contract": c, "strike": strike, "distance": abs(dist),
                                    "side": "NO", "price": c["no_price"]})
 

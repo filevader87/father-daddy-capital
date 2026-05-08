@@ -455,13 +455,17 @@ def run_once():
             all_orders.append({**s, "_type": "polymarket", "_action": "settle"})
 
     # ── Run Altcoin cycle ─────────────────────────────────────────────
-    alt_entries, alt_exits, alt_trending = run_alt_cycle(state)
-    if alt_entries:
-        for e in alt_entries:
-            all_orders.append({**e, "_type": "altcoin", "_action": "entry"})
-    if alt_exits:
-        for x in alt_exits:
-            all_orders.append({**x, "_type": "altcoin", "_action": "exit"})
+    try:
+        alt_entries, alt_exits, alt_trending = run_alt_cycle(state)
+        if alt_entries:
+            for e in alt_entries:
+                all_orders.append({**e, "_type": "altcoin", "_action": "entry"})
+        if alt_exits:
+            for x in alt_exits:
+                all_orders.append({**x, "_type": "altcoin", "_action": "exit"})
+    except Exception as alt_err:
+        print(f"  ⚠ Alt cycle skipped: {alt_err}", file=sys.stderr)
+        alt_entries, alt_exits, alt_trending = [], [], []
 
     save_state(state)
 
