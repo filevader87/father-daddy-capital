@@ -6,9 +6,10 @@ Target: $100/day → $500/day
 
 Strategy: Multi-signal aggregation across momentum, mean-reversion, and trend-following
 with position sizing via Kelly-inspired risk allocation.
+
+Data: yfinance (all symbols). CCXT available for Phase 1B paper engine upgrade.
 """
 
-import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -27,43 +28,40 @@ ASSETS = {
 
 ALL_SYMBOLS = ASSETS["crypto"] + ASSETS["equities"]
 INITIAL_CAPITAL = 100_000.0
-MAX_POSITION_PCT = 0.10       # 10% max per position
-MAX_PORTFOLIO_RISK = 0.15      # 15% max total exposure
-STOP_LOSS_PCT = 0.05           # 5% stop loss
-TAKE_PROFIT_PCT = 0.10         # 10% take profit
-LOOKBACK_DAYS = 50             # Historical data window
-SCAN_INTERVAL_MINUTES = 15      # How often to scan (faster for Polymarket 5-min signals)
+MAX_POSITION_PCT = 0.10
+MAX_PORTFOLIO_RISK = 0.15
+STOP_LOSS_PCT = 0.05
+TAKE_PROFIT_PCT = 0.10
+LOOKBACK_DAYS = 50
+SCAN_INTERVAL_MINUTES = 15
 
 OUTPUT_DIR = Path("/mnt/c/Users/12035/father_daddy_capital/output")
 LOG_DIR = Path("/mnt/c/Users/12035/father_daddy_capital/logs")
 STATE_FILE = Path("/mnt/c/Users/12035/father_daddy_capital/output/paper_state.json")
 
-# ─── Import Scalp Engine ─────────────────────────────────────────────────────
-# Direct import to avoid src/__init__.py legacy torch dependency chain
+import yfinance as yf
+
+# ─── Import Engines ──────────────────────────────────────────────────────────
 import importlib.util
+
 _scalp_spec = importlib.util.spec_from_file_location(
-    "scalp_engine", 
-    Path(__file__).parent / "src" / "trading" / "scalp_engine.py"
+    "scalp_engine", Path(__file__).parent / "src" / "trading" / "scalp_engine.py"
 )
 _scalp_module = importlib.util.module_from_spec(_scalp_spec)
 _scalp_spec.loader.exec_module(_scalp_module)
 run_scalp_cycle = _scalp_module.run_scalp_cycle
 scalp_summary = _scalp_module.scalp_summary
 
-# ─── Import Polymarket Engine ─────────────────────────────────────────────────
 _pm_spec = importlib.util.spec_from_file_location(
-    "polymarket_engine",
-    Path(__file__).parent / "fdc_polymarket.py"
+    "polymarket_engine", Path(__file__).parent / "fdc_polymarket.py"
 )
 _pm_module = importlib.util.module_from_spec(_pm_spec)
 _pm_spec.loader.exec_module(_pm_module)
 run_polymarket_cycle = _pm_module.run_polymarket_cycle
 polymarket_summary = _pm_module.polymarket_summary
 
-# ─── Import Altcoin Scanner ───────────────────────────────────────────────────
 _alt_spec = importlib.util.spec_from_file_location(
-    "alt_scanner",
-    Path(__file__).parent / "fdc_alt_scanner.py"
+    "alt_scanner", Path(__file__).parent / "fdc_alt_scanner.py"
 )
 _alt_module = importlib.util.module_from_spec(_alt_spec)
 _alt_spec.loader.exec_module(_alt_module)
@@ -71,80 +69,88 @@ run_alt_cycle = _alt_module.run_alt_cycle
 alt_summary = _alt_module.alt_summary
 ALTCOIN_UNIVERSE = _alt_module.ALTCOIN_UNIVERSE
 
+# ─── CCXT Status Check (non-blocking, logged only) ──────────────────────────
+
+_CCXT_STATUS = "unknown"
+
+def _check_ccxt():
+    """Quick CCXT availability check — logged, not required."""
+    global _CCXT_STATUS
+    try:
+        sys.path.insert(0, str(Path(__file__).parent / "src" / "trading"))
+        from market_data_provider import MarketDataProvider
+        import asyncio
+        provider = MarketDataProvider(use_ccxt=True)
+        asyncio.run(provider.connect())
+        if provider.using_ccxt:
+            _CCXT_STATUS = "connected (coinbase/kraken/okx/gate)"
+        else:
+            _CCXT_STATUS = "disabled"
+        asyncio.run(provider.close())
+    except Exception as e:
+        _CCXT_STATUS = f"unavailable"
+
+
 # ─── Signal Generation ───────────────────────────────────────────────────────
 
 def compute_signals(prices: pd.Series) -> dict:
     """Generate multi-factor signals from price series."""
     if len(prices) < 20:
         return {"score": 0, "signals": {}, "confidence": 0}
-    
-    # RSI (14-day)
+
     delta = prices.diff()
     gain = delta.where(delta > 0, 0.0).rolling(14).mean()
     loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
     rs = gain / loss.replace(0, 1e-9)
     rsi = 100 - (100 / (1 + rs))
     current_rsi = float(rsi.iloc[-1])
-    
-    # MACD
+
     ema12 = prices.ewm(span=12).mean()
     ema26 = prices.ewm(span=26).mean()
     macd = ema12 - ema26
     signal_line = macd.ewm(span=9).mean()
     macd_signal = 1 if macd.iloc[-1] > signal_line.iloc[-1] else -1
-    
-    # Trend strength (price vs 20/50 SMA)
+
     sma20 = prices.rolling(20).mean().iloc[-1]
     sma50 = prices.rolling(50).mean().iloc[-1] if len(prices) >= 50 else sma20
     current_price = float(prices.iloc[-1])
     trend_20 = 1 if current_price > sma20 else -1
     trend_50 = 1 if current_price > sma50 else -1
-    
-    # Volatility (20-day annualized)
-    returns = prices.pct_change().dropna()
-    volatility = float(returns.rolling(20).std().iloc[-1] * np.sqrt(365))
-    
-    # Momentum (5-day return)
+
+    rets = prices.pct_change().dropna()
+    volatility = float(rets.rolling(20).std().iloc[-1] * np.sqrt(365))
+
     momentum_5d = float((prices.iloc[-1] / prices.iloc[-6] - 1)) if len(prices) >= 6 else 0
-    
-    # Mean reversion signal
+
     z_score = float((current_price - sma20) / (prices.rolling(20).std().iloc[-1] + 1e-9))
-    mean_reversion = -z_score  # negative: buy when below mean
-    
-    # Composite score
+    mean_reversion = -z_score
+
     rsi_signal = 1 if current_rsi < 30 else (-1 if current_rsi > 70 else 0)
     trend_signal = (trend_20 + trend_50) / 2.0
-    
+
     score = (
-        rsi_signal * 0.20 +
-        macd_signal * 0.25 +
-        trend_signal * 0.25 +
+        rsi_signal * 0.20 + macd_signal * 0.25 + trend_signal * 0.25 +
         np.clip(momentum_5d * 10, -1, 1) * 0.15 +
         np.clip(mean_reversion * 0.5, -1, 1) * 0.15
     )
-    
-    confidence = min(0.95, max(0.3, 
-        0.6 + abs(score) * 0.3 - volatility * 0.5
-    ))
-    
+
+    confidence = min(0.95, max(0.3, 0.6 + abs(score) * 0.3 - volatility * 0.5))
+
     return {
-        "score": round(score, 3),
-        "rsi": round(current_rsi, 1),
-        "volatility": round(volatility, 3),
-        "momentum_5d": round(momentum_5d, 4),
+        "score": round(score, 3), "rsi": round(current_rsi, 1),
+        "volatility": round(volatility, 3), "momentum_5d": round(momentum_5d, 4),
         "trend": "up" if trend_20 > 0 else "down",
         "confidence": round(confidence, 3),
         "signals": {
-            "rsi": rsi_signal,
-            "macd": macd_signal,
-            "trend": trend_signal,
+            "rsi": rsi_signal, "macd": macd_signal, "trend": trend_signal,
             "momentum": round(np.clip(momentum_5d * 10, -1, 1), 3),
             "mean_reversion": round(np.clip(mean_reversion * 0.5, -1, 1), 3),
         }
     }
 
+
 def scan_market(symbols: list[str], lookback: int = LOOKBACK_DAYS) -> list[dict]:
-    """Scan all symbols and return ranked signals."""
+    """Scan all symbols via yfinance."""
     results = []
     end = datetime.now()
     start = end - timedelta(days=lookback)
@@ -155,73 +161,55 @@ def scan_market(symbols: list[str], lookback: int = LOOKBACK_DAYS) -> list[dict]
             hist = ticker.history(start=start, end=end)
             if len(hist) < 20:
                 continue
-
-            prices = hist['Close']
+            prices = hist["Close"]
             current_price = float(prices.iloc[-1])
             signal = compute_signals(prices)
-
             results.append({
-                "symbol": symbol,
-                "price": round(current_price, 2),
+                "symbol": symbol, "price": round(current_price, 2),
                 "asset_class": "crypto" if "-USD" in symbol else "equity",
                 **signal,
             })
         except Exception as e:
             print(f"  ⚠ {symbol}: {e}", file=sys.stderr)
 
-    # Sort by absolute signal score
     results.sort(key=lambda x: abs(x["score"]), reverse=True)
     return results
 
 
 def fetch_btc_5min() -> list[float]:
-    """Fetch BTC 5-minute candles for Polymarket signal generation.
-    Returns list of closing prices (most recent first)."""
+    """Fetch BTC 5-minute candles for Polymarket signals."""
     try:
         btc = yf.Ticker("BTC-USD")
-        # 5d of 5m data = ~1440 candles, but we only need ~50 most recent
         hist = btc.history(period="5d", interval="5m")
         if len(hist) < 14:
             return []
-        prices = hist['Close'].tolist()
-        # Keep last 60 candles (5 hours of data)
-        return prices[-60:]
+        return hist["Close"].tolist()[-60:]
     except Exception as e:
-        print(f"  ⚠ BTC-USD 5m fetch: {e}", file=sys.stderr)
+        print(f"  ⚠ BTC-USD 5m: {e}", file=sys.stderr)
         return []
 
 
 # ─── Position Sizing ─────────────────────────────────────────────────────────
 
 def calculate_position_size(
-    signal_score: float,
-    confidence: float,
-    volatility: float,
-    current_price: float,
-    available_capital: float,
+    signal_score: float, confidence: float, volatility: float,
+    current_price: float, available_capital: float,
 ) -> float:
     """Kelly-inspired position sizing with risk constraints."""
-    # Base size: fraction of capital scaled by signal strength
     base_allocation = available_capital * MAX_POSITION_PCT
-    
-    # Scale by signal strength and confidence
     signal_strength = abs(signal_score)
     scaled = base_allocation * signal_strength * confidence
-    
-    # Reduce for high volatility
     vol_penalty = max(0.3, 1.0 - volatility * 2.0)
     scaled *= vol_penalty
-    
-    # Hard cap at max position
     scaled = min(scaled, available_capital * MAX_POSITION_PCT)
-    
-    # Convert to shares (round down to integer for equities, fractional for crypto)
+
     shares = scaled / current_price
-    if current_price > 1000:  # Likely crypto
+    if np.isnan(shares) or np.isinf(shares) or shares <= 0:
+        return 0
+    if current_price > 1000:
         shares = round(shares, 6)
     else:
-        shares = int(shares)
-    
+        shares = int(max(1, shares))
     return max(0, shares)
 
 
@@ -232,115 +220,81 @@ def load_state() -> dict:
         with open(STATE_FILE) as f:
             return json.load(f)
     return {
-        "capital": INITIAL_CAPITAL,
-        "positions": {},       # symbol → {shares, entry_price, entry_date}
-        "trade_history": [],
-        "total_pnl": 0.0,
-        "daily_pnl": {},
-        "scans": 0,
+        "capital": INITIAL_CAPITAL, "positions": {},
+        "trade_history": [], "total_pnl": 0.0,
+        "daily_pnl": {}, "scans": 0,
         "started": datetime.now().isoformat(),
     }
 
+
 def save_state(state: dict):
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    with open(STATE_FILE, 'w') as f:
+    with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2, default=str)
 
 
 # ─── Trading Logic ───────────────────────────────────────────────────────────
 
-def execute_scan(state: dict, scan_results: list[dict]) -> dict:
+def execute_scan(state: dict, scan_results: list[dict]) -> list[dict]:
     """Generate orders from scan results against current state."""
     orders = []
     current_prices = {r["symbol"]: r["price"] for r in scan_results}
-    
-    # Check stop loss / take profit on existing positions
+
     for symbol, pos in list(state["positions"].items()):
-        if symbol not in current_prices:
+        cp = current_prices.get(symbol)
+        if cp is None or np.isnan(cp):
             continue
-        current_price = current_prices[symbol]
-        entry_price = pos["entry_price"]
-        pnl_pct = (current_price - entry_price) / entry_price
-        
-        # Stop loss
+        pnl_pct = (cp - pos["entry_price"]) / pos["entry_price"]
         if pnl_pct <= -STOP_LOSS_PCT:
-            orders.append({
-                "action": "SELL",
-                "symbol": symbol,
-                "shares": pos["shares"],
-                "price": current_price,
-                "reason": f"STOP_LOSS ({pnl_pct*100:.1f}%)",
-            })
+            orders.append({"action": "SELL", "symbol": symbol, "shares": pos["shares"],
+                           "price": cp, "reason": f"STOP_LOSS ({pnl_pct*100:.1f}%)"})
             del state["positions"][symbol]
-        
-        # Take profit
         elif pnl_pct >= TAKE_PROFIT_PCT:
-            orders.append({
-                "action": "SELL",
-                "symbol": symbol,
-                "shares": pos["shares"],
-                "price": current_price,
-                "reason": f"TAKE_PROFIT ({pnl_pct*100:.1f}%)",
-            })
+            orders.append({"action": "SELL", "symbol": symbol, "shares": pos["shares"],
+                           "price": cp, "reason": f"TAKE_PROFIT ({pnl_pct*100:.1f}%)"})
             del state["positions"][symbol]
-    
-    # Calculate available capital
+
     invested = sum(
         state["positions"][s]["shares"] * current_prices.get(s, 0)
-        for s in state["positions"]
+        for s in state["positions"] if not np.isnan(current_prices.get(s, 0))
     )
     total_value = state["capital"] + invested
-    available = min(state["capital"], total_value * (1 - MAX_PORTFOLIO_RISK))
-    available -= invested  # account for existing positions
-    
-    # Generate new entry orders
+    available = max(0, min(state["capital"], total_value * (1 - MAX_PORTFOLIO_RISK)) - invested)
+
     for result in scan_results:
         symbol = result["symbol"]
-        if symbol in state["positions"]:
-            continue  # Already in position
-        if len(state["positions"]) >= 8:
-            break  # Max concurrent positions
-        
-        signal_score = result["score"]
-        if abs(signal_score) < 0.3:
-            continue  # Not a strong enough signal
-        
+        if symbol in state["positions"] or len(state["positions"]) >= 8:
+            if len(state["positions"]) >= 8:
+                break
+            continue
+        if abs(result["score"]) < 0.3:
+            continue
+
         shares = calculate_position_size(
-            signal_score=signal_score,
-            confidence=result["confidence"],
-            volatility=result["volatility"],
-            current_price=result["price"],
-            available_capital=available,
-        )
-        
+            signal_score=result["score"], confidence=result["confidence"],
+            volatility=result["volatility"], current_price=result["price"],
+            available_capital=available)
         if shares <= 0:
             continue
-        
+
         cost = shares * result["price"]
         if cost > available * 0.5:
             continue
-        
-        action = "BUY" if signal_score > 0 else "SHORT"
-        orders.append({
-            "action": action,
-            "symbol": symbol,
-            "shares": shares,
-            "price": result["price"],
-            "reason": f"SIGNAL ({signal_score:.2f}, conf={result['confidence']:.2f})",
-        })
-        
-        # Reserve capital for long positions
+
+        action = "BUY" if result["score"] > 0 else "SHORT"
+        orders.append({"action": action, "symbol": symbol, "shares": shares,
+                       "price": result["price"],
+                       "reason": f"SIGNAL ({result['score']:.2f}, conf={result['confidence']:.2f})"})
+
         if action == "BUY":
             state["positions"][symbol] = {
-                "shares": shares,
-                "entry_price": result["price"],
+                "shares": shares, "entry_price": result["price"],
                 "entry_date": datetime.now().isoformat(),
                 "asset_class": result["asset_class"],
             }
             state["capital"] -= cost
             available -= cost
-    
-    # Apply orders and calculate P&L
+
     for order in orders:
         if order["action"] == "SELL":
             pos = state["positions"].get(order["symbol"])
@@ -349,18 +303,15 @@ def execute_scan(state: dict, scan_results: list[dict]) -> dict:
             pnl = (order["price"] - pos["entry_price"]) * order["shares"]
             state["capital"] += order["price"] * order["shares"]
             state["total_pnl"] += pnl
-            
             today = datetime.now().strftime("%Y-%m-%d")
             state["daily_pnl"][today] = state["daily_pnl"].get(today, 0) + pnl
-            
             state["trade_history"].append({
-                **order,
-                "entry_price": pos["entry_price"],
+                **order, "entry_price": pos["entry_price"],
                 "pnl": round(pnl, 2),
                 "pnl_pct": round((order["price"] - pos["entry_price"]) / pos["entry_price"] * 100, 2),
                 "timestamp": datetime.now().isoformat(),
             })
-    
+
     state["scans"] += 1
     return orders
 
@@ -369,33 +320,32 @@ def execute_scan(state: dict, scan_results: list[dict]) -> dict:
 
 def generate_report(state: dict, scan_results: list[dict], orders: list[dict]) -> str:
     """Generate Markdown report."""
-    invested = sum(
-        state["positions"][s]["shares"] * state["positions"][s]["entry_price"]
-        for s in state["positions"]
-    )
-    unrealized = sum(
-        state["positions"][s]["shares"] * next(
-            (r["price"] for r in scan_results if r["symbol"] == s), 
-            state["positions"][s]["entry_price"]
-        ) - state["positions"][s]["shares"] * state["positions"][s]["entry_price"]
-        for s in state["positions"]
-    )
+    current_prices = {r["symbol"]: r["price"] for r in scan_results}
+    invested = 0.0
+    unrealized = 0.0
+
+    for sym, pos in state["positions"].items():
+        ep = pos["entry_price"]
+        sh = pos["shares"]
+        invested += sh * ep
+        cp = current_prices.get(sym, ep)
+        if not np.isnan(cp):
+            unrealized += (sh * cp) - (sh * ep)
+
     total_equity = state["capital"] + invested + unrealized
-    
     today = datetime.now().strftime("%Y-%m-%d")
     daily_pnl = state["daily_pnl"].get(today, 0)
-    
-    report = f"""📊 Father Daddy Capital — Paper Trading Report
-{datetime.now().strftime('%Y-%m-%d %H:%M EST')} | Scan #{state['scans']}
 
-💰 Capital: ${state['capital']:,.2f}
-📈 Invested: ${invested:,.2f}
-📊 Unrealized: ${unrealized:,.2f}
-🏦 Total Equity: ${total_equity:,.2f} ({(total_equity/INITIAL_CAPITAL-1)*100:+.1f}%)
-📅 Today P&L: ${daily_pnl:+,.2f}
+    report = (
+        f"📊 Father Daddy Capital — Paper Trading Report\n"
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M EST')} | Scan #{state['scans']}\n\n"
+        f"💰 Capital: ${state['capital']:,.2f}\n"
+        f"📈 Invested: ${invested:,.2f}\n"
+        f"📊 Unrealized: ${unrealized:,.2f}\n"
+        f"🏦 Total Equity: ${total_equity:,.2f} ({(total_equity/INITIAL_CAPITAL-1)*100:+.1f}%)\n"
+        f"📅 Today P&L: ${daily_pnl:+,.2f}\n\n"
+    )
 
-"""
-    
     if orders:
         report += "📋 Orders Executed:\n"
         for o in orders:
@@ -404,16 +354,18 @@ def generate_report(state: dict, scan_results: list[dict], orders: list[dict]) -
             report += f"  {emoji} {o['action']} {o['symbol']} ×{o['shares']} @ ${o['price']:.2f}{pnl_str}\n"
     else:
         report += "📋 No orders this scan.\n"
-    
+
     if state["positions"]:
         report += "\n📌 Open Positions:\n"
         for sym, pos in state["positions"].items():
-            cp = next((r["price"] for r in scan_results if r["symbol"] == sym), pos["entry_price"])
-            pnl = (cp - pos["entry_price"]) * pos["shares"]
-            pnl_pct = (cp / pos["entry_price"] - 1) * 100
+            cp = current_prices.get(sym, pos["entry_price"])
+            pnl = (cp - pos["entry_price"]) * pos["shares"] if not np.isnan(cp) else 0
+            pnl_pct = (cp / pos["entry_price"] - 1) * 100 if not np.isnan(cp) else 0
             report += f"  {sym}: {pos['shares']} @ ${pos['entry_price']:.2f} → ${cp:.2f} | ${pnl:+,.2f} ({pnl_pct:+.1f}%)\n"
-    
-    report += f"\n⏳ Next scan: {SCAN_INTERVAL_MINUTES} min"
+
+    report += f"\n⏳ Next scan: {SCAN_INTERVAL_MINUTES} min\n"
+    if _CCXT_STATUS != "unknown":
+        report += f"🔌 CCXT: {_CCXT_STATUS}\n"
     return report
 
 
@@ -423,121 +375,90 @@ def run_once():
     """Single scan cycle. Returns report string."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    
+
     state = load_state()
-    
-    # ── Scalp track ────────────────────────────────────────────────────
+
     state.setdefault("scalp_positions", {})
     state.setdefault("scalp_exits", [])
     state.setdefault("scalp_scans", 0)
-    
-    print(f"🔍 Scanning {len(ALL_SYMBOLS)} swing + {len(state.get('scalp_positions', {}))} scalp positions...")
+
+    print(f"🔍 Scanning {len(ALL_SYMBOLS)} swing + {len(state.get('scalp_positions', {}))} scalp...")
     scan_results = scan_market(ALL_SYMBOLS)
-    
     orders = execute_scan(state, scan_results)
-    
-    # ── Run scalp cycle ────────────────────────────────────────────────
-    scalp_entries, scalp_exits, scalp_signals = run_scalp_cycle(state)
+
+    scalp_entries, scalp_exits, _ = run_scalp_cycle(state)
     all_orders = orders + [
         {**e, "_type": "scalp", "_action": "entry"} for e in scalp_entries
     ] + [
         {**x, "_type": "scalp", "_action": "exit"} for x in scalp_exits
     ]
 
-    # ── Run Polymarket cycle ───────────────────────────────────────────
     btc_5m = fetch_btc_5min()
     pm_entries, pm_settlements = run_polymarket_cycle(state, btc_5m)
-    if pm_entries:
-        for e in pm_entries:
-            all_orders.append({**e, "_type": "polymarket", "_action": "entry"})
-    if pm_settlements:
-        for s in pm_settlements:
-            all_orders.append({**s, "_type": "polymarket", "_action": "settle"})
+    for e in (pm_entries or []):
+        all_orders.append({**e, "_type": "polymarket", "_action": "entry"})
+    for s in (pm_settlements or []):
+        all_orders.append({**s, "_type": "polymarket", "_action": "settle"})
 
-    # ── Run Altcoin cycle ─────────────────────────────────────────────
     try:
-        alt_entries, alt_exits, alt_trending = run_alt_cycle(state)
-        if alt_entries:
-            for e in alt_entries:
-                all_orders.append({**e, "_type": "altcoin", "_action": "entry"})
-        if alt_exits:
-            for x in alt_exits:
-                all_orders.append({**x, "_type": "altcoin", "_action": "exit"})
-    except Exception as alt_err:
-        print(f"  ⚠ Alt cycle skipped: {alt_err}", file=sys.stderr)
-        alt_entries, alt_exits, alt_trending = [], [], []
+        alt_entries, alt_exits, _ = run_alt_cycle(state)
+        for e in (alt_entries or []):
+            all_orders.append({**e, "_type": "altcoin", "_action": "entry"})
+        for x in (alt_exits or []):
+            all_orders.append({**x, "_type": "altcoin", "_action": "exit"})
+    except Exception:
+        alt_entries, alt_exits = [], []
 
     save_state(state)
 
     report = generate_report(state, scan_results, orders)
     if scalp_entries or scalp_exits or state.get("scalp_positions"):
         report += scalp_summary(
-            state.get("scalp_positions", {}),
-            state.get("scalp_scans", 0),
-            state.get("scalp_exits", [])[-5:]
-        )
-    # ── Polymarket summary ──
+            state.get("scalp_positions", {}), state.get("scalp_scans", 0),
+            state.get("scalp_exits", [])[-5:])
     if state.get("polymarket_positions") or pm_entries or pm_settlements:
-        report += polymarket_summary(state, pm_settlements)
-    # ── Altcoin summary ──
+        report += polymarket_summary(state, pm_settlements or [])
     if state.get("alt_positions") or alt_entries or alt_exits:
-        report += alt_summary(state, alt_entries, alt_exits)
-    
-    # Save report
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    report_path = OUTPUT_DIR / f"report_{timestamp}.md"
-    with open(report_path, 'w') as f:
-        f.write(report)
-    
-    # Save raw scan data
-    scan_path = OUTPUT_DIR / f"scan_{timestamp}.json"
-    with open(scan_path, 'w') as f:
-        json.dump({"scan_results": scan_results, "orders": orders, "state_summary": {
-            "capital": state["capital"],
-            "total_pnl": state["total_pnl"],
-            "positions": len(state["positions"]),
-            "scans": state["scans"],
-        }}, f, indent=2, default=str)
-    
+        report += alt_summary(state, alt_entries or [], alt_exits or [])
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    (OUTPUT_DIR / f"report_{ts}.md").write_text(report)
+    (OUTPUT_DIR / f"scan_{ts}.json").write_text(json.dumps({
+        "scan_results": scan_results, "orders": orders,
+        "state_summary": {
+            "capital": state["capital"], "total_pnl": state["total_pnl"],
+            "positions": len(state["positions"]), "scans": state["scans"],
+        }}, indent=2, default=str))
+
     print(report)
     return report
 
+
 def run_continuous():
-    """Continuous paper trading loop."""
-    print("🚀 Father Daddy Capital — Quad-Track Paper Engine")
-    print(f"   Target: $100/day → $500/day")
-    print(f"   Track 1 — Swing:       {len(ALL_SYMBOLS)} assets, 5-10% targets, multi-day")
-    print(f"   Track 2 — Scalp:       BTC/ETH/SOL/SPY/QQQ, 0.5-2.5% targets, intraday")
-    print(f"   Track 3 — Polymarket:  BTC daily EOD, 5-min signal entry")
-    print(f"   Track 4 — Alt Farm:    {len(ALTCOIN_UNIVERSE)} altcoins + trending, 1.5-3% targets")
-    print(f"   Scanning every {SCAN_INTERVAL_MINUTES} min")
-    print("   Ctrl+C to stop\n")
-    
+    """Continuous loop."""
+    _check_ccxt()
+    print("🚀 FDC — Quad-Track + CCXT-ready")
+    print(f"   Tracks: Swing | Scalp | Polymarket | Alt Farm")
+    print(f"   CCXT: {_CCXT_STATUS}")
+    print(f"   Scan: {SCAN_INTERVAL_MINUTES} min | Ctrl+C to stop\n")
+
     while True:
         try:
-            report = run_once()
-            
-            # Log summary
-            log_path = LOG_DIR / "trading.log"
-            with open(log_path, 'a') as f:
-                f.write(f"{datetime.now().isoformat()} | scan={report.count('scan')}\n")
-            
+            run_once()
             time.sleep(SCAN_INTERVAL_MINUTES * 60)
         except KeyboardInterrupt:
-            print("\n👋 Paper trading stopped.")
+            print("\n👋 Stopped.")
             break
         except Exception as e:
-            print(f"❌ Error: {e}", file=sys.stderr)
-            time.sleep(300)  # 5 min cooldown on error
+            print(f"❌ {e}", file=sys.stderr)
+            time.sleep(300)
 
 
 if __name__ == "__main__":
     if "--once" in sys.argv:
-        report = run_once()
-        print(f"\n✅ Single scan complete.")
+        _check_ccxt()
+        run_once()
     elif "--continuous" in sys.argv or "-c" in sys.argv:
         run_continuous()
     else:
         print(__doc__)
-        print("Usage: python paper_engine.py --once     (single scan)")
-        print("       python paper_engine.py --continuous (run forever)")
