@@ -20,9 +20,19 @@ import urllib.parse
 import re
 import time
 import sys
+import numpy as np
 import yfinance as yf
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# ─── Neural Plasticity Import ──────────────────────────────────────────────
+REPO = Path(__file__).parent
+sys.path.insert(0, str(REPO / "src" / "neural"))
+try:
+    import plastic_network as pn
+    _NEURAL_AVAILABLE = True
+except ImportError:
+    _NEURAL_AVAILABLE = False
 
 GAMMA  = "https://gamma-api.polymarket.com"
 CLOB   = "https://clob.polymarket.com"
@@ -46,6 +56,81 @@ KELLY_MULTIPLIER = 1.5           # Amplify Kelly for small accounts
 RSI_OVERSOLD = 48                # Was 38 — too sterile
 RSI_OVERBOUGHT = 52              # Was 62 — same problem
 MIN_VOLUME_USD = 10000           # Minimum volume for any contract
+
+# Neural plasticity blending
+NEURAL_BLEND_MAX = 0.30        # Max weight for neural score in blended signal
+NEURAL_BLEND_UPDATES = 200     # Updates to reach full blend (0→NEURAL_BLEND_MAX)
+NEURAL_CONSOLIDATE_EVERY = 50  # EWC consolidation frequency
+
+# Neural engine instance (initialized lazily)
+_neural_engine = None
+
+
+def pm_encode_signal(signal: dict) -> np.ndarray:
+    """Convert PM signal dict to neural input vector [8,]."""
+    direction = signal.get("direction", "neutral")
+    conf = signal.get("confidence", 0.0)
+    rsi = signal.get("rsi", 50.0)
+    macd = signal.get("macd", 0.0)
+    mom = signal.get("momentum", 2)
+
+    # Map direction to signals
+    if direction == "up":
+        trend_sig = 0.5 + conf * 0.3
+        mom_sig = min(1.0, mom / 3.0)
+        mean_rev = max(0.0, (50 - rsi) / 25)
+    elif direction == "down":
+        trend_sig = -0.5 - conf * 0.3
+        mom_sig = -min(1.0, (3 - mom) / 3.0)
+        mean_rev = -max(0.0, (rsi - 50) / 25)
+    else:
+        trend_sig = 0.0
+        mom_sig = 0.0
+        mean_rev = 0.0
+
+    # Normalize RSI to roughly [-1, 1]
+    rsi_norm = (rsi - 50) / 25
+
+    # MACD normalized
+    macd_norm = float(np.clip(macd / 500, -1.0, 1.0))
+
+    # Volatility proxy from RSI extremes
+    vol = abs(rsi - 50) / 25
+
+    return np.array([
+        float(np.clip(rsi_norm, -1.0, 1.0)),
+        float(np.clip(macd_norm, -1.0, 1.0)),
+        float(np.clip(trend_sig, -1.0, 1.0)),
+        float(np.clip(mom_sig, -1.0, 1.0)),
+        float(np.clip(mean_rev, -1.0, 1.0)),
+        float(np.clip(vol, 0.0, 1.0)),
+        0.0,  # asset_class: BTC=crypto, but PM is all crypto so neutral
+        float(np.clip(conf, 0.0, 1.0)),
+    ], dtype=float)
+
+
+def scale_pm_pnl(actual_pnl_pct: float) -> float:
+    """Scale P&L % to [-1, 1] target. Binary = full 100% or -100% payoff."""
+    return float(np.clip(actual_pnl_pct / 1.25, -1.0, 1.0))
+
+
+def _get_neural() -> "pn.NeuralPlasticityEngine | None":
+    """Lazy-init the neural engine. Returns None if unavailable."""
+    global _neural_engine
+    if not _NEURAL_AVAILABLE:
+        return None
+    if _neural_engine is None:
+        _neural_engine = pn.NeuralPlasticityEngine()
+    return _neural_engine
+
+
+def _neural_blend_weight() -> float:
+    """Blend weight: 0→NEURAL_BLEND_MAX over NEURAL_BLEND_UPDATES updates."""
+    neural = _get_neural()
+    if neural is None:
+        return 0.0
+    updates = neural.network.updates
+    return NEURAL_BLEND_MAX * min(1.0, updates / NEURAL_BLEND_UPDATES)
 
 
 # ─── API Helpers ────────────────────────────────────────────────────────────
@@ -204,13 +289,30 @@ def fetch_btc_5min() -> list[float]:
 
 def evaluate_entries(signal: dict, contracts: list[dict],
                      state: dict) -> list[dict]:
-    """Find contracts where signal direction aligns with strike proximity."""
+    """Find contracts where signal direction aligns with strike proximity.
+    Blends neural plasticity score with traditional confidence."""
     direction = signal["direction"]
     conf = signal["confidence"]
     btc = signal["price"]
 
     if direction == "neutral" or conf < 0.20:
-        return []
+        return [], None
+
+    # ── Neural plasticity blend ──────────────────────────────────────────
+    neural_pred = None
+    signal_vector = None
+    blend_w = _neural_blend_weight()
+    neural = _get_neural()
+    if neural is not None and blend_w > 0.0:
+        signal_vector = pm_encode_signal(signal)
+        neural_pred = neural.network.predict(signal_vector)
+        # neural_pred ∈ [-1,1]: +1 = expect BTC up, -1 = expect down
+        # Map to confidence: for BUY_YES (direction=up), +neural is good
+        #                    for BUY_NO (direction=down), -neural is good
+        neural_conf = (neural_pred + 1.0) / 2.0 if direction == "up" else (1.0 - neural_pred) / 2.0
+        neural_conf = max(0.0, min(1.0, neural_conf))
+        conf = conf * (1.0 - blend_w) + neural_conf * blend_w
+        conf = round(min(0.95, conf), 3)
 
     # Filter: strike within MAX_DISTANCE_PCT%, active contract
     candidates = []
@@ -231,11 +333,14 @@ def evaluate_entries(signal: dict, contracts: list[dict],
                                    "side": "NO", "price": c["no_price"]})
 
     if not candidates:
-        return []
+        return [], neural_pred
 
     # Pick the best one (largest edge)
     bankroll = state.get("bankroll", PAPER_BANKROLL)
+    # Account for already-invested capital
     positions = state.get("positions", {})
+    invested = sum(p.get("bet", 0) for p in positions.values())
+    available = max(0.0, bankroll - invested)
 
     entries = []
     for cand in sorted(candidates, key=lambda x: conf - x["price"], reverse=True):
@@ -248,11 +353,16 @@ def evaluate_entries(signal: dict, contracts: list[dict],
             continue
         if len(positions) + len(entries) >= MAX_POSITIONS:
             break
+        if available < 5.0:  # Min bet $5
+            break
 
         # Kelly sizing: f* = edge / (1 - price) × KELLY_MULTIPLIER
         kelly = (edge / max(0.01, 1 - cand["price"])) * KELLY_MULTIPLIER
         kelly = min(0.4, max(0.05, kelly))  # clamp 5-40%
-        bet = round(bankroll * kelly, 2)
+        bet = round(min(available, bankroll * kelly), 2)
+
+        # Store signal vector for neural learning on settlement
+        sv = signal_vector.tolist() if signal_vector is not None else None
 
         entries.append({
             "action": "BUY_" + cand["side"],
@@ -269,9 +379,13 @@ def evaluate_entries(signal: dict, contracts: list[dict],
             "signal_rsi": signal["rsi"],
             "entry_time": datetime.now().isoformat(),
             "side": cand["side"],
+            # Neural fields for later learning
+            "signal_vector": sv,
+            "neural_pred": round(neural_pred, 4) if neural_pred is not None else None,
         })
+        available -= bet
 
-    return entries
+    return entries, neural_pred
 
 
 # ─── Settlement Check ───────────────────────────────────────────────────────
@@ -343,6 +457,16 @@ def summary(state: dict, entries: list, settled: list) -> str:
     if not positions and not entries and not settled:
         lines.append("   Idle — waiting for signal + strike proximity.")
 
+    # ── Neural plasticity status ──────────────────────────────────────────
+    neural = _get_neural()
+    if neural is not None:
+        stats = neural.stats()
+        bw = _neural_blend_weight()
+        lines.append(f"   🧠 Neural: {stats['updates']} updates | "
+                     f"LR={stats['learning_rate']:.5f} | "
+                     f"Accuracy={stats['rolling_accuracy']:.0%} | "
+                     f"Blend={bw:.0%}")
+
     return "\n".join(lines)
 
 
@@ -372,21 +496,41 @@ def run_once(state):
     # Settle crossed contracts
     settled = check_settlements(state, btc_price)
     for s in settled:
-        state["total_pnl"] += s["pnl"]
-        state["bankroll"] += s["pnl"]
-        if s["pnl"] > 0:
+        pnl = s["pnl"]
+        state["total_pnl"] += pnl
+        state["bankroll"] += pnl
+        if pnl > 0:
             state["wins"] = state.get("wins", 0) + 1
         else:
             state["losses"] = state.get("losses", 0) + 1
         state.setdefault("journal", []).append({
             "ts": datetime.now().isoformat(),
             "type": "settle",
-            "pnl": s["pnl"],
+            "pnl": pnl,
             "question": s.get("question", ""),
         })
 
+        # ── Neural learning from settled trade ────────────────────────────
+        neural = _get_neural()
+        sv = s.get("signal_vector")
+        n_pred = s.get("neural_pred")
+        if neural is not None and sv is not None and n_pred is not None:
+            bet = s.get("bet", 1.0)
+            pnl_pct = pnl / max(bet, 0.01)  # Binary: +X% win or -100% loss
+            target = scale_pm_pnl(pnl_pct)
+            sv_arr = np.array(sv, dtype=float)
+            neural.network.learn_from_trade(sv_arr, n_pred, target)
+            neural.network.add_to_replay(sv_arr, target)
+            # Periodic replay + consolidation
+            if neural.network.updates % 5 == 0:
+                neural.network.replay()
+            if neural.network.updates > 0 and neural.network.updates % NEURAL_CONSOLIDATE_EVERY == 0:
+                neural.network.consolidate()
+            neural.network.save()
+            neural.performance.save()
+
     # New entries
-    entries = evaluate_entries(sig, contracts, state)
+    entries, neural_pred = evaluate_entries(sig, contracts, state)
     for e in entries:
         key = f"{e['conditionId'][:16]}_{e['side']}"
         state["positions"][key] = e
@@ -427,8 +571,17 @@ if __name__ == "__main__":
     if "--once" in sys.argv:
         state = load_state()
         e, s, sig = run_once(state)
-        print(f"\nSignal: {sig['direction']} @ {sig['confidence']:.2f} "
-              f"(RSI={sig['rsi']}, BTC=${sig['price']:,.2f})")
+        if sig is not None:
+            print(f"\nSignal: {sig['direction']} @ {sig['confidence']:.2f} "
+                  f"(RSI={sig['rsi']}, BTC=${sig['price']:,.2f})")
+            neural = _get_neural()
+            if neural is not None:
+                stats = neural.stats()
+                print(f"🧠 Neural: {stats['updates']} updates | "
+                      f"Accuracy={stats['rolling_accuracy']:.0%} | "
+                      f"Blend={_neural_blend_weight():.0%}")
+        else:
+            print("\n⚠ No BTC price data available.")
     elif "--discover" in sys.argv:
         cs = discover_contracts()
         print(f"{len(cs)} active BTC contracts:")

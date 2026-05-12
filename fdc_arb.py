@@ -412,6 +412,11 @@ def run_arb_cycle(state: dict) -> dict:
     tick = run_tick(arb, markets)
     arb["scans"] += 1
     arb["last_updated"] = datetime.now(timezone.utc).isoformat()
+
+    # Persist to disk for calibration scorer
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    STATE.write_text(json.dumps(arb, indent=2, default=str))
+
     return tick
 
 

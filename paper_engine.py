@@ -41,6 +41,20 @@ STATE_FILE = Path("/mnt/c/Users/12035/father_daddy_capital/output/paper_state.js
 
 import yfinance as yf
 
+# ─── Neural Plasticity ──────────────────────────────────────────────────────
+from src.neural.plastic_network import (
+    NeuralPlasticityEngine, encode_signal_vector, scale_pnl_to_target,
+)
+
+_neural = None
+
+def _get_neural():
+    global _neural
+    if _neural is None:
+        _neural = NeuralPlasticityEngine()
+    return _neural
+
+
 # ─── Import Engines ──────────────────────────────────────────────────────────
 import importlib.util
 
@@ -135,6 +149,29 @@ def compute_signals(prices: pd.Series) -> dict:
     )
 
     confidence = min(0.95, max(0.3, 0.6 + abs(score) * 0.3 - volatility * 0.5))
+
+    # Blend neural plasticity prediction if available
+    neural_score = 0.0
+    try:
+        neural = _get_neural()
+        if neural.network.updates > 10:
+            signals_dict = {
+                "rsi": rsi_signal, "macd": macd_signal, "trend": trend_signal,
+                "momentum": np.clip(momentum_5d * 10, -1, 1),
+                "mean_reversion": np.clip(mean_reversion * 0.5, -1, 1),
+            }
+            x = encode_signal_vector({
+                "signals": signals_dict,
+                "volatility": volatility,
+                "asset_class": "unknown",
+                "confidence": confidence,
+            })
+            neural_score = neural.network.predict(x)
+            # Blend: 70% traditional signal, 30% neural (grows with updates)
+            blend_w = min(0.30, neural.network.updates / 200)
+            score = score * (1 - blend_w) + neural_score * blend_w
+    except Exception:
+        pass  # Neural is non-critical — degrade gracefully
 
     return {
         "score": round(score, 3), "rsi": round(current_rsi, 1),
@@ -247,11 +284,25 @@ def execute_scan(state: dict, scan_results: list[dict]) -> list[dict]:
         pnl_pct = (cp - pos["entry_price"]) / pos["entry_price"]
         if pnl_pct <= -STOP_LOSS_PCT:
             orders.append({"action": "SELL", "symbol": symbol, "shares": pos["shares"],
-                           "price": cp, "reason": f"STOP_LOSS ({pnl_pct*100:.1f}%)"})
+                           "price": cp, "reason": f"STOP_LOSS ({pnl_pct*100:.1f}%)",
+                           "_pos_data": {  # snapshot for neural/PnL after deletion
+                               "entry_price": pos["entry_price"],
+                               "entry_signals": pos.get("entry_signals", {}),
+                               "entry_volatility": pos.get("entry_volatility", 0.2),
+                               "entry_confidence": pos.get("entry_confidence", 0.5),
+                               "asset_class": pos.get("asset_class", "equity"),
+                           }})
             del state["positions"][symbol]
         elif pnl_pct >= TAKE_PROFIT_PCT:
             orders.append({"action": "SELL", "symbol": symbol, "shares": pos["shares"],
-                           "price": cp, "reason": f"TAKE_PROFIT ({pnl_pct*100:.1f}%)"})
+                           "price": cp, "reason": f"TAKE_PROFIT ({pnl_pct*100:.1f}%)",
+                           "_pos_data": {
+                               "entry_price": pos["entry_price"],
+                               "entry_signals": pos.get("entry_signals", {}),
+                               "entry_volatility": pos.get("entry_volatility", 0.2),
+                               "entry_confidence": pos.get("entry_confidence", 0.5),
+                               "asset_class": pos.get("asset_class", "equity"),
+                           }})
             del state["positions"][symbol]
 
     invested = sum(
@@ -291,26 +342,46 @@ def execute_scan(state: dict, scan_results: list[dict]) -> list[dict]:
                 "shares": shares, "entry_price": result["price"],
                 "entry_date": datetime.now().isoformat(),
                 "asset_class": result["asset_class"],
+                "entry_signals": result.get("signals", {}),
+                "entry_volatility": result.get("volatility", 0.2),
+                "entry_confidence": result.get("confidence", 0.5),
             }
             state["capital"] -= cost
             available -= cost
 
     for order in orders:
         if order["action"] == "SELL":
-            pos = state["positions"].get(order["symbol"])
-            if not pos:
-                continue
-            pnl = (order["price"] - pos["entry_price"]) * order["shares"]
+            # Position was already deleted from state — use snapshot attached to order
+            pos_data = order.pop("_pos_data", {})
+            entry_price = pos_data.get("entry_price", order.get("entry_price", order["price"]))
+            pnl = (order["price"] - entry_price) * order["shares"]
             state["capital"] += order["price"] * order["shares"]
             state["total_pnl"] += pnl
             today = datetime.now().strftime("%Y-%m-%d")
             state["daily_pnl"][today] = state["daily_pnl"].get(today, 0) + pnl
             state["trade_history"].append({
-                **order, "entry_price": pos["entry_price"],
+                **order, "entry_price": entry_price,
                 "pnl": round(pnl, 2),
-                "pnl_pct": round((order["price"] - pos["entry_price"]) / pos["entry_price"] * 100, 2),
+                "pnl_pct": round((order["price"] - entry_price) / entry_price * 100, 2),
                 "timestamp": datetime.now().isoformat(),
             })
+
+            # Feed neural plasticity layer
+            try:
+                neural = _get_neural()
+                pnl_pct = (order["price"] - entry_price) / entry_price
+                result_for_neural = {
+                    "signals": pos_data.get("entry_signals", {
+                        "rsi": 0, "macd": 0, "trend": 0, "momentum": 0, "mean_reversion": 0,
+                    }),
+                    "volatility": pos_data.get("entry_volatility", 0.2),
+                    "asset_class": pos_data.get("asset_class", "equity"),
+                    "confidence": pos_data.get("entry_confidence", 0.5),
+                }
+                pred = neural.predict_return(result_for_neural)
+                neural.learn(result_for_neural, pred, pnl_pct)
+            except Exception:
+                pass  # Neural is non-critical
 
     state["scans"] += 1
     return orders
@@ -386,7 +457,7 @@ def run_once():
     scan_results = scan_market(ALL_SYMBOLS)
     orders = execute_scan(state, scan_results)
 
-    scalp_entries, scalp_exits, _ = run_scalp_cycle(state)
+    scalp_entries, scalp_exits, _ = run_scalp_cycle(state, neural=_get_neural())
     all_orders = orders + [
         {**e, "_type": "scalp", "_action": "entry"} for e in scalp_entries
     ] + [
@@ -409,6 +480,38 @@ def run_once():
     except Exception:
         alt_entries, alt_exits = [], []
 
+    # ── Polymarket Complete-Set Arb ──────────────────────────────────
+    try:
+        _arb_spec = importlib.util.spec_from_file_location(
+            "fdc_arb", Path(__file__).parent / "fdc_arb.py"
+        )
+        _arb_module = importlib.util.module_from_spec(_arb_spec)
+        _arb_spec.loader.exec_module(_arb_module)
+        arb_tick = _arb_module.run_arb_cycle(state)
+        for e in (arb_tick.get("entries") if isinstance(arb_tick, dict) else arb_tick or []):
+            all_orders.append({**e, "_type": "arb", "_action": "entry"})
+        for s in (arb_tick.get("settlements") if isinstance(arb_tick, dict) else []):
+            all_orders.append({**s, "_type": "arb", "_action": "settle"})
+    except Exception:
+        arb_tick = None
+
+    # ── Calibration (every 50 scans) ─────────────────────────────────
+    try:
+        if state["scans"] % 50 == 0 and state["scans"] > 0:
+            _cal_spec = importlib.util.spec_from_file_location(
+                "fdc_calibrate", Path(__file__).parent / "fdc_calibrate.py"
+            )
+            _cal_module = importlib.util.module_from_spec(_cal_spec)
+            _cal_spec.loader.exec_module(_cal_module)
+            cal_report = _cal_module.run_calibration()
+            state.setdefault("calibration_history", []).append({
+                "scan": state["scans"],
+                "composite": cal_report.get("composite_score", 0),
+                "ts": datetime.now().isoformat(),
+            })
+    except Exception:
+        pass
+
     save_state(state)
 
     report = generate_report(state, scan_results, orders)
@@ -420,6 +523,32 @@ def run_once():
         report += polymarket_summary(state, pm_settlements or [])
     if state.get("alt_positions") or alt_entries or alt_exits:
         report += alt_summary(state, alt_entries or [], alt_exits or [])
+
+    # Arb summary
+    if arb_tick is not None:
+        try:
+            _arb_spec2 = importlib.util.spec_from_file_location(
+                "fdc_arb_summary", Path(__file__).parent / "fdc_arb.py"
+            )
+            _arb_mod2 = importlib.util.module_from_spec(_arb_spec2)
+            _arb_spec2.loader.exec_module(_arb_mod2)
+            report += _arb_mod2.arb_summary(state, arb_tick)
+        except Exception:
+            pass
+
+    # Neural plasticity stats
+    try:
+        neural = _get_neural()
+        if neural.network.updates > 0:
+            stats = neural.stats()
+            report += (
+                f"\n🧠 Neural Layer | {stats['updates']} updates | "
+                f"LR: {stats['learning_rate']:.6f} | "
+                f"Loss: {stats['avg_loss']:.4f} | "
+                f"Acc: {stats['rolling_accuracy']:.1%}\n"
+            )
+    except Exception:
+        pass
 
     ts = datetime.now().strftime("%Y%m%d_%H%M")
     (OUTPUT_DIR / f"report_{ts}.md").write_text(report)

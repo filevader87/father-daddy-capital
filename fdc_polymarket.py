@@ -13,7 +13,7 @@ BTC touches $80K, we buy YES at 0.475 (implied 47.5% → true probability higher
 import json
 import urllib.request
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 GAMMA  = "https://gamma-api.polymarket.com"
@@ -227,6 +227,7 @@ def evaluate_polymarket_trades(btc_price: float, signal: dict,
                         "signal_confidence": confidence,
                         "signal_rsi": signal["signals"]["rsi"],
                         "timestamp": datetime.now().isoformat(),
+                        "settle_date": na["market"].get("settle_date", ""),
                     })
 
     if direction == "down" and nearest_below:
@@ -257,6 +258,7 @@ def evaluate_polymarket_trades(btc_price: float, signal: dict,
                         "signal_confidence": confidence,
                         "signal_rsi": signal["signals"]["rsi"],
                         "timestamp": datetime.now().isoformat(),
+                        "settle_date": nb["market"].get("settle_date", ""),
                     })
 
     return trades
@@ -283,6 +285,16 @@ def check_settlements(portfolio: dict, btc_price: float) -> list[dict]:
             except ValueError:
                 pass
 
+        # Fallback: if no settle_date, derive from entry timestamp (settle after 24h)
+        if settle_dt is None:
+            entry_ts = pos.get("timestamp", pos.get("entry_time", ""))
+            if entry_ts:
+                try:
+                    entry_dt = datetime.fromisoformat(entry_ts)
+                    settle_dt = entry_dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                except (ValueError, TypeError):
+                    pass
+
         now = datetime.utcnow()
         # Settlement: if settle date is in the past (in UTC) or price is clearly resolved
         target_reached = False
@@ -292,16 +304,14 @@ def check_settlements(portfolio: dict, btc_price: float) -> list[dict]:
         else:  # BUY_NO
             target_reached = btc_price <= pos["strike"]
 
-        # Settle if target date passed OR target reached
+        # Settle when past target date OR price crossed strike
         should_settle = False
         if settle_dt and now > settle_dt:
             should_settle = True
-        if target_reached and pos.get("btc_price", 0) != btc_price:
-            # Price crossed the strike since we entered — mark for settlement
-            # But only if the market is settled on Polymarket (we can't check easily, so use date)
-            pass
+        elif target_reached:
+            should_settle = True
 
-        if should_settle or target_reached:
+        if should_settle:
             # Calculate P&L
             bet = pos["bet_size"]
             if pos["action"] == "BUY_YES":

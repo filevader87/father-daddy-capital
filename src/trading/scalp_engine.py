@@ -22,6 +22,19 @@ from pathlib import Path
 import json
 import sys
 
+# ─── Neural Plasticity (shared with paper engine) ─────────────────────────────
+from src.neural.plastic_network import (
+    NeuralPlasticityEngine, encode_signal_vector, scale_pnl_to_target,
+)
+
+_scalp_neural = None
+
+def _get_scalp_neural():
+    global _scalp_neural
+    if _scalp_neural is None:
+        _scalp_neural = NeuralPlasticityEngine()
+    return _scalp_neural
+
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 SCALP_SYMBOLS = ["BTC-USD", "ETH-USD", "SOL-USD", "SPY", "QQQ"]
@@ -338,6 +351,12 @@ def check_scalp_exits(the_positions: dict, current_prices: dict, now: datetime) 
                 "direction": pos["direction"],
                 "signal_score": pos.get("signal_score", 0),
                 "timestamp": now.isoformat(),
+                "_pos_data": {  # snapshot for neural learning
+                    "entry_signals": pos.get("entry_signals", {}),
+                    "entry_volatility": pos.get("entry_volatility", 0.2),
+                    "entry_confidence": pos.get("entry_confidence", 0.5),
+                    "asset_class": pos.get("asset_class", "equity"),
+                },
             })
             del the_positions[symbol]
     
@@ -392,10 +411,14 @@ def scalp_to_neural_input(signal: dict) -> np.ndarray:
 
 # ─── Main Entry Point for Paper Engine ───────────────────────────────────────
 
-def run_scalp_cycle(state: dict) -> tuple[list[dict], list[dict], list[dict]]:
+def run_scalp_cycle(state: dict, neural=None) -> tuple[list[dict], list[dict], list[dict]]:
     """
     One complete scalp cycle.
-    
+
+    Args:
+        state: paper engine state dict
+        neural: optional NeuralPlasticityEngine (shared from paper_engine)
+
     Returns:
         new_entries: list of entry orders placed
         exits: list of exit orders executed this cycle
@@ -405,18 +428,17 @@ def run_scalp_cycle(state: dict) -> tuple[list[dict], list[dict], list[dict]]:
     scalp_positions = state.setdefault("scalp_positions", {})
     scalp_exits_all = state.setdefault("scalp_exits", [])
     scalp_scans = state.setdefault("scalp_scans", 0)
-    
+
     # ── Phase 1: Check exits on existing positions ───────────────────────
     signals_raw = scan_scalps({**state, "swing_positions": state.get("swing_positions", {})})
     current_prices = {s["symbol"]: s["entry_price"] for s in signals_raw}
-    
+
     exits = check_scalp_exits(scalp_positions, current_prices, now)
-    
+
     # Process exits — return capital
     for exit_order in exits:
         state["capital"] += exit_order["price"] * exit_order["shares"]
         if exit_order["direction"] == "SHORT":
-            # Short profit = sold high, bought back lower
             pnl = (exit_order["entry_price"] - exit_order["price"]) * exit_order["shares"]
         else:
             pnl = exit_order["pnl"]
@@ -424,6 +446,26 @@ def run_scalp_cycle(state: dict) -> tuple[list[dict], list[dict], list[dict]]:
         today = now.strftime("%Y-%m-%d")
         state["daily_pnl"][today] = state["daily_pnl"].get(today, 0) + pnl
         scalp_exits_all.append(exit_order)
+
+        # Remove position from tracking
+        symbol = exit_order["symbol"]
+        pos_data = exit_order.pop("_pos_data", {})
+        scalp_positions.pop(symbol, None)
+
+        # Feed neural plasticity layer (use shared instance if provided)
+        if neural is not None:
+            try:
+                pnl_pct = pnl / (exit_order["entry_price"] * exit_order["shares"] + 1e-9)
+                result_for_neural = {
+                    "signals": pos_data.get("entry_signals", {}),
+                    "volatility": pos_data.get("entry_volatility", 0.2),
+                    "asset_class": pos_data.get("asset_class", "equity"),
+                    "confidence": pos_data.get("entry_confidence", 0.5),
+                }
+                pred = neural.predict_return(result_for_neural)
+                neural.learn(result_for_neural, pred, pnl_pct)
+            except Exception:
+                pass
     
     # ── Phase 2: Generate new entries ────────────────────────────────────
     entries = []

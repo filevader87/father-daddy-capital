@@ -425,10 +425,9 @@ class NeuralPlasticityEngine:
         # Track performance
         self.performance.record(predicted, target, self.network.updates)
 
-        # Auto-save every 25 updates
-        if self.network.updates % 25 == 0:
-            self.network.save()
-            self.performance.save()
+        # Auto-save every update (real trades are scarce — persist immediately)
+        self.network.save()
+        self.performance.save()
 
     def stats(self) -> dict:
         return {
