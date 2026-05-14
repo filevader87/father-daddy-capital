@@ -83,6 +83,30 @@ SIZING = {
     "min_bet":               1.0,   # Minimum $1 (allow micro-probes)
 }
 
+# ── Drawdown Guardrails ──────────────────────────────────────────────────
+# Progressive DD-based sizing reduction. During losing streaks, the engine
+# automatically downgrades bet sizes. Prevents the 20% DD spirals seen
+# in 9/20 multi-asset seeds. Three tiers:
+#   DD > 5%:  conviction→confidence, confidence→probe (downgrade one tier)
+#   DD > 8%:  all entries → probe only
+#   DD > 12%: halt all new entries, wait for recovery
+DD_GUARD = {
+    "track_peak": True,       # Track session peak capital for DD calc
+    "downgrade_dd": 0.05,     # >5% DD → downgrade conviction to confidence tier
+    "probe_only_dd": 0.08,    # >8% DD → probe-only, no confidence/conviction
+    "halt_dd": 0.12,          # >12% DD → no new entries at all
+}
+
+# ── Mid-Window Stop-Loss ─────────────────────────────────────────────────
+# If a position is still open past half its expiry window and the price
+# has moved AGAINST the prediction, close it early. Binaries shouldn't
+# ride to zero when edge has clearly evaporated mid-window.
+MID_WINDOW_STOP = {
+    "enabled": True,
+    "check_at_pct": 0.50,     # Check at 50% of window elapsed
+    "loss_threshold_pct": -0.015,  # -1.5% move against prediction → trigger
+}
+
 # Contract filters
 MAX_POSITIONS_PER_ASSET = 2     # Max concurrent positions per asset
 MAX_TOTAL_POSITIONS = 8         # Across all assets
@@ -358,21 +382,46 @@ def parse_end_time(end_date: str, window: str) -> datetime | None:
 # Variable Sizing
 # ══════════════════════════════════════════════════════════════════════════════
 
-def size_conviction(edge: float, bankroll: float):
-    """Conviction-based sizing: return (bet_amount, tier_label)."""
+def size_conviction(edge: float, bankroll: float, drawdown_pct: float = 0.0):
+    """Conviction-based sizing with drawdown guard. Returns (bet_amount, tier_label)."""
     if edge <= SIZING["probe_threshold"] or bankroll <= 0:
         return 0.0, "skip"
 
+    # ── Drawdown guardrail ──────────────────────────────────────────────────
+    if DD_GUARD["track_peak"] and drawdown_pct >= DD_GUARD["halt_dd"]:
+        return 0.0, "halted"  # >12% DD → no new entries
+    force_probe = drawdown_pct >= DD_GUARD["probe_only_dd"]  # >8% → probe only
+    downgrade = drawdown_pct >= DD_GUARD["downgrade_dd"]     # >5% → downgrade one tier
+
+    if force_probe:
+        bet = bankroll * SIZING["probe_pct"]
+        return round(max(bet, SIZING["min_bet"]), 2), "probe"
+
     if edge >= SIZING["conviction_threshold"]:
+        if downgrade:
+            bet = bankroll * SIZING["confidence_pct"]
+            return round(max(bet, SIZING["min_bet"]), 2), "confidence"
         bet = bankroll * SIZING["conviction_pct"]
         bet = min(bet, SIZING["max_conviction_dollar"])
         return round(max(bet, SIZING["min_bet"]), 2), "conviction"
     elif edge >= SIZING["confidence_threshold"]:
+        if downgrade:
+            bet = bankroll * SIZING["probe_pct"]
+            return round(max(bet, SIZING["min_bet"]), 2), "probe"
         bet = bankroll * SIZING["confidence_pct"]
         return round(max(bet, SIZING["min_bet"]), 2), "confidence"
     else:
         bet = bankroll * SIZING["probe_pct"]
         return round(max(bet, SIZING["min_bet"]), 2), "probe"
+
+
+def compute_drawdown(state: dict) -> float:
+    """Compute current drawdown from peak capital. Peak is tracked in state."""
+    bankroll = state.get("bankroll", PAPER_BANKROLL)
+    peak = state.get("peak_capital", bankroll)
+    if peak <= 0:
+        return 0.0
+    return max(0.0, (peak - bankroll) / peak)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -465,8 +514,9 @@ def evaluate_entries_for_asset(
             if calibrated_edge > edge:
                 edge = calibrated_edge
 
-        # Variable sizing
-        bet, tier = size_conviction(edge, bankroll)
+        # Variable sizing (with drawdown guard)
+        dd = compute_drawdown(state)
+        bet, tier = size_conviction(edge, bankroll, drawdown_pct=dd)
         if bet < SIZING["min_bet"] or bet > available:
             continue
 
