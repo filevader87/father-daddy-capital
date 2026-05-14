@@ -77,12 +77,39 @@ class BayesianCalibrator:
         """β₀ + Σ βᵢ·featureᵢ"""
         return float(self.beta[0] + np.dot(self.beta[1:], features))
 
-    def predict(self, features: np.ndarray) -> dict:
+    @staticmethod
+    def entropy(p: float) -> float:
+        """Shannon entropy for a binary with probability p. H = -p log₂(p) - (1-p) log₂(1-p)."""
+        p = max(1e-12, min(1.0 - 1e-12, p))
+        return float(-(p * np.log2(p) + (1 - p) * np.log2(1 - p)))
+
+    @staticmethod
+    def kl_divergence(p: float, q: float) -> float:
         """
-        Return calibrated probability with uncertainty bounds.
+        KL-divergence D_KL(P||Q) from calibrated probability P to market-implied Q.
+        Measures information gain of our model relative to market consensus.
+
+        D_KL(P||Q) = p·log₂(p/q) + (1-p)·log₂((1-p)/(1-q))
+
+        Args:
+            p: calibrated probability (our model)
+            q: market-implied probability (contract price)
+
+        Returns:
+            KL-divergence in bits. 0 = identical, higher = more disagreement.
+        """
+        p = max(1e-12, min(1.0 - 1e-12, p))
+        q = max(1e-12, min(1.0 - 1e-12, q))
+        return float(p * np.log2(p / q) + (1 - p) * np.log2((1 - p) / (1 - q)))
+
+    def predict(self, features: np.ndarray, market_price: float | None = None) -> dict:
+        """
+        Return calibrated probability with uncertainty bounds and optional KL-divergence.
 
         Args:
             features: [N_FEATURES,] vector from FeatureEncoder.encode()
+            market_price: contract price (yes_price for YES, no_price for NO).
+                         When provided, adds kl_divergence and market_entropy fields.
 
         Returns:
             {
@@ -91,6 +118,11 @@ class BayesianCalibrator:
                 "probability_ci_high": float, # 97.5% percentile
                 "certainty": float,           # 1 - CI width
                 "log_odds": float,            # raw log odds
+                "entropy": float,             # Shannon entropy of calibrated prediction
+                # Only when market_price is provided:
+                "kl_divergence": float,       # D_KL(calibrated || market) in bits
+                "kl_edge_score": float,       # kl_divergence × calibration_factor — quality-weighted edge
+                "market_entropy": float,      # Shannon entropy of market belief
             }
         """
         assert len(features) == N_FEATURES, \
@@ -114,13 +146,22 @@ class BayesianCalibrator:
         prob_hi = self._sigmoid(hi_log_odds)
         ci_width = prob_hi - prob_lo
 
-        return {
+        result = {
             "probability": round(float(prob), 4),
             "probability_ci_low": round(float(prob_lo), 4),
             "probability_ci_high": round(float(prob_hi), 4),
             "certainty": round(float(1.0 - min(ci_width, 1.0)), 4),
             "log_odds": round(float(log_odds), 4),
+            "entropy": round(self.entropy(prob), 4),
         }
+
+        if market_price is not None:
+            kl = self.kl_divergence(prob, market_price)
+            result["kl_divergence"] = round(kl, 6)
+            result["kl_edge_score"] = round(kl * self.calibration_factor, 6)
+            result["market_entropy"] = round(self.entropy(market_price), 4)
+
+        return result
 
     # ── Online learning ───────────────────────────────────────────────────
 

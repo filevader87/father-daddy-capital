@@ -407,7 +407,7 @@ def evaluate_entries(signal: dict, contracts: list[dict],
         )
 
         # Get calibrated probability
-        cal_result = cal.predict(features) if cal else None
+        cal_result = cal.predict(features, market_price=cand["price"]) if cal else None
         cal_factor = cal.calibration_factor if cal else 0.5
         certainty = cal_result.get("certainty", 0.5) if cal_result else 0.5
 
@@ -453,6 +453,9 @@ def evaluate_entries(signal: dict, contracts: list[dict],
             "cal_ci_low": round(cal_result["probability_ci_low"], 4) if cal_result else None,
             "cal_ci_high": round(cal_result["probability_ci_high"], 4) if cal_result else None,
             "cal_certainty": round(certainty, 4),
+            "cal_entropy": round(cal_result["entropy"], 4) if cal_result else None,
+            "kl_divergence": round(cal_result["kl_divergence"], 6) if cal_result and "kl_divergence" in cal_result else None,
+            "kl_edge_score": round(cal_result["kl_edge_score"], 6) if cal_result and "kl_edge_score" in cal_result else None,
             # Neural fields for later learning
             "signal_vector": sv,
             "neural_pred": round(neural_pred, 4) if neural_pred is not None else None,

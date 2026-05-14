@@ -212,7 +212,7 @@ def simulate(cycles=200, bankroll=200.0, seed=42, json_mode=False, verbose=False
                 prices, con["yes_price"], con["no_price"],
                 con["volume"], con["hours_to_resolution"],
             )
-            res = cal.predict(fv)
+            res = cal.predict(fv, market_price=entry_price)
             cp, cert, cf = res["probability"], res["certainty"], cal.calibration_factor
 
             # Blend
