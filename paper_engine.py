@@ -46,13 +46,44 @@ from src.neural.plastic_network import (
     NeuralPlasticityEngine, encode_signal_vector, scale_pnl_to_target,
 )
 
+# ─── Meta-Controller ────────────────────────────────────────────────────────
+from src.trading.meta_controller import MetaController
+
+# ─── CCXT Data Layer ────────────────────────────────────────────────────────
+from src.trading.ccxt_layer import CCXTDataProvider, get_provider, shutdown_provider
+
+_ccxt_provider = None
 _neural = None
+_meta_controller = None
+
+def _get_ccxt() -> CCXTDataProvider | None:
+    """Returns the active CCXT provider, or None if unavailable."""
+    global _ccxt_provider
+    if _ccxt_provider is not None:
+        return _ccxt_provider
+    if not _check_ccxt():
+        return None
+    try:
+        import asyncio
+        loop = asyncio.get_event_loop()
+        if not loop.is_running():
+            _ccxt_provider = loop.run_until_complete(get_provider())
+            return _ccxt_provider
+    except Exception:
+        pass
+    return None
 
 def _get_neural():
     global _neural
     if _neural is None:
         _neural = NeuralPlasticityEngine()
     return _neural
+
+def _get_meta():
+    global _meta_controller
+    if _meta_controller is None:
+        _meta_controller = MetaController()
+    return _meta_controller
 
 
 # ─── Import Engines ──────────────────────────────────────────────────────────
@@ -495,6 +526,59 @@ def run_once():
     except Exception:
         arb_tick = None
 
+    # ── META-CONTROLLER — auto-adaptive strategy layer ────────────────
+    try:
+        # Compute crypto/equity correlation from scan results
+        crypto_prices = [r["price"] for r in scan_results if r.get("asset_class") == "crypto"]
+        equity_prices = [r["price"] for r in scan_results if r.get("asset_class") == "equity"]
+        correlation = 0.0
+        if len(crypto_prices) >= 2 and len(equity_prices) >= 2:
+            correlation = float(np.corrcoef(crypto_prices[:min(len(crypto_prices), len(equity_prices))],
+                                            equity_prices[:min(len(crypto_prices), len(equity_prices))])[0, 1])
+            if np.isnan(correlation):
+                correlation = 0.0
+
+        meta = _get_meta()
+        ccxt = _get_ccxt()
+        decision = meta.decide(
+            state=state,
+            swing_scan_results=scan_results,
+            scalp_entries=scalp_entries,
+            pm_entries=pm_entries or [],
+            alt_entries=alt_entries or [],
+            arb_tick=arb_tick,
+            crypto_equity_correlation=correlation,
+            ccxt_provider=ccxt,
+        )
+
+        # Apply meta decision directives
+        for directive in decision["directives"]:
+            if directive["type"] == "amplify" and directive["target"] == "scalp":
+                for se in scalp_entries:
+                    se["position_usd"] = se.get("position_usd", 500) * directive["factor"]
+            elif directive["type"] == "amplify" and directive["target"] == "polymarket":
+                for pe in (pm_entries or []):
+                    pe["bet_size"] = pe.get("bet_size", 50) * directive["factor"]
+            elif directive["type"] == "reduce_exposure" and directive["target"] == "altcoin":
+                for ae in (alt_entries or []):
+                    ae["value"] = ae.get("value", 500) * directive["factor"]
+            elif directive["type"] == "liquidate" and directive["target"] == "polymarket":
+                # Force liquidate open PM positions
+                for key in list(state.get("polymarket_positions", {}).keys()):
+                    pos = state["polymarket_positions"].pop(key)
+                    state["trade_journal"].append({
+                        "type": "polymarket", "key": key,
+                        "action": pos.get("action", "LIQUIDATE"),
+                        "pnl": -pos.get("bet", pos.get("bet_size", 50)),
+                        "settled": False,
+                        "exit_reason": "HYBRID_CASCADE",
+                        "timestamp": datetime.now().isoformat(),
+                    })
+                    state["polymarket_pnl"] = state.get("polymarket_pnl", 0) - pos.get("bet", pos.get("bet_size", 50))
+
+    except Exception:
+        pass  # Meta-controller is non-critical — degrade gracefully
+
     # ── Calibration (every 50 scans) ─────────────────────────────────
     try:
         if state["scans"] % 50 == 0 and state["scans"] > 0:
@@ -547,6 +631,13 @@ def run_once():
                 f"Loss: {stats['avg_loss']:.4f} | "
                 f"Acc: {stats['rolling_accuracy']:.1%}\n"
             )
+    except Exception:
+        pass
+
+    # Meta-controller report
+    try:
+        meta = _get_meta()
+        report += meta.report()
     except Exception:
         pass
 

@@ -21,11 +21,10 @@ import re
 import time
 import sys
 import numpy as np
-import yfinance as yf
 from datetime import datetime, timedelta
 from pathlib import Path
 
-# ─── Neural Plasticity Import ──────────────────────────────────────────────
+# ─── Neural & Bayesian Import ────────────────────────────────────────────
 REPO = Path(__file__).parent
 sys.path.insert(0, str(REPO / "src" / "neural"))
 try:
@@ -33,6 +32,13 @@ try:
     _NEURAL_AVAILABLE = True
 except ImportError:
     _NEURAL_AVAILABLE = False
+
+try:
+    import bayesian_layer as bl
+    import feature_encoder as fe
+    _BAYESIAN_AVAILABLE = True
+except ImportError:
+    _BAYESIAN_AVAILABLE = False
 
 GAMMA  = "https://gamma-api.polymarket.com"
 CLOB   = "https://clob.polymarket.com"
@@ -64,6 +70,8 @@ NEURAL_CONSOLIDATE_EVERY = 50  # EWC consolidation frequency
 
 # Neural engine instance (initialized lazily)
 _neural_engine = None
+_bayesian_engine = None
+_feature_encoder = None
 
 
 def pm_encode_signal(signal: dict) -> np.ndarray:
@@ -122,6 +130,24 @@ def _get_neural() -> "pn.NeuralPlasticityEngine | None":
     if _neural_engine is None:
         _neural_engine = pn.NeuralPlasticityEngine()
     return _neural_engine
+
+
+def _get_bayesian() -> "bl.BayesianCalibrator | None":
+    """Lazy-init the Bayesian calibration layer."""
+    global _bayesian_engine
+    if not _BAYESIAN_AVAILABLE:
+        return None
+    if _bayesian_engine is None:
+        _bayesian_engine = bl.BayesianCalibrator()
+    return _bayesian_engine
+
+
+def _get_feature_encoder() -> "fe.FeatureEncoder":
+    """Lazy-init the feature encoder, wired to Bayesian calibrator."""
+    global _feature_encoder
+    if _feature_encoder is None:
+        _feature_encoder = fe.FeatureEncoder(calibrator=_get_bayesian())
+    return _feature_encoder
 
 
 def _neural_blend_weight() -> float:
@@ -272,11 +298,13 @@ def btc_signal(prices: list[float]) -> dict:
         "macd": round(macd, 2),
         "momentum": up,
         "price": current,
+        "_prices": prices,   # Full price array for feature encoder
     }
 
 
 def fetch_btc_5min() -> list[float]:
     try:
+        import yfinance as yf
         h = yf.Ticker("BTC-USD").history(period="1d", interval="5m")
         if len(h) < 14:
             return []
@@ -356,10 +384,50 @@ def evaluate_entries(signal: dict, contracts: list[dict],
         if available < 5.0:  # Min bet $5
             break
 
-        # Kelly sizing: f* = edge / (1 - price) × KELLY_MULTIPLIER
-        kelly = (edge / max(0.01, 1 - cand["price"])) * KELLY_MULTIPLIER
-        kelly = min(0.4, max(0.05, kelly))  # clamp 5-40%
-        bet = round(min(available, bankroll * kelly), 2)
+        # ── Bayesian-calibrated Kelly sizing ────────────────────────────
+        cal = _get_bayesian()
+        encoder = _get_feature_encoder()
+
+        # Compute feature vector for this specific contract
+        hours_to_res = 24.0  # default: unknown → use conservative
+        if cand.get("contract", {}).get("end_date"):
+            try:
+                end_dt = datetime.fromisoformat(
+                    str(cand["contract"]["end_date"]).replace("Z", "+00:00"))
+                hours_to_res = max(0.0, (end_dt - datetime.now(end_dt.tzinfo)).total_seconds() / 3600)
+            except (ValueError, TypeError):
+                pass
+
+        features = encoder.encode(
+            btc_prices_5m=signal.get("_prices", []),
+            contract_yes_price=cand["price"] if cand["side"] == "YES" else 1 - cand["price"],
+            contract_no_price=1 - cand["price"] if cand["side"] == "YES" else cand["price"],
+            contract_volume=cand["contract"].get("volume", 10000),
+            hours_to_resolution=hours_to_res,
+        )
+
+        # Get calibrated probability
+        cal_result = cal.predict(features) if cal else None
+        cal_factor = cal.calibration_factor if cal else 0.5
+        certainty = cal_result.get("certainty", 0.5) if cal_result else 0.5
+
+        # Use the calibrated edge if available, otherwise fall back
+        if cal_result:
+            cal_prob = cal_result["probability"]
+            # Edge: our calibrated prob vs market price
+            calibrated_edge = cal_prob - cand["price"] if cand["side"] == "YES" else (1 - cal_prob) - cand["price"]
+            if calibrated_edge > edge:
+                edge = calibrated_edge
+
+        bet = fe.kelly_sizer(
+            edge=edge,
+            odds=1 - cand["price"],
+            bankroll=bankroll,
+            calibration_factor=cal_factor,
+            certainty=certainty,
+            max_bankroll_fraction=0.02,
+            min_bet=5.0,
+        )
 
         # Store signal vector for neural learning on settlement
         sv = signal_vector.tolist() if signal_vector is not None else None
@@ -379,6 +447,12 @@ def evaluate_entries(signal: dict, contracts: list[dict],
             "signal_rsi": signal["rsi"],
             "entry_time": datetime.now().isoformat(),
             "side": cand["side"],
+            # Bayesian fields for later learning
+            "bayesian_features": features.tolist() if 'features' in dir() else None,
+            "cal_prob": round(cal_result["probability"], 4) if cal_result else None,
+            "cal_ci_low": round(cal_result["probability_ci_low"], 4) if cal_result else None,
+            "cal_ci_high": round(cal_result["probability_ci_high"], 4) if cal_result else None,
+            "cal_certainty": round(certainty, 4),
             # Neural fields for later learning
             "signal_vector": sv,
             "neural_pred": round(neural_pred, 4) if neural_pred is not None else None,
@@ -509,6 +583,14 @@ def run_once(state):
             "pnl": pnl,
             "question": s.get("question", ""),
         })
+
+        # ── Bayesian learning from settled trade ────────────────────────
+        cal = _get_bayesian()
+        if cal is not None:
+            sv_bayes = s.get("bayesian_features")
+            if sv_bayes is not None:
+                outcome = 1 if pnl > 0 else 0  # YES wins = 1
+                cal.update(np.array(sv_bayes, dtype=float), outcome)
 
         # ── Neural learning from settled trade ────────────────────────────
         neural = _get_neural()
