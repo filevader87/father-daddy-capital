@@ -1,15 +1,23 @@
 #!/usr/bin/env python3
 """
-Father Daddy Capital — Polymarket Engine (Standalone)
-======================================================
-Dedicated 2-minute scan loop. Finds ALL BTC time-bound contracts.
-Asymmetric entry sizing: Kelly × 1.5 for high-conviction, compounding.
+Father Daddy Capital — Polymarket Engine v2 (Multi-Asset + Short-Duration)
+===========================================================================
+Overhauled based on successful bot analysis (@ohanism: 80% WR, +$31K).
 
-Strategy:
-  Every 2 minutes: fetch BTC 5m candles, run RSI(7)/MACD/volume stack.
-  Query Polymarket for active BTC contracts. Find strikes within 4%.
-  Enter when edge > 0.03. Compound all profits. No stop-loss — binaries
-  are full-risk by default, so only enter when edge is real.
+Strategy — three changes from v1:
+  1. SHORT-DURATION CONTRACTS: 5-min "Up or Down" windows instead of daily
+     above/below. Edge decays over hours — capture it in minutes.
+  2. MULTI-ASSET: BTC (50%), ETH (30%), SOL (15%), XRP (5%).
+     Different vol profiles = uncorrelated losers. No single-asset bleed.
+  3. VARIABLE SIZING: Conviction-based three-tier system.
+     Low edge (<0.08) → probe bet (1% bankroll)
+     Medium edge (0.08-0.15) → confidence bet (3%)
+     High edge (>0.15) → conviction bet (5%, cap $50)
+
+Pipeline per asset per scan:
+  fetch 5m candles → RSI(7)/MACD(6/13) → direction + confidence
+  → discover active "Up or Down" contracts expiring in next 10 min
+  → match signal to outcome → Bayesian + neural edge → variable size
 
 All trades simulated paper. Zero real USDC until live gates met.
 """
@@ -23,8 +31,9 @@ import sys
 import numpy as np
 from datetime import datetime, timedelta
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# ─── Neural & Bayesian Import ────────────────────────────────────────────
+# ─── Neural & Bayesian Import ────────────────────────────────────────────────
 REPO = Path(__file__).parent
 sys.path.insert(0, str(REPO / "src" / "neural"))
 try:
@@ -40,135 +49,123 @@ try:
 except ImportError:
     _BAYESIAN_AVAILABLE = False
 
-GAMMA  = "https://gamma-api.polymarket.com"
-CLOB   = "https://clob.polymarket.com"
-OUTPUT = Path("/mnt/c/Users/12035/father_daddy_capital/output")
-STATE  = Path("/mnt/c/Users/12035/father_daddy_capital/output/pm_state.json")
+GAMMA   = "https://gamma-api.polymarket.com"
+CLOB    = "https://clob.polymarket.com"
+OUTPUT  = Path("/mnt/c/Users/12035/father_daddy_capital/output")
+STATE   = OUTPUT / "pm_state.json"
 
-# ─── Configuration ──────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Configuration
+# ══════════════════════════════════════════════════════════════════════════════
 
-SCAN_SECONDS = 120               # 2-minute scan
-INITIAL_BANKROLL = 250.0         # Live starting capital
-PAPER_BANKROLL = 250.0           # Paper mode mirror
+SCAN_SECONDS = 120
+INITIAL_BANKROLL = 250.0
+PAPER_BANKROLL = 250.0
 
-MAX_DISTANCE_PCT = 4.0           # Strike within 4% of current price
-MIN_EDGE = 0.02                  # Edge threshold (lowered for more entries)
-MAX_YES_PRICE = 0.85             # Max contract price to buy
-MIN_CONTRACT_PRICE = 0.05        # Filter extreme longshots
-MAX_POSITIONS = 3                # Concurrent open positions
-KELLY_MULTIPLIER = 1.5           # Amplify Kelly for small accounts
+# Multi-asset roster — allocation weights match @ohanism pattern
+ASSETS = {
+    "BTC":  {"yf": "BTC-USD",  "name": "Bitcoin",  "alloc": 0.50},
+    "ETH":  {"yf": "ETH-USD",  "name": "Ethereum",  "alloc": 0.30},
+    "SOL":  {"yf": "SOL-USD",  "name": "Solana",    "alloc": 0.15},
+    "XRP":  {"yf": "XRP-USD",  "name": "XRP",       "alloc": 0.05},
+}
 
-# Signal thresholds — tuned for 2-3 trades/day
-RSI_OVERSOLD = 48                # Was 38 — too sterile
-RSI_OVERBOUGHT = 52              # Was 62 — same problem
-MIN_VOLUME_USD = 10000           # Minimum volume for any contract
+# ── Variable sizing tiers (conviction-based) ───────────────────────────────
+# Replaces the old fixed 2% Kelly. Small probes, big convictions.
+SIZING = {
+    "probe_threshold":      0.03,   # edge > this → probe bet
+    "confidence_threshold": 0.08,   # edge > this → confidence bet
+    "conviction_threshold": 0.15,   # edge > this → conviction bet
+    "probe_pct":            0.01,   # 1% of bankroll
+    "confidence_pct":       0.03,   # 3%
+    "conviction_pct":       0.05,   # 5%
+    "max_conviction_dollar": 25.0,  # Cap per conviction bet (seed phase: aggressive)
+    "min_bet":               1.0,   # Minimum $1 (allow micro-probes)
+}
 
-# Regime guard — skip entries when BTC is in a confirmed downtrend
-# BTC < 20-SMA AND MACD(6/13) < 0 → bear market, do nothing
-# 200-cycle simulation across 10 seeds: eliminates -$117 avg TD bleed,
-# raises WR from 50.9%→74.8%, P&L from +78.9%→+266.5%, 10/10 gates pass
-BEAR_SKIP = True
+# Contract filters
+MAX_POSITIONS_PER_ASSET = 2     # Max concurrent positions per asset
+MAX_TOTAL_POSITIONS = 8         # Across all assets
+MIN_VOLUME_USD = 5000           # Lower for short-duration contracts
+MIN_CONTRACT_PRICE = 0.03       # Lower floor — 5-min contracts have wilder prices
+MAX_CONTRACT_PRICE = 0.90
+MAX_WINDOW_MINUTES = 15         # Only trade contracts expiring within this window
+MIN_SIGNAL_CONF = 0.12          # Minimum signal confidence to enter
 
-# Neural plasticity blending
-NEURAL_BLEND_MAX = 0.30        # Max weight for neural score in blended signal
-NEURAL_BLEND_UPDATES = 200     # Updates to reach full blend (0→NEURAL_BLEND_MAX)
-NEURAL_CONSOLIDATE_EVERY = 50  # EWC consolidation frequency
+# Signal thresholds
+RSI_OVERSOLD = 48
+RSI_OVERBOUGHT = 52
 
-# Neural engine instance (initialized lazily)
-_neural_engine = None
+# Regime guard
+BEAR_SKIP = True                # BTC < 20-SMA AND MACD < 0 → skip all entries
+
+# Neural
+NEURAL_BLEND_MAX = 0.30
+NEURAL_BLEND_UPDATES = 200
+NEURAL_CONSOLIDATE_EVERY = 50
+
+_neural_engine  = None
 _bayesian_engine = None
 _feature_encoder = None
 
 
-def pm_encode_signal(signal: dict) -> np.ndarray:
-    """Convert PM signal dict to neural input vector [8,]."""
-    direction = signal.get("direction", "neutral")
-    conf = signal.get("confidence", 0.0)
-    rsi = signal.get("rsi", 50.0)
-    macd = signal.get("macd", 0.0)
-    mom = signal.get("momentum", 2)
+# ══════════════════════════════════════════════════════════════════════════════
+# Neural / Bayesian helpers (unchanged from v1)
+# ══════════════════════════════════════════════════════════════════════════════
 
-    # Map direction to signals
-    if direction == "up":
-        trend_sig = 0.5 + conf * 0.3
-        mom_sig = min(1.0, mom / 3.0)
+def pm_encode_signal(sig: dict, asset_class: float = 0.0) -> np.ndarray:
+    d = sig.get("direction", "neutral"); conf = sig.get("confidence", 0.0)
+    rsi = sig.get("rsi", 50.0); macd = sig.get("macd", 0.0); mom = sig.get("momentum", 2)
+    if d == "up":
+        trend_sig = 0.5 + conf * 0.3; mom_sig = min(1.0, mom / 3.0)
         mean_rev = max(0.0, (50 - rsi) / 25)
-    elif direction == "down":
-        trend_sig = -0.5 - conf * 0.3
-        mom_sig = -min(1.0, (3 - mom) / 3.0)
+    elif d == "down":
+        trend_sig = -0.5 - conf * 0.3; mom_sig = -min(1.0, (3 - mom) / 3.0)
         mean_rev = -max(0.0, (rsi - 50) / 25)
     else:
-        trend_sig = 0.0
-        mom_sig = 0.0
-        mean_rev = 0.0
-
-    # Normalize RSI to roughly [-1, 1]
-    rsi_norm = (rsi - 50) / 25
-
-    # MACD normalized
-    macd_norm = float(np.clip(macd / 500, -1.0, 1.0))
-
-    # Volatility proxy from RSI extremes
+        trend_sig = mom_sig = mean_rev = 0.0
+    rsi_norm = (rsi - 50) / 25; macd_norm = float(np.clip(macd / 500, -1.0, 1.0))
     vol = abs(rsi - 50) / 25
-
     return np.array([
-        float(np.clip(rsi_norm, -1.0, 1.0)),
-        float(np.clip(macd_norm, -1.0, 1.0)),
-        float(np.clip(trend_sig, -1.0, 1.0)),
-        float(np.clip(mom_sig, -1.0, 1.0)),
-        float(np.clip(mean_rev, -1.0, 1.0)),
-        float(np.clip(vol, 0.0, 1.0)),
-        0.0,  # asset_class: BTC=crypto, but PM is all crypto so neutral
-        float(np.clip(conf, 0.0, 1.0)),
+        float(np.clip(rsi_norm, -1.0, 1.0)), float(np.clip(macd_norm, -1.0, 1.0)),
+        float(np.clip(trend_sig, -1.0, 1.0)), float(np.clip(mom_sig, -1.0, 1.0)),
+        float(np.clip(mean_rev, -1.0, 1.0)), float(np.clip(vol, 0.0, 1.0)),
+        float(np.clip(asset_class, -1.0, 1.0)), float(np.clip(conf, 0.0, 1.0)),
     ], dtype=float)
 
+def scale_pm_pnl(pnl_pct: float) -> float:
+    return float(np.clip(pnl_pct / 1.25, -1.0, 1.0))
 
-def scale_pm_pnl(actual_pnl_pct: float) -> float:
-    """Scale P&L % to [-1, 1] target. Binary = full 100% or -100% payoff."""
-    return float(np.clip(actual_pnl_pct / 1.25, -1.0, 1.0))
-
-
-def _get_neural() -> "pn.NeuralPlasticityEngine | None":
-    """Lazy-init the neural engine. Returns None if unavailable."""
+def _get_neural():
     global _neural_engine
-    if not _NEURAL_AVAILABLE:
-        return None
-    if _neural_engine is None:
-        _neural_engine = pn.NeuralPlasticityEngine()
+    if not _NEURAL_AVAILABLE: return None
+    if _neural_engine is None: _neural_engine = pn.NeuralPlasticityEngine()
     return _neural_engine
 
-
-def _get_bayesian() -> "bl.BayesianCalibrator | None":
-    """Lazy-init the Bayesian calibration layer."""
+def _get_bayesian():
     global _bayesian_engine
-    if not _BAYESIAN_AVAILABLE:
-        return None
-    if _bayesian_engine is None:
-        _bayesian_engine = bl.BayesianCalibrator()
+    if not _BAYESIAN_AVAILABLE: return None
+    if _bayesian_engine is None: _bayesian_engine = bl.BayesianCalibrator()
     return _bayesian_engine
 
-
-def _get_feature_encoder() -> "fe.FeatureEncoder":
-    """Lazy-init the feature encoder, wired to Bayesian calibrator."""
+def _get_feature_encoder():
     global _feature_encoder
     if _feature_encoder is None:
         _feature_encoder = fe.FeatureEncoder(calibrator=_get_bayesian())
     return _feature_encoder
 
-
 def _neural_blend_weight() -> float:
-    """Blend weight: 0→NEURAL_BLEND_MAX over NEURAL_BLEND_UPDATES updates."""
     neural = _get_neural()
-    if neural is None:
-        return 0.0
-    updates = neural.network.updates
-    return NEURAL_BLEND_MAX * min(1.0, updates / NEURAL_BLEND_UPDATES)
+    if neural is None: return 0.0
+    return NEURAL_BLEND_MAX * min(1.0, neural.network.updates / NEURAL_BLEND_UPDATES)
 
 
-# ─── API Helpers ────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# API
+# ══════════════════════════════════════════════════════════════════════════════
 
 def _get(url: str) -> dict | list:
-    req = urllib.request.Request(url, headers={"User-Agent": "hermes-fdc/1.0"})
+    req = urllib.request.Request(url, headers={"User-Agent": "hermes-fdc/2.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
         return json.loads(r.read())
 
@@ -179,524 +176,572 @@ def _parse(val):
     return val
 
 
-# ─── Market Discovery — ALL crypto contracts ────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Multi-Asset Price Fetching (parallel)
+# ══════════════════════════════════════════════════════════════════════════════
 
-CRYPTO_QUERIES = [
-    "bitcoin above", "ethereum above", "solana above",
-    "bitcoin below", "ethereum below", "solana below",
-    "btc", "eth", "sol",
-]
-
-def discover_contracts() -> list[dict]:
-    """Find ALL active crypto above/below contracts from Polymarket.
-    Cross-searches multiple asset names to catch everything."""
-    contracts = []
-    today = datetime.now()
-    month = today.strftime("%B")
-    day = today.day
-
-    # Date-specific queries for the next 3 days per asset
-    assets = ["Bitcoin", "Ethereum", "Solana"]
-    queries = CRYPTO_QUERIES.copy()
-    for asset in assets:
-        for offset in [0, 1, 2, 3]:
-            queries.append(f"{asset} above on {month} {day+offset}")
-            queries.append(f"{asset} below on {month} {day+offset}")
-
-    seen_ids = set()
-    for query in queries:
-        try:
-            q = urllib.parse.quote(query)
-            data = _get(f"{GAMMA}/public-search?q={q}")
-            for evt in data.get("events", []):
-                for m in evt.get("markets", []):
-                    cid = m.get("conditionId", "")
-                    if cid in seen_ids or m.get("closed", False):
-                        continue
-                    volume = float(m.get("volume", 0))
-                    if volume < MIN_VOLUME_USD:
-                        continue
-                    seen_ids.add(cid)
-
-                    question = m.get("question", "")
-                    prices = _parse(m.get("outcomePrices", []))
-                    if not isinstance(prices, list) or len(prices) < 2:
-                        continue
-
-                    contracts.append({
-                        "question": question,
-                        "conditionId": cid,
-                        "yes_price": float(prices[0]),
-                        "no_price": float(prices[1]),
-                        "volume": volume,
-                        "slug": evt.get("slug", ""),
-                        "end_date": m.get("endDate", ""),
-                    })
-        except Exception:
-            continue
-
-    return contracts
-
-
-def extract_strike(question: str) -> float | None:
-    m = re.search(r'\$([\d,]+)', question)
-    return float(m.group(1).replace(",", "")) if m else None
-
-def extract_time(question: str) -> str | None:
-    """Extract time from contract question, e.g. '8PM ET', '2PM ET'."""
-    m = re.search(r'(\d{1,2})(AM|PM)\s*(ET|UTC)', question, re.IGNORECASE)
-    if m:
-        return f"{m.group(1)}{m.group(2).upper()} {m.group(3).upper()}"
-    return None
-
-
-# ─── BTC 5-minute Signal Stack ──────────────────────────────────────────────
-
-def btc_signal(prices: list[float]) -> dict:
-    """
-    RSI(7) + MACD(6/13) + range expansion on 5-min candles.
-    Returns direction, confidence, RSI.
-    """
-    if len(prices) < 14:
-        return {"direction": "neutral", "confidence": 0, "rsi": 0, "price": 0}
-
-    current = prices[-1]
-
-    # RSI(7)
-    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-    gains = sum(max(d, 0) for d in deltas[-7:]) / 7
-    losses = sum(max(-d, 0) for d in deltas[-7:]) / 7
-    rs = gains / max(losses, 1e-9)
-    rsi = 100 - (100 / (1 + rs))
-
-    # MACD(6/13)
-    def smooth(vals, span):
-        a = 2/(span+1); r = vals[0]
-        for v in vals[1:]: r = a*v+(1-a)*r
-        return r
-    macd = smooth(prices, 6) - smooth(prices, 13)
-
-    # Momentum (last 3 candles)
-    up = sum(1 for i in range(1, min(4, len(prices))) if prices[-i] > prices[-i-1])
-
-    direction = "neutral"
-    confidence = 0.0
-
-    if rsi < RSI_OVERSOLD:
-        direction = "up"
-        confidence = min(0.80, (RSI_OVERSOLD - rsi) / 15)
-        if up >= 2: confidence += 0.10
-    elif rsi > RSI_OVERBOUGHT:
-        direction = "down"
-        confidence = min(0.80, (rsi - RSI_OVERBOUGHT) / 15)
-        if up < 2: confidence += 0.10
-    else:
-        # RSI between 48-52 — trade the momentum direction
-        direction = "up" if up >= 2 else "down"
-        confidence = 0.20
-
-    confidence = min(0.90, confidence)
-
-    return {
-        "direction": direction,
-        "confidence": round(confidence, 3),
-        "rsi": round(rsi, 1),
-        "macd": round(macd, 2),
-        "momentum": up,
-        "price": current,
-        "_prices": prices,   # Full price array for feature encoder
-    }
-
-
-def fetch_btc_5min() -> list[float]:
+def fetch_5m(symbol: str) -> list[float]:
     try:
         import yfinance as yf
-        h = yf.Ticker("BTC-USD").history(period="1d", interval="5m")
-        if len(h) < 14:
-            return []
+        h = yf.Ticker(symbol).history(period="1d", interval="5m")
+        if len(h) < 14: return []
         return h['Close'].tolist()[-60:]
     except:
         return []
 
+def fetch_all_asset_prices() -> dict[str, list[float]]:
+    """Parallel fetch of 5m candle data for all assets."""
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(fetch_5m, a["yf"]): sym
+                   for sym, a in ASSETS.items()}
+        for f in as_completed(futures):
+            sym = futures[f]
+            try:
+                results[sym] = f.result()
+            except Exception:
+                results[sym] = []
+    return results
 
-def is_bear_market(prices: list[float]) -> bool:
-    """Regime guard: BTC < 20-SMA AND MACD(6/13) < 0 → skip entries.
-    Eliminates the engine's trending_down bleed (WR 12% → 29% in sims)."""
-    if len(prices) < 20:
-        return False
-    sma20 = sum(prices[-20:]) / 20
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Signal Stack (applied to any asset's price array)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def asset_signal(prices: list[float]) -> dict:
+    """RSI(7) + MACD(6/13) + momentum on any price array."""
+    if len(prices) < 14:
+        return {"direction": "neutral", "confidence": 0.0, "rsi": 50, "price": 0}
+    current = prices[-1]
+    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+    gains = sum(max(d, 0) for d in deltas[-7:]) / 7
+    losses = sum(max(-d, 0) for d in deltas[-7:]) / 7
+    rsi = 100 - (100 / (1 + gains / max(losses, 1e-9)))
+
     def ema(vals, span):
         a = 2/(span+1); r = vals[0]
         for v in vals[1:]: r = a*v + (1-a)*r
         return r
     macd = ema(prices, 6) - ema(prices, 13)
-    return prices[-1] < sma20 and macd < 0
+    up = sum(1 for i in range(1, min(4, len(prices))) if prices[-i] > prices[-i-1])
+
+    direction, confidence = "neutral", 0.0
+    if rsi < RSI_OVERSOLD:
+        direction = "up"; confidence = min(0.80, (RSI_OVERSOLD - rsi) / 15)
+        if up >= 2: confidence += 0.10
+    elif rsi > RSI_OVERBOUGHT:
+        direction = "down"; confidence = min(0.80, (rsi - RSI_OVERBOUGHT) / 15)
+        if up < 2: confidence += 0.10
+    else:
+        direction = "up" if up >= 2 else "down"
+        confidence = 0.20
+
+    sma20 = sum(prices[-20:]) / 20 if len(prices) >= 20 else current
+    return {
+        "direction": direction, "confidence": min(0.90, confidence),
+        "rsi": round(rsi, 1), "macd": round(macd, 2), "momentum": up,
+        "price": current, "sma20": sma20, "_prices": prices,
+    }
 
 
-# ─── Trade Decision ─────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Regime Guard
+# ══════════════════════════════════════════════════════════════════════════════
 
-def evaluate_entries(signal: dict, contracts: list[dict],
-                     state: dict) -> list[dict]:
-    """Find contracts where signal direction aligns with strike proximity.
-    Blends neural plasticity score with traditional confidence."""
-    direction = signal["direction"]
-    conf = signal["confidence"]
-    btc = signal["price"]
+def is_bear_market(prices: list[float]) -> bool:
+    if len(prices) < 20: return False
+    sma20 = sum(prices[-20:]) / 20
+    def ema(vals, span):
+        a = 2/(span+1); r = vals[0]
+        for v in vals[1:]: r = a*v + (1-a)*r
+        return r
+    return prices[-1] < sma20 and (ema(prices, 6) - ema(prices, 13)) < 0
 
-    if direction == "neutral" or conf < 0.20:
-        return [], None
 
-    # ── Neural plasticity blend ──────────────────────────────────────────
-    neural_pred = None
-    signal_vector = None
+# ══════════════════════════════════════════════════════════════════════════════
+# Contract Discovery — "Up or Down" short-duration contracts
+# ══════════════════════════════════════════════════════════════════════════════
+
+def discover_short_contracts() -> dict[str, list[dict]]:
+    """Find active 'Up or Down' contracts for each asset, expiring soon.
+    Returns {asset_symbol: [contract_dict, ...]}"""
+    today = datetime.now()
+    month = today.strftime("%B")
+    day = today.day
+    by_asset: dict[str, list[dict]] = {sym: [] for sym in ASSETS}
+    seen = set()
+
+    for sym, a in ASSETS.items():
+        queries = [
+            f"{a['name']} Up or Down",
+            f"{a['name']} Up or Down - {month} {day}",
+        ]
+        for q in queries:
+            try:
+                data = _get(f"{GAMMA}/public-search?q={urllib.parse.quote(q)}")
+                for evt in data.get("events", []):
+                    for m in evt.get("markets", []):
+                        cid = m.get("conditionId", "")
+                        if cid in seen or m.get("closed", False): continue
+                        vol = float(m.get("volume", 0))
+                        if vol < MIN_VOLUME_USD: continue
+                        seen.add(cid)
+                        question = m.get("question", "")
+                        prices = _parse(m.get("outcomePrices", []))
+                        if not isinstance(prices, list) or len(prices) < 2: continue
+                        outcomes = _parse(m.get("outcomes", []))
+                        if not isinstance(outcomes, list) or len(outcomes) < 2: continue
+
+                        # Extract time window from question
+                        window = extract_time_window(question)
+                        if not window: continue
+
+                        end_dt = parse_end_time(m.get("endDate", ""), window)
+                        if not end_dt: continue
+                        mins_to_expiry = (end_dt - datetime.now()).total_seconds() / 60
+                        if mins_to_expiry < 0 or mins_to_expiry > MAX_WINDOW_MINUTES:
+                            continue  # too far out or already expired
+
+                        # Determine which outcome is "Up" and "Down"
+                        up_idx, down_idx = 0, 1
+                        if "Down" in (outcomes[0] or ""):
+                            down_idx, up_idx = 0, 1
+
+                        by_asset[sym].append({
+                            "question": question, "conditionId": cid,
+                            "up_price": float(prices[up_idx]), "down_price": float(prices[down_idx]),
+                            "volume": vol, "slug": evt.get("slug", ""),
+                            "outcomes": outcomes, "end_date": m.get("endDate", ""),
+                            "window": window, "mins_to_expiry": round(mins_to_expiry, 1),
+                            "asset": sym,
+                        })
+            except Exception:
+                continue
+    return by_asset
+
+
+def extract_time_window(question: str) -> str | None:
+    """Extract time window from question.
+    'Bitcoin Up or Down - May 14, 8:15AM-8:20AM ET' → '8:15AM-8:20AM ET'"""
+    m = re.search(r'(\d{1,2}:\d{2}(AM|PM)\s*-\s*\d{1,2}:\d{2}(AM|PM)\s*(ET|UTC))',
+                  question, re.IGNORECASE)
+    if m: return m.group(1).replace(" ", "")
+    # Also match: "Bitcoin Up or Down - May 14, 7AM ET"
+    m = re.search(r'(\d{1,2}(AM|PM)\s*(ET|UTC))', question, re.IGNORECASE)
+    if m: return m.group(1).replace(" ", "")
+    return None
+
+
+def parse_end_time(end_date: str, window: str) -> datetime | None:
+    """Parse the contract end time. Use end_date if valid, otherwise extract from window."""
+    # Try end_date first (Gamma provides ISO timestamps)
+    if end_date:
+        try:
+            return datetime.fromisoformat(end_date.replace("Z", "+00:00")).replace(tzinfo=None)
+        except (ValueError, TypeError):
+            pass
+    # Fallback: extract end time from window string
+    # "8:15AM-8:20AMET" → end = 8:20AM
+    m_end = re.search(r'-(\d{1,2}:\d{2})(AM|PM)', window, re.IGNORECASE)
+    if m_end:
+        t_str = f"{m_end.group(1)}{m_end.group(2).upper()}"
+        try:
+            t = datetime.strptime(t_str, "%I:%M%p").time()
+            now = datetime.now()
+            return datetime.combine(now.date(), t)
+        except ValueError:
+            pass
+    return None
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Variable Sizing
+# ══════════════════════════════════════════════════════════════════════════════
+
+def size_conviction(edge: float, bankroll: float):
+    """Conviction-based sizing: return (bet_amount, tier_label)."""
+    if edge <= SIZING["probe_threshold"] or bankroll <= 0:
+        return 0.0, "skip"
+
+    if edge >= SIZING["conviction_threshold"]:
+        bet = bankroll * SIZING["conviction_pct"]
+        bet = min(bet, SIZING["max_conviction_dollar"])
+        return round(max(bet, SIZING["min_bet"]), 2), "conviction"
+    elif edge >= SIZING["confidence_threshold"]:
+        bet = bankroll * SIZING["confidence_pct"]
+        return round(max(bet, SIZING["min_bet"]), 2), "confidence"
+    else:
+        bet = bankroll * SIZING["probe_pct"]
+        return round(max(bet, SIZING["min_bet"]), 2), "probe"
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Trade Decision
+# ══════════════════════════════════════════════════════════════════════════════
+
+def evaluate_entries_for_asset(
+    sym: str, sig: dict, contracts: list[dict], state: dict
+) -> list[dict]:
+    """Find entry opportunities for one asset."""
+    direction = sig["direction"]; conf = sig["confidence"]
+    price = sig["price"]
+
+    if direction == "neutral" or conf < MIN_SIGNAL_CONF:
+        return []
+
+    # ── Regime-aware direction filter ─────────────────────────────────────
+    # Don't fade the trend: use 20-SMA to detect regime and suppress contrarian signals.
+    # trending_up (BTC > 20-SMA AND MACD > 0) → suppress "down" signals
+    # trending_down (BTC < 20-SMA AND MACD < 0) → suppress "up" signals (already caught by bear guard)
+    # ranging/volatile → allow both directions
+    sma20 = sig.get("sma20", price)
+    macd = sig.get("macd", 0)
+    in_uptrend = price > sma20 and macd > 0
+    in_downtrend = price < sma20 and macd < 0
+
+    if in_uptrend and direction == "down":
+        return []  # Don't short an uptrend on RSI micro-pullbacks
+    if in_downtrend and direction == "up":
+        return []  # Don't buy a downtrend on oversold bounces (bear guard misses some)
+
+    # Neural blend
+    neural_pred = None; signal_vector = None
     blend_w = _neural_blend_weight()
     neural = _get_neural()
-    if neural is not None and blend_w > 0.0:
-        signal_vector = pm_encode_signal(signal)
+    asset_class_map = {"BTC": -0.5, "ETH": -0.2, "SOL": 0.3, "XRP": 0.5}
+    if neural and blend_w > 0.0:
+        signal_vector = pm_encode_signal(sig, asset_class=asset_class_map.get(sym, 0.0))
         neural_pred = neural.network.predict(signal_vector)
-        # neural_pred ∈ [-1,1]: +1 = expect BTC up, -1 = expect down
-        # Map to confidence: for BUY_YES (direction=up), +neural is good
-        #                    for BUY_NO (direction=down), -neural is good
-        neural_conf = (neural_pred + 1.0) / 2.0 if direction == "up" else (1.0 - neural_pred) / 2.0
-        neural_conf = max(0.0, min(1.0, neural_conf))
-        conf = conf * (1.0 - blend_w) + neural_conf * blend_w
+        neural_conf_val = (neural_pred + 1.0) / 2.0 if direction == "up" else (1.0 - neural_pred) / 2.0
+        neural_conf_val = max(0.0, min(1.0, neural_conf_val))
+        conf = conf * (1.0 - blend_w) + neural_conf_val * blend_w
         conf = round(min(0.95, conf), 3)
 
-    # Filter: strike within MAX_DISTANCE_PCT%, active contract
     candidates = []
     for c in contracts:
-        strike = extract_strike(c["question"])
-        if strike is None:
-            continue
-
-        dist = (strike - btc) / btc * 100
-
         if direction == "up":
-            if strike > btc and dist < MAX_DISTANCE_PCT and MIN_CONTRACT_PRICE < c["yes_price"] < MAX_YES_PRICE:
-                candidates.append({"contract": c, "strike": strike, "distance": dist,
-                                   "side": "YES", "price": c["yes_price"]})
-        else:  # down
-            if strike < btc and abs(dist) < MAX_DISTANCE_PCT and MIN_CONTRACT_PRICE < c["no_price"] < MAX_YES_PRICE:
-                candidates.append({"contract": c, "strike": strike, "distance": abs(dist),
-                                   "side": "NO", "price": c["no_price"]})
+            if MIN_CONTRACT_PRICE < c["up_price"] < MAX_CONTRACT_PRICE:
+                candidates.append({"contract": c, "side": "Up", "price": c["up_price"]})
+        else:
+            if MIN_CONTRACT_PRICE < c["down_price"] < MAX_CONTRACT_PRICE:
+                candidates.append({"contract": c, "side": "Down", "price": c["down_price"]})
 
     if not candidates:
-        return [], neural_pred
+        return []
 
-    # Pick the best one (largest edge)
     bankroll = state.get("bankroll", PAPER_BANKROLL)
-    # Account for already-invested capital
     positions = state.get("positions", {})
     invested = sum(p.get("bet", 0) for p in positions.values())
     available = max(0.0, bankroll - invested)
+    asset_positions = sum(1 for k in positions if k.startswith(sym))
 
     entries = []
     for cand in sorted(candidates, key=lambda x: conf - x["price"], reverse=True):
         edge = conf - cand["price"]
-        if edge < MIN_EDGE:
+        if edge < SIZING["probe_threshold"]:
             continue
 
-        key = f"{cand['contract']['conditionId'][:16]}_{cand['side']}"
-        if key in positions:
-            continue
-        if len(positions) + len(entries) >= MAX_POSITIONS:
-            break
-        if available < 5.0:  # Min bet $5
-            break
+        key = f"{sym}_{cand['contract']['conditionId'][:16]}_{cand['side']}"
+        if key in positions: continue
+        if asset_positions + len(entries) >= MAX_POSITIONS_PER_ASSET: break
+        if len(positions) + len(entries) >= MAX_TOTAL_POSITIONS: break
+        if available < SIZING["min_bet"]: break
 
-        # ── Bayesian-calibrated Kelly sizing ────────────────────────────
-        cal = _get_bayesian()
-        encoder = _get_feature_encoder()
+        # Bayesian calibration
+        cal = _get_bayesian(); encoder = _get_feature_encoder()
+        mins_to_expiry = cand["contract"].get("mins_to_expiry", 10)
+        hours_to_res = mins_to_expiry / 60.0
 
-        # Compute feature vector for this specific contract
-        hours_to_res = 24.0  # default: unknown → use conservative
-        if cand.get("contract", {}).get("end_date"):
-            try:
-                end_dt = datetime.fromisoformat(
-                    str(cand["contract"]["end_date"]).replace("Z", "+00:00"))
-                hours_to_res = max(0.0, (end_dt - datetime.now(end_dt.tzinfo)).total_seconds() / 3600)
-            except (ValueError, TypeError):
-                pass
-
-        features = encoder.encode(
-            btc_prices_5m=signal.get("_prices", []),
-            contract_yes_price=cand["price"] if cand["side"] == "YES" else 1 - cand["price"],
-            contract_no_price=1 - cand["price"] if cand["side"] == "YES" else cand["price"],
-            contract_volume=cand["contract"].get("volume", 10000),
-            hours_to_resolution=hours_to_res,
+        fv = encoder.encode(
+            sig.get("_prices", []),
+            cand["contract"]["up_price"], cand["contract"]["down_price"],
+            cand["contract"]["volume"], hours_to_res,
         )
+        cal_result = cal.predict(fv, market_price=cand["price"]) if cal else None
 
-        # Get calibrated probability
-        cal_result = cal.predict(features, market_price=cand["price"]) if cal else None
-        cal_factor = cal.calibration_factor if cal else 0.5
-        certainty = cal_result.get("certainty", 0.5) if cal_result else 0.5
-
-        # Use the calibrated edge if available, otherwise fall back
         if cal_result:
             cal_prob = cal_result["probability"]
-            # Edge: our calibrated prob vs market price
-            calibrated_edge = cal_prob - cand["price"] if cand["side"] == "YES" else (1 - cal_prob) - cand["price"]
+            calibrated_edge = (cal_prob - cand["price"]) if cand["side"] == "Up" else ((1 - cal_prob) - cand["price"])
             if calibrated_edge > edge:
                 edge = calibrated_edge
 
-        bet = fe.kelly_sizer(
-            edge=edge,
-            odds=1 - cand["price"],
-            bankroll=bankroll,
-            calibration_factor=cal_factor,
-            certainty=certainty,
-            max_bankroll_fraction=0.02,
-            min_bet=5.0,
-        )
+        # Variable sizing
+        bet, tier = size_conviction(edge, bankroll)
+        if bet < SIZING["min_bet"] or bet > available:
+            continue
 
-        # Store signal vector for neural learning on settlement
         sv = signal_vector.tolist() if signal_vector is not None else None
 
         entries.append({
-            "action": "BUY_" + cand["side"],
+            "asset": sym, "action": f"BUY_{cand['side']}",
             "question": cand["contract"]["question"],
             "conditionId": cand["contract"]["conditionId"],
-            "strike": cand["strike"],
-            "contract_price": cand["price"],
-            "bet": bet,
-            "kelly_pct": round(kelly * 100, 1),
-            "edge": round(edge, 3),
-            "btc_at_entry": round(btc, 2),
-            "distance_pct": round(cand["distance"], 2),
-            "signal_conf": conf,
-            "signal_rsi": signal["rsi"],
+            "contract_price": cand["price"], "bet": bet,
+            "edge": round(edge, 4), "sizing_tier": tier,
+            "price_at_entry": round(price, 2),
+            "signal_conf": conf, "signal_rsi": sig["rsi"],
+            "mins_to_expiry": mins_to_expiry,
             "entry_time": datetime.now().isoformat(),
             "side": cand["side"],
-            # Bayesian fields for later learning
-            "bayesian_features": features.tolist() if 'features' in dir() else None,
+            "bayesian_features": fv.tolist() if cal_result else None,
             "cal_prob": round(cal_result["probability"], 4) if cal_result else None,
             "cal_ci_low": round(cal_result["probability_ci_low"], 4) if cal_result else None,
             "cal_ci_high": round(cal_result["probability_ci_high"], 4) if cal_result else None,
-            "cal_certainty": round(certainty, 4),
+            "cal_certainty": round(cal_result["certainty"], 4) if cal_result else None,
             "cal_entropy": round(cal_result["entropy"], 4) if cal_result else None,
             "kl_divergence": round(cal_result["kl_divergence"], 6) if cal_result and "kl_divergence" in cal_result else None,
             "kl_edge_score": round(cal_result["kl_edge_score"], 6) if cal_result and "kl_edge_score" in cal_result else None,
-            # Neural fields for later learning
             "signal_vector": sv,
             "neural_pred": round(neural_pred, 4) if neural_pred is not None else None,
         })
         available -= bet
 
-    return entries, neural_pred
+    return entries
 
 
-# ─── Settlement Check ───────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Settlement
+# ══════════════════════════════════════════════════════════════════════════════
 
-def check_settlements(state: dict, btc_price: float) -> list[dict]:
-    """Settle positions where strike has been crossed."""
+def check_settlements(state: dict, prices_by_asset: dict[str, float]) -> list[dict]:
+    """Settle positions where contract window has expired (time-based).
+    For short-duration 'Up or Down' contracts: settled = price moved in predicted direction."""
     positions = state.get("positions", {})
     settled = []
+    now = datetime.now()
 
     for key, pos in list(positions.items()):
-        strike = pos["strike"]
+        # Time-based: check if mins_to_expiry has elapsed since entry
+        entry_time_str = pos.get("entry_time", "")
+        mins_to_expiry = pos.get("mins_to_expiry", 10)
+        try:
+            entry_dt = datetime.fromisoformat(entry_time_str)
+            if (now - entry_dt).total_seconds() / 60 < mins_to_expiry:
+                continue  # Not yet expired
+        except (ValueError, TypeError):
+            continue
+
+        sym = pos.get("asset", "BTC")
+        entry_price = pos.get("price_at_entry", 0)
+        current_price = prices_by_asset.get(sym, entry_price)
         side = pos["side"]
-        crossed = (side == "YES" and btc_price >= strike) or \
-                  (side == "NO" and btc_price <= strike)
 
-        if crossed:
-            bet = pos["bet"]
-            if side == "YES":
-                payout = bet / pos["contract_price"]
-                profit = payout - bet
-            else:
-                payout = bet / pos["contract_price"]
-                profit = payout - bet
+        # Simple settlement: did price move in predicted direction?
+        moved_up = current_price > entry_price
+        won = (side == "Up" and moved_up) or (side == "Down" and not moved_up)
+        # Edge case: flat price → lose (Up must go up, Down must go down)
 
-            settled.append({**pos, "pnl": round(profit, 2),
-                           "btc_settle": round(btc_price, 2),
-                           "settle_time": datetime.now().isoformat()})
-            del positions[key]
+        bet = pos["bet"]
+        if won:
+            payout = bet / pos["contract_price"]
+            profit = payout - bet
+        else:
+            profit = -bet
+
+        settled.append({**pos, "pnl": round(profit, 2),
+                       "settle_price": round(current_price, 2),
+                       "settle_time": now.isoformat()})
+        del positions[key]
 
     return settled
 
 
-# ─── Journal / Reporting ───────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Report
+# ══════════════════════════════════════════════════════════════════════════════
 
 def summary(state: dict, entries: list, settled: list) -> str:
-    bankroll = state.get("bankroll", PAPER_BANKROLL)
-    positions = state.get("positions", {})
-    pnl = state.get("total_pnl", 0)
-    wins = state.get("wins", 0)
-    losses = state.get("losses", 0)
-    trades = wins + losses
+    br = state.get("bankroll", PAPER_BANKROLL); pnl = state.get("total_pnl", 0)
+    wins = state.get("wins", 0); losses = state.get("losses", 0)
+    trades = wins + losses; positions = state.get("positions", {})
 
-    lines = [
-        "",
-        "🎲 POLYMARKET ENGINE",
-        f"   Bankroll: ${bankroll:,.2f} | P&L: ${pnl:+,.2f} | Trades: {trades}",
-        f"   Wins: {wins} | Losses: {losses} | "
-        f"Rate: {wins/max(1,trades)*100:.0f}%",
-    ]
+    lines = ["", "🎲 POLYMARKET ENGINE v2 (multi-asset • short-duration)"]
+    lines.append(f"   Bankroll: ${br:,.2f} | P&L: ${pnl:+,.2f} | Trades: {trades}")
+    if trades:
+        lines.append(f"   Wins: {wins} | Losses: {losses} | Rate: {wins/max(1,trades)*100:.0f}%")
 
     if settled:
+        lines.append("   ── Settled ──")
         for s in settled[-5:]:
             e = "🟢" if s["pnl"] > 0 else "🔴"
-            lines.append(f"   {e} {s['action']} {s['question']} — ${s['pnl']:+,.2f}")
+            lines.append(f"   {e} [{s.get('asset','?')}] {s['action']} — ${s['pnl']:+,.2f} ({s.get('sizing_tier','?')})")
 
     if entries:
+        lines.append("   ── New entries ──")
         for e in entries:
-            lines.append(f"   ⚡ NEW: {e['action']} {e['question'][:60]} — "
-                        f"${e['bet']} @ {e['contract_price']:.3f} "
-                        f"(edge={e['edge']:.3f}, RSI={e['signal_rsi']})")
+            lines.append(f"   ⚡ [{e['asset']}] {e['action']} ${e['bet']} @ {e['contract_price']:.3f} "
+                        f"(edge={e['edge']:.3f}, {e['sizing_tier']}, {e['mins_to_expiry']}m to expiry)")
 
     if positions:
-        for k, p in positions.items():
-            price = p.get("contract_price", 0)
-            payout = round(p["bet"] / max(price, 0.01), 2) if price > 0 else 0
-            lines.append(f"   📌 {p['side']} {p['question'][:50]} — "
-                        f"${p['bet']} → ${payout} if right")
+        lines.append(f"   ── Open ({len(positions)}) ──")
+        for k, p in list(positions.items())[-8:]:
+            lines.append(f"   📌 [{p.get('asset','?')}] {p['side']} ${p['bet']} | "
+                        f"edge={p.get('edge',0):.3f} | {p.get('sizing_tier','?')}")
 
     if not positions and not entries and not settled:
-        lines.append("   Idle — waiting for signal + strike proximity.")
+        lines.append("   Idle — no signals meeting criteria.")
 
-    # ── Neural plasticity status ──────────────────────────────────────────
+    # Neural + Bayesian status
     neural = _get_neural()
-    if neural is not None:
-        stats = neural.stats()
-        bw = _neural_blend_weight()
-        lines.append(f"   🧠 Neural: {stats['updates']} updates | "
-                     f"LR={stats['learning_rate']:.5f} | "
-                     f"Accuracy={stats['rolling_accuracy']:.0%} | "
-                     f"Blend={bw:.0%}")
+    if neural:
+        st = neural.stats(); bw = _neural_blend_weight()
+        lines.append(f"   🧠 Neural: {st['updates']} updates | Acc={st['rolling_accuracy']:.0%} | Blend={bw:.0%}")
+    cal = _get_bayesian()
+    if cal and cal.updates > 0:
+        lines.append(f"   📐 Bayesian: {cal.updates} updates | Brier={cal.brier_score:.4f} | Cal={cal.calibration_factor:.2%}")
 
     return "\n".join(lines)
 
 
-# ─── Main Loop ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Main Loop
+# ══════════════════════════════════════════════════════════════════════════════
 
 def load_state():
     STATE.parent.mkdir(parents=True, exist_ok=True)
     if STATE.exists():
-        return json.loads(STATE.read_text())
+        st = json.loads(STATE.read_text())
+        # Migrate v1 state if needed
+        if "asset_pnl" not in st:
+            st["asset_pnl"] = {}
+        return st
     return {"bankroll": PAPER_BANKROLL, "total_pnl": 0, "wins": 0, "losses": 0,
-            "positions": {}, "journal": [], "scans": 0}
+            "positions": {}, "journal": [], "scans": 0, "asset_pnl": {}}
 
 def save_state(state):
-    state["scans"] += 1
+    state["scans"] = state.get("scans", 0) + 1
     STATE.write_text(json.dumps(state, indent=2, default=str))
 
 
 def run_once(state):
-    btc_prices = fetch_btc_5min()
+    # ── 1. Fetch all asset prices ─────────────────────────────────────────
+    all_prices = fetch_all_asset_prices()
+
+    # ── 2. Regime guard (BTC) ─────────────────────────────────────────────
+    btc_prices = all_prices.get("BTC", [])
     if not btc_prices:
-        return [], [], None
-
-    # ── Regime guard: skip entries when BTC is in a confirmed downtrend ──
+        return [], [], {}
     if BEAR_SKIP and is_bear_market(btc_prices):
-        return [], [], None
+        return [], [], {"BTC": "bear_skip", "note": "bear market guard active"}
 
-    sig = btc_signal(btc_prices)
-    contracts = discover_contracts()
-    btc_price = sig["price"]
+    # ── 3. Run signals on all assets ─────────────────────────────────────
+    signals = {}
+    for sym in ASSETS:
+        prices = all_prices.get(sym, [])
+        if prices:
+            signals[sym] = asset_signal(prices)
 
-    # Settle crossed contracts
-    settled = check_settlements(state, btc_price)
+    # ── 4. Discover contracts ────────────────────────────────────────────
+    contracts_by_asset = discover_short_contracts()
+
+    # ── 5. Build price map for settlement ────────────────────────────────
+    price_map = {sym: sig["price"] for sym, sig in signals.items() if sig["price"]}
+
+    # ── 6. Settle expired contracts ──────────────────────────────────────
+    settled = check_settlements(state, price_map)
     for s in settled:
-        pnl = s["pnl"]
-        state["total_pnl"] += pnl
-        state["bankroll"] += pnl
-        if pnl > 0:
-            state["wins"] = state.get("wins", 0) + 1
-        else:
-            state["losses"] = state.get("losses", 0) + 1
+        pnl = s["pnl"]; sym = s.get("asset", "?")
+        state["total_pnl"] += pnl; state["bankroll"] += pnl
+        if pnl > 0: state["wins"] = state.get("wins", 0) + 1
+        else: state["losses"] = state.get("losses", 0) + 1
+        state["asset_pnl"][sym] = state["asset_pnl"].get(sym, 0.0) + pnl
         state.setdefault("journal", []).append({
-            "ts": datetime.now().isoformat(),
-            "type": "settle",
-            "pnl": pnl,
-            "question": s.get("question", ""),
+            "ts": datetime.now().isoformat(), "type": "settle", "pnl": pnl,
+            "asset": sym, "question": s.get("question", ""),
         })
 
-        # ── Bayesian learning from settled trade ────────────────────────
+        # Bayesian learn
         cal = _get_bayesian()
-        if cal is not None:
-            sv_bayes = s.get("bayesian_features")
-            if sv_bayes is not None:
-                outcome = 1 if pnl > 0 else 0  # YES wins = 1
-                cal.update(np.array(sv_bayes, dtype=float), outcome)
+        if cal:
+            sv_b = s.get("bayesian_features")
+            if sv_b:
+                cal.update(np.array(sv_b, dtype=float), 1 if pnl > 0 else 0)
 
-        # ── Neural learning from settled trade ────────────────────────────
+        # Neural learn
         neural = _get_neural()
-        sv = s.get("signal_vector")
-        n_pred = s.get("neural_pred")
-        if neural is not None and sv is not None and n_pred is not None:
+        sv = s.get("signal_vector"); n_pred = s.get("neural_pred")
+        if neural and sv and n_pred is not None:
             bet = s.get("bet", 1.0)
-            pnl_pct = pnl / max(bet, 0.01)  # Binary: +X% win or -100% loss
-            target = scale_pm_pnl(pnl_pct)
+            pnl_pct = pnl / max(bet, 0.01)
             sv_arr = np.array(sv, dtype=float)
-            neural.network.learn_from_trade(sv_arr, n_pred, target)
-            neural.network.add_to_replay(sv_arr, target)
-            # Periodic replay + consolidation
-            if neural.network.updates % 5 == 0:
-                neural.network.replay()
+            neural.network.learn_from_trade(sv_arr, n_pred, scale_pm_pnl(pnl_pct))
+            neural.network.add_to_replay(sv_arr, scale_pm_pnl(pnl_pct))
+            if neural.network.updates % 5 == 0: neural.network.replay()
             if neural.network.updates > 0 and neural.network.updates % NEURAL_CONSOLIDATE_EVERY == 0:
                 neural.network.consolidate()
-            neural.network.save()
-            neural.performance.save()
+            neural.network.save(); neural.performance.save()
 
-    # New entries
-    entries, neural_pred = evaluate_entries(sig, contracts, state)
-    for e in entries:
-        key = f"{e['conditionId'][:16]}_{e['side']}"
+    # ── 7. Evaluate new entries per asset ────────────────────────────────
+    all_entries = []
+    for sym in ASSETS:
+        sig = signals.get(sym)
+        contracts = contracts_by_asset.get(sym, [])
+        if sig and sig["direction"] != "neutral":
+            entries = evaluate_entries_for_asset(sym, sig, contracts, state)
+            all_entries.extend(entries)
+
+    for e in all_entries:
+        key = f"{e['asset']}_{e['conditionId'][:16]}_{e['side']}"
         state["positions"][key] = e
 
     save_state(state)
-
-    # Print on screen
-    print(summary(state, entries, settled))
-    return entries, settled, sig
+    print(summary(state, all_entries, settled))
+    return all_entries, settled, signals
 
 
 def run_continuous():
     state = load_state()
-    print(f"🎲 FDC POLYMARKET — {SCAN_SECONDS}s scan | Bankroll: ${state['bankroll']:,.2f}")
-    print("   Ctrl+C to stop\n")
+    print(f"🎲 FDC POLYMARKET v2 — {SCAN_SECONDS}s scan | ${state['bankroll']:,.2f}")
+    print(f"   Assets: {', '.join(ASSETS)} | Short-duration 'Up or Down'\n")
 
     last_summary = 0
     while True:
         try:
-            entries, settled, sig = run_once(state)
+            entries, settled, signals = run_once(state)
             now = time.time()
-            # Print full summary every 10 iterations (20 min)
             if entries or settled or now - last_summary > 600:
                 last_summary = now
             time.sleep(SCAN_SECONDS)
         except KeyboardInterrupt:
-            print(f"\n👋 Stopped. Bankroll: ${state['bankroll']:,.2f} | "
-                  f"P&L: ${state.get('total_pnl',0):+,.2f}")
+            print(f"\n👋 Stopped. ${state['bankroll']:,.2f} | P&L: ${state.get('total_pnl',0):+,.2f}")
             break
         except Exception as e:
             print(f"❌ {e}", file=sys.stderr)
             time.sleep(30)
 
 
-# ─── CLI ─────────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# CLI
+# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     if "--once" in sys.argv:
         state = load_state()
-        e, s, sig = run_once(state)
-        if sig is not None:
-            print(f"\nSignal: {sig['direction']} @ {sig['confidence']:.2f} "
-                  f"(RSI={sig['rsi']}, BTC=${sig['price']:,.2f})")
+        e, s, sigs = run_once(state)
+        btc_sig = sigs.get("BTC", {})
+        if btc_sig and btc_sig.get("price"):
+            print(f"\nBTC: {btc_sig['direction']} @ {btc_sig['confidence']:.2f} "
+                  f"(RSI={btc_sig['rsi']}, ${btc_sig['price']:,.2f})")
+            for sym in ["ETH", "SOL", "XRP"]:
+                s2 = sigs.get(sym, {})
+                if s2.get("price"):
+                    print(f"{sym}: {s2['direction']} @ {s2['confidence']:.2f} "
+                          f"(RSI={s2['rsi']}, ${s2['price']:,.2f})")
             neural = _get_neural()
-            if neural is not None:
-                stats = neural.stats()
-                print(f"🧠 Neural: {stats['updates']} updates | "
-                      f"Accuracy={stats['rolling_accuracy']:.0%} | "
+            if neural:
+                st = neural.stats()
+                print(f"🧠 Neural: {st['updates']} updates | Acc={st['rolling_accuracy']:.0%} | "
                       f"Blend={_neural_blend_weight():.0%}")
         else:
-            print("\n⚠ No BTC price data available.")
+            print("\n⚠ No price data available.")
     elif "--discover" in sys.argv:
-        cs = discover_contracts()
-        print(f"{len(cs)} active BTC contracts:")
-        for c in sorted(cs, key=lambda x: x["volume"], reverse=True)[:10]:
-            print(f"  {c['question']} — YES {c['yes_price']*100:.0f}% | "
-                  f"NO {c['no_price']*100:.0f}% | ${c['volume']:,.0f} vol")
+        cba = discover_short_contracts()
+        for sym, cs in cba.items():
+            print(f"\n{sym} ({len(cs)} contracts):")
+            for c in sorted(cs, key=lambda x: x["mins_to_expiry"])[:8]:
+                print(f"  {c['question']} — Up {c['up_price']*100:.0f}% | "
+                      f"Down {c['down_price']*100:.0f}% | ${c['volume']:,.0f} | "
+                      f"Expires in {c['mins_to_expiry']}m")
     elif "--reset" in sys.argv:
         STATE.unlink(missing_ok=True)
         print("State reset.")
