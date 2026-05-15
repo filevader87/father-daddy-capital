@@ -41,6 +41,13 @@ try:
     _SCALED_AVAILABLE = True
 except ImportError: _SCALED_AVAILABLE = False
 
+# ─── Adversarial Debate + Risk Sizing (from TradingAgents) ──────────────────
+try:
+    from fdc_debate import debate, debate_summary, DebateConfig
+    from fdc_risk_sizer import size_position, RiskConfig
+    _DEBATE_AVAILABLE = True
+except ImportError: _DEBATE_AVAILABLE = False
+
 GAMMA  = "https://gamma-api.polymarket.com"
 OUTPUT = REPO / "output"; STATE = OUTPUT / "pm_state.json"
 
@@ -322,6 +329,48 @@ def evaluate_entries(sig,contracts,state):
     if ENTRY_STRATEGY == "scaled" and _SCALED_AVAILABLE:
         try:
             entries = evaluate_scaled_entries(sig, contracts, state)
+            
+            # Apply adversarial debate + 3-perspective risk sizing per entry
+            if _DEBATE_AVAILABLE and entries:
+                filtered = []
+                for e in entries:
+                    # Find the matching contract
+                    cid = e.get("conditionId", "")
+                    contract = next((c for c in contracts if c.get("conditionId","") == cid), None)
+                    if not contract:
+                        filtered.append(e)
+                        continue
+                    
+                    # Run debate
+                    dr = debate(sig, contract)
+                    
+                    # Run risk sizing
+                    cal = _get_bayesian()
+                    rs = size_position(
+                        sig, contract, state.get("bankroll", 250),
+                        debate_net_score=dr.net_score,
+                        cal_factor=cal.calibration_factor if cal else 0.5,
+                        certainty=0.5
+                    )
+                    
+                    # Apply debate verdict
+                    if dr.verdict == "SKIP":
+                        continue  # Block this entry
+                    elif dr.verdict == "REDUCE":
+                        e["bet"] = min(e["bet"], rs.blended_size * 0.7)
+                    else:  # ENTER
+                        e["bet"] = min(e["bet"], rs.blended_size)
+                    
+                    # Attach debate/risk metadata
+                    e["debate_verdict"] = dr.verdict
+                    e["debate_net"] = round(dr.net_score, 3)
+                    e["risk_posture"] = rs.posture_label
+                    e["risk_regime"] = rs.regime
+                    e["risk_sizes"] = f"R=${rs.risky_size:.1f}/S=${rs.safe_size:.1f}/N=${rs.neutral_size:.1f}"
+                    
+                    filtered.append(e)
+                entries = filtered
+            
             return entries, None
         except Exception:
             pass  # Fall through to traditional Kelly
@@ -449,7 +498,12 @@ def summary(state,entries,settled):
             lines.append(f"   {e} {s['action']} — ${s['pnl']:+,.2f} ({s['question'][:50]})")
     if entries:
         for e in entries:
-            lines.append(f"   ⚡ {e['action']}: ${e['bet']} @ {e['contract_price']:.3f} (edge={e['edge']:.3f})")
+            debate_info = ""
+            if e.get("debate_verdict"):
+                icon = {"ENTER": "🟢", "REDUCE": "🟡", "SKIP": "🔴"}.get(e["debate_verdict"], "?")
+                posture = e.get("risk_posture", "")[:3]
+                debate_info = f" [{icon} {posture} r{e.get('risk_regime','')[:4]}]"
+            lines.append(f"   ⚡ {e['action']}: ${e['bet']} @ {e['contract_price']:.3f} (edge={e['edge']:.3f}){debate_info}")
     if positions:
         for k,p in list(positions.items())[-5:]:
             lines.append(f"   📌 {p['side']} ${p['bet']} | edge={p.get('edge',0):.3f}")
