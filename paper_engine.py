@@ -185,7 +185,7 @@ def compute_signals(prices: pd.Series) -> dict:
     neural_score = 0.0
     try:
         neural = _get_neural()
-        if neural.network.updates > 10:
+        if neural.network.updates > 100:
             signals_dict = {
                 "rsi": rsi_signal, "macd": macd_signal, "trend": trend_signal,
                 "momentum": np.clip(momentum_5d * 10, -1, 1),
@@ -199,7 +199,7 @@ def compute_signals(prices: pd.Series) -> dict:
             })
             neural_score = neural.network.predict(x)
             # Blend: 70% traditional signal, 30% neural (grows with updates)
-            blend_w = min(0.30, neural.network.updates / 200)
+            blend_w = min(0.30, (neural.network.updates - 100) / 200)
             score = score * (1 - blend_w) + neural_score * blend_w
     except Exception:
         pass  # Neural is non-critical — degrade gracefully

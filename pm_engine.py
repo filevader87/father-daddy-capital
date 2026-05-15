@@ -116,7 +116,7 @@ def _get_encoder():
     return _feature_encoder
 
 def _neural_blend():
-    n=_get_neural(); return 0.0 if n is None else NEURAL_BLEND_MAX*min(1.0,n.network.updates/NEURAL_BLEND_UPDATES)
+    n=_get_neural(); return 0.0 if n is None or n.network.updates<100 else NEURAL_BLEND_MAX*min(1.0,(n.network.updates-100)/NEURAL_BLEND_UPDATES)
 
 def _get(url):
     req=urllib.request.Request(url,headers={"User-Agent":"hermes-fdc/3.0"})
