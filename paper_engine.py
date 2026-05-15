@@ -52,6 +52,12 @@ from src.trading.meta_controller import MetaController
 # ─── CCXT Data Layer ────────────────────────────────────────────────────────
 from src.trading.ccxt_layer import CCXTDataProvider, get_provider, shutdown_provider
 
+# ─── Orderbook Layer (from poly-maker) ─────────────────────────────────────
+from fdc_orderbook import analyze_orderbook, simulate_fill, get_trade_params
+
+# ─── Smart Money API (Track 5) ─────────────────────────────────────────────
+from fdc_smart_money_api import run_smart_money_cycle, smart_money_summary
+
 _ccxt_provider = None
 _neural = None
 _meta_controller = None
@@ -263,12 +269,18 @@ def calculate_position_size(
     signal_score: float, confidence: float, volatility: float,
     current_price: float, available_capital: float,
 ) -> float:
-    """Kelly-inspired position sizing with risk constraints."""
+    """Kelly-inspired position sizing with orderbook-aware risk constraints."""
     base_allocation = available_capital * MAX_POSITION_PCT
     signal_strength = abs(signal_score)
     scaled = base_allocation * signal_strength * confidence
     vol_penalty = max(0.3, 1.0 - volatility * 2.0)
     scaled *= vol_penalty
+
+    # Volatility multiplier: high-vol assets deserve MORE capital if signal is strong
+    # (from poly-maker philosophy: vol IS the product)
+    if volatility > 0.03 and signal_strength > 0.6:
+        scaled *= min(2.0, 1.0 + volatility * 15)
+
     scaled = min(scaled, available_capital * MAX_POSITION_PCT)
 
     shares = scaled / current_price
@@ -526,6 +538,14 @@ def run_once():
     except Exception:
         arb_tick = None
 
+    # ── Track 5: Smart Money Signals ──────────────────────────────────
+    try:
+        smart_entries, smart_signals = run_smart_money_cycle(state)
+        for e in (smart_entries or []):
+            all_orders.append({**e, "_type": "smart_money", "_action": "entry"})
+    except Exception:
+        smart_entries, smart_signals = [], []
+
     # ── META-CONTROLLER — auto-adaptive strategy layer ────────────────
     try:
         # Compute crypto/equity correlation from scan results
@@ -607,6 +627,10 @@ def run_once():
         report += polymarket_summary(state, pm_settlements or [])
     if state.get("alt_positions") or alt_entries or alt_exits:
         report += alt_summary(state, alt_entries or [], alt_exits or [])
+
+    # Smart Money summary
+    if state.get("smart_money_positions") or smart_entries:
+        report += smart_money_summary(state, smart_entries)
 
     # Arb summary
     if arb_tick is not None:
