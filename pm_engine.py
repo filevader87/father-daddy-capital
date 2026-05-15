@@ -53,27 +53,27 @@ COLD_PCT  = 0.02   # Fixed 2% until calibrator has data
 WARM_CAL_FLOOR  = 0.25  # Floor on cal_factor during warm-up
 WARM_CERT_FLOOR = 0.25  # Floor on certainty during warm-up
 MAX_BANKROLL_FRAC = 0.02  # Hard 2% cap per trade
-MIN_BET = 5.0
+MIN_BET = 3.0   # Lowered from 5.0 for paper data accumulation (calibration factor low at cold start)
 KELLY_MULT = 1.5
 COLD_UPDATES = 10   # Trades before leaving cold phase
 WARM_UPDATES = 30   # Trades before leaving warm phase
 
 # Signals
-RSI_OVERSOLD = 48; RSI_OVERBOUGHT = 52
-MIN_CONFIDENCE = 0.15
+RSI_OVERSOLD = 45; RSI_OVERBOUGHT = 55  # Widened bands for paper data accumulation
+MIN_CONFIDENCE = 0.10  # Lowered from 0.15 for paper data accumulation phase
 MAX_CONFIDENCE = 0.90
 
 # Contracts — short-duration "Up or Down"
 MAX_WINDOW_MINUTES = 15
 MIN_VOLUME_USD = 5000
-MIN_CONTRACT_PRICE = 0.05
+MIN_CONTRACT_PRICE = 0.02  # Lowered for near-ATM contracts that spike to extremes
 MAX_CONTRACT_PRICE = 0.85
-MIN_EDGE = 0.02
+MIN_EDGE = 0.01  # Lowered from 0.02 for paper data accumulation phase
 MAX_OPEN_POSITIONS = 3
 
 # Guards
-BEAR_SKIP = True  # BTC < 20-SMA AND MACD < 0 → skip cycle
-TREND_GUARD = True  # Don't trade against the trend
+BEAR_SKIP = False  # Disabled for paper data accumulation. Re-enable before live.
+TREND_GUARD = False  # Disabled for paper data accumulation. Re-enable before live.
 
 # Neural
 NEURAL_BLEND_MAX = 0.30; NEURAL_BLEND_UPDATES = 200; NEURAL_CONS_EVERY = 50
@@ -215,35 +215,68 @@ def parse_end_time(end_date,window):
 def discover_contracts():
     today=datetime.now(); month=today.strftime("%B"); day=today.day
     n=ASSET["name"]; contracts=[]; seen=set()
-    for q in [f"{n} Up or Down",f"{n} Up or Down - {month} {day}"]:
+    
+    # Strategy: search for any BTC contracts (short-duration + daily)
+    # Short-duration "Up or Down" 5-min contracts may not always be active.
+    # Fall back to daily "above/below" contracts when short-duration unavailable.
+    queries = [
+        f"{n} Up or Down",                     # Short-duration (preferred)
+        f"{n} Up or Down - {month} {day}",     # Today's short-duration
+        f"{n} above",                           # Daily above (fallback)
+        f"{n} price",                           # Generic price markets
+    ]
+    
+    for q in queries:
         try:
             data=_get(f"{GAMMA}/public-search?q={urllib.parse.quote(q)}")
             for evt in data.get("events",[]):
                 for m in evt.get("markets",[]):
                     cid=m.get("conditionId","")
                     if cid in seen or m.get("closed",False): continue
-                    if float(m.get("volume",0))<MIN_VOLUME_USD: continue
+                    vol = float(m.get("volume",0))
+                    if vol < MIN_VOLUME_USD: continue
                     seen.add(cid)
                     question=m.get("question","")
                     prices=_parse(m.get("outcomePrices",[]))
                     if not isinstance(prices,list) or len(prices)<2: continue
                     outcomes=_parse(m.get("outcomes",[]))
-                    if not isinstance(outcomes,list) or len(outcomes)<2: continue
+                    
+                    # Try short-duration window first
                     window=extract_time_window(question)
-                    if not window: continue
-                    end_dt=parse_end_time(m.get("endDate",""),window)
-                    if not end_dt: continue
-                    mins=(end_dt-datetime.now()).total_seconds()/60
-                    if mins<0 or mins>MAX_WINDOW_MINUTES: continue
-                    up_i,down_i=(0,1) if "Down" not in (outcomes[0] or "") else (1,0)
+                    
+                    # For daily contracts, derive end time from endDate
+                    end_dt = None
+                    if window:
+                        end_dt=parse_end_time(m.get("endDate",""),window)
+                    elif m.get("endDate"):
+                        try:
+                            end_dt = datetime.fromisoformat(m.get("endDate","").replace("Z","+00:00")).replace(tzinfo=None)
+                        except: pass
+                    
+                    mins = 9999
+                    if end_dt:
+                        mins=(end_dt-datetime.now()).total_seconds()/60
+                    
+                    # Accept short-duration (≤MAX_WINDOW) or daily (≤1440 = 24h)
+                    if window and mins < 0: continue  # expired short-duration
+                    if not window and mins > 1440: continue  # too far out
+                    
+                    up_i,down_i=(0,1)
+                    if isinstance(outcomes,list) and len(outcomes)>=2:
+                        o0 = (outcomes[0] or "").lower()
+                        o1 = (outcomes[1] or "").lower()
+                        if "down" in o0 or "no" in o0 or "below" in o0:
+                            up_i,down_i=(1,0)
+                    
                     contracts.append({
                         "question":question,"conditionId":cid,
                         "up_price":float(prices[up_i]),
                         "down_price":float(prices[down_i]),
-                        "volume":float(m.get("volume",0)),
+                        "volume":vol,
                         "slug":evt.get("slug",""),
                         "end_date":m.get("endDate",""),
                         "window":window,"mins_to_expiry":round(mins,1),
+                        "is_daily": window is None,  # Flag for sizing adjustments
                     })
         except: continue
     return contracts
