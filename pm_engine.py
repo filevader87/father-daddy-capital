@@ -29,6 +29,12 @@ try:
     import bayesian_layer as bl; import feature_encoder as fe; _BAYESIAN_AVAILABLE = True
 except ImportError: _BAYESIAN_AVAILABLE = False
 
+# ─── WebSocket Orderbook Feed (sync adapter) ───────────────────────────────
+try:
+    from fdc_pm_websocket_sync import get_feed as _get_ws_feed
+    _WS_AVAILABLE = True
+except ImportError: _WS_AVAILABLE = False
+
 GAMMA  = "https://gamma-api.polymarket.com"
 OUTPUT = REPO / "output"; STATE = OUTPUT / "pm_state.json"
 
@@ -272,7 +278,7 @@ def evaluate_entries(sig,contracts,state):
         if is_uptrend(sig["_prices"]) and direction=="down": return [],[]
         if is_downtrend(sig["_prices"]) and direction=="up": return [],[]
 
-    # ── Neural blend ──
+    # ── Neural blend ── (gated: 100+ real updates)
     neural_pred=None; signal_vector=None; blend_w=_neural_blend(); neural=_get_neural()
     if neural and blend_w>0:
         signal_vector=pm_encode_signal(sig)
@@ -280,6 +286,20 @@ def evaluate_entries(sig,contracts,state):
         nc=(neural_pred+1)/2 if direction=="up" else (1-neural_pred)/2
         nc=max(0,min(1,nc)); conf=conf*(1-blend_w)+nc*blend_w
         conf=round(min(0.95,conf),3)
+
+    # ── WebSocket orderbook integration ──
+    contract_prices = {}
+    if _WS_AVAILABLE:
+        try:
+            ws_feed = _get_ws_feed()
+            if ws_feed and ws_feed.is_connected():
+                live_books = ws_feed.get_books()
+                # Build a quick map: token_id → (mid_price, best_bid, best_ask)
+                for tid, book in live_books.items():
+                    if book.get("mid_price"):
+                        contract_prices[tid] = book["mid_price"]
+        except Exception:
+            pass  # WebSocket is non-critical
 
     candidates=[]
     for c in contracts:
