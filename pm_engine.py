@@ -35,6 +35,12 @@ try:
     _WS_AVAILABLE = True
 except ImportError: _WS_AVAILABLE = False
 
+# ─── Scaled Entry Strategy (from 0xce25 bot) ───────────────────────────────
+try:
+    from fdc_pm_scaled_entries import evaluate_scaled_entries, ScaledEntryConfig
+    _SCALED_AVAILABLE = True
+except ImportError: _SCALED_AVAILABLE = False
+
 GAMMA  = "https://gamma-api.polymarket.com"
 OUTPUT = REPO / "output"; STATE = OUTPUT / "pm_state.json"
 
@@ -55,6 +61,7 @@ WARM_CERT_FLOOR = 0.25  # Floor on certainty during warm-up
 MAX_BANKROLL_FRAC = 0.02  # Hard 2% cap per trade
 MIN_BET = 3.0   # Lowered from 5.0 for paper data accumulation (calibration factor low at cold start)
 KELLY_MULT = 1.5
+ENTRY_STRATEGY = "scaled"  # "scaled" (0xce25 bot) or "kelly" (traditional)
 COLD_UPDATES = 10   # Trades before leaving cold phase
 WARM_UPDATES = 30   # Trades before leaving warm phase
 
@@ -311,7 +318,13 @@ def evaluate_entries(sig,contracts,state):
         if is_uptrend(sig["_prices"]) and direction=="down": return [],[]
         if is_downtrend(sig["_prices"]) and direction=="up": return [],[]
 
-    # ── Neural blend ── (gated: 100+ real updates)
+    # ── Scaled Entry Strategy (0xce25 bot pattern) ──
+    if ENTRY_STRATEGY == "scaled" and _SCALED_AVAILABLE:
+        try:
+            entries = evaluate_scaled_entries(sig, contracts, state)
+            return entries, None
+        except Exception:
+            pass  # Fall through to traditional Kelly
     neural_pred=None; signal_vector=None; blend_w=_neural_blend(); neural=_get_neural()
     if neural and blend_w>0:
         signal_vector=pm_encode_signal(sig)
