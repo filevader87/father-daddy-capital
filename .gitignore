@@ -147,3 +147,15 @@ performance_results_*.json
 
 # Trading Interface
 trading_interface.log 
+# Scan output spam
+output/report_*.md
+output/scan_*.json
+
+# Paper state (runtime)
+output/paper_state.json
+output/pm_state.json
+output/arb_state.json
+output/macro_signals.json
+
+# Simulation sweep outputs (large)
+output/pm_sim_sweep_*.json

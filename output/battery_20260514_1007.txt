@@ -1,0 +1,4974 @@
+========================================================================
+  1. MULTI-ASSET 20-SEED BASELINE ($200, 200 cycles)
+========================================================================
+{
+  "timestamp": "2026-05-14T10:07:55.446356",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 2307.45,
+  "capital_start": 200.0,
+  "pnl_total": 2107.45,
+  "pnl_pct": 1053.7,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 4.47,
+  "profit_factor": 2.13,
+  "avg_win": 33.34,
+  "avg_loss": -24.47,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 541.91,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 413.98,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 482.1,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 669.46,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 804.78,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 382.47,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 109.19,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 811.01,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  42: P&L  +1054% | WR  61.0% | Gates 5/5 | DD   1.0% | Trades 195 | Bear 92
+{
+  "timestamp": "2026-05-14T10:08:12.286161",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 2445.02,
+  "capital_start": 200.0,
+  "pnl_total": 2245.02,
+  "pnl_pct": 1122.5,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.77,
+  "profit_factor": 2.05,
+  "avg_win": 30.93,
+  "avg_loss": -28.25,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 886.82,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 824.64,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 284.17,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 249.4,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 845.01,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 405.3,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 734.99,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 259.72,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  43: P&L  +1122% | WR  65.1% | Gates 5/5 | DD   3.0% | Trades 218 | Bear 93
+{
+  "timestamp": "2026-05-14T10:08:29.524630",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 1807.57,
+  "capital_start": 200.0,
+  "pnl_total": 1607.57,
+  "pnl_pct": 803.8,
+  "drawdown_pct": 8.2,
+  "sharpe_like": 3.45,
+  "profit_factor": 1.71,
+  "avg_win": 29.39,
+  "avg_loss": -25.25,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 386.45,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 321.05,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 523.63,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 376.44,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 347.66,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 217.13,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 371.24,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 671.55,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  44: P&L   +804% | WR  59.5% | Gates 4/5 | DD   8.2% | Trades 222 | Bear 87
+{
+  "timestamp": "2026-05-14T10:08:48.270469",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 199,
+  "wins": 96,
+  "losses": 103,
+  "win_rate_pct": 48.2,
+  "capital_final": 716.6,
+  "capital_start": 200.0,
+  "pnl_total": 516.6,
+  "pnl_pct": 258.3,
+  "drawdown_pct": 14.0,
+  "sharpe_like": 1.35,
+  "profit_factor": 1.25,
+  "avg_win": 27.14,
+  "avg_loss": -20.28,
+  "brier_score": 0.2522,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 73,
+      "pnl": -69.96,
+      "win_rate": 39.7
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 432.86,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 19,
+      "pnl": 224.52,
+      "win_rate": 89.5
+    },
+    "volatile": {
+      "trades": 74,
+      "pnl": -70.82,
+      "win_rate": 37.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 25.9,
+      "win_rate": 39.6
+    },
+    "ETH": {
+      "trades": 51,
+      "pnl": 162.35,
+      "win_rate": 54.9
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": -17.39,
+      "win_rate": 45.5
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 345.74,
+      "win_rate": 53.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 41,
+    "probe": 20,
+    "conviction": 138
+  },
+  "gates": {
+    "sharpe_gt_1.5": false,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 1,
+    "total": 5
+  }
+}
+  SEED  45: P&L   +258% | WR  48.2% | Gates 1/5 | DD  14.0% | Trades 199 | Bear 92
+{
+  "timestamp": "2026-05-14T10:09:03.348075",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 199,
+  "wins": 114,
+  "losses": 85,
+  "win_rate_pct": 57.3,
+  "capital_final": 1309.32,
+  "capital_start": 200.0,
+  "pnl_total": 1109.32,
+  "pnl_pct": 554.7,
+  "drawdown_pct": 21.1,
+  "sharpe_like": 2.69,
+  "profit_factor": 1.53,
+  "avg_win": 27.97,
+  "avg_loss": -24.47,
+  "brier_score": 0.2481,
+  "calibration_factor": 0.0074,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 67,
+      "pnl": 664.21,
+      "win_rate": 65.7
+    },
+    "trending_down": {
+      "trades": 27,
+      "pnl": 396.66,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 336.24,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": -287.79,
+      "win_rate": 37.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 369.18,
+      "win_rate": 59.5
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 268.94,
+      "win_rate": 55.6
+    },
+    "SOL": {
+      "trades": 45,
+      "pnl": 158.19,
+      "win_rate": 55.6
+    },
+    "XRP": {
+      "trades": 58,
+      "pnl": 313.01,
+      "win_rate": 58.6
+    }
+  },
+  "tier_breakdown": {
+    "probe": 21,
+    "conviction": 136,
+    "confidence": 42
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  46: P&L   +555% | WR  57.3% | Gates 4/5 | DD  21.1% | Trades 199 | Bear 89
+{
+  "timestamp": "2026-05-14T10:09:22.930514",
+  "cycles": 200,
+  "bear_skipped": 96,
+  "bear_pct": 48.0,
+  "trades": 212,
+  "wins": 115,
+  "losses": 97,
+  "win_rate_pct": 54.2,
+  "capital_final": 889.18,
+  "capital_start": 200.0,
+  "pnl_total": 689.18,
+  "pnl_pct": 344.6,
+  "drawdown_pct": 4.0,
+  "sharpe_like": 2.06,
+  "profit_factor": 1.4,
+  "avg_win": 20.9,
+  "avg_loss": -17.68,
+  "brier_score": 0.2496,
+  "calibration_factor": 0.0018,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 72,
+      "pnl": -248.7,
+      "win_rate": 38.9
+    },
+    "trending_down": {
+      "trades": 37,
+      "pnl": 515.54,
+      "win_rate": 81.1
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 260.83,
+      "win_rate": 69.7
+    },
+    "volatile": {
+      "trades": 70,
+      "pnl": 161.5,
+      "win_rate": 48.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 51,
+      "pnl": -4.17,
+      "win_rate": 45.1
+    },
+    "ETH": {
+      "trades": 49,
+      "pnl": 177.81,
+      "win_rate": 57.1
+    },
+    "SOL": {
+      "trades": 58,
+      "pnl": 238.51,
+      "win_rate": 53.4
+    },
+    "XRP": {
+      "trades": 54,
+      "pnl": 277.03,
+      "win_rate": 61.1
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 149,
+    "probe": 29,
+    "confidence": 34
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 3,
+    "total": 5
+  }
+}
+  SEED  47: P&L   +345% | WR  54.2% | Gates 3/5 | DD   4.0% | Trades 212 | Bear 96
+{
+  "timestamp": "2026-05-14T10:09:37.289984",
+  "cycles": 200,
+  "bear_skipped": 86,
+  "bear_pct": 43.0,
+  "trades": 217,
+  "wins": 131,
+  "losses": 86,
+  "win_rate_pct": 60.4,
+  "capital_final": 1988.61,
+  "capital_start": 200.0,
+  "pnl_total": 1788.61,
+  "pnl_pct": 894.3,
+  "drawdown_pct": 10.6,
+  "sharpe_like": 3.64,
+  "profit_factor": 1.76,
+  "avg_win": 31.73,
+  "avg_loss": -27.54,
+  "brier_score": 0.2437,
+  "calibration_factor": 0.0252,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 74,
+      "pnl": 744.79,
+      "win_rate": 58.1
+    },
+    "trending_down": {
+      "trades": 20,
+      "pnl": 523.02,
+      "win_rate": 75.0
+    },
+    "trending_up": {
+      "trades": 39,
+      "pnl": 630.76,
+      "win_rate": 87.2
+    },
+    "volatile": {
+      "trades": 84,
+      "pnl": -109.95,
+      "win_rate": 46.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 45,
+      "pnl": 114.58,
+      "win_rate": 51.1
+    },
+    "ETH": {
+      "trades": 56,
+      "pnl": 598.23,
+      "win_rate": 64.3
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 495.32,
+      "win_rate": 64.9
+    },
+    "XRP": {
+      "trades": 59,
+      "pnl": 580.49,
+      "win_rate": 59.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 15
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  48: P&L   +894% | WR  60.4% | Gates 4/5 | DD  10.6% | Trades 217 | Bear 86
+{
+  "timestamp": "2026-05-14T10:09:45.355742",
+  "cycles": 200,
+  "bear_skipped": 103,
+  "bear_pct": 51.5,
+  "trades": 175,
+  "wins": 111,
+  "losses": 64,
+  "win_rate_pct": 63.4,
+  "capital_final": 1791.2,
+  "capital_start": 200.0,
+  "pnl_total": 1591.2,
+  "pnl_pct": 795.6,
+  "drawdown_pct": 3.1,
+  "sharpe_like": 3.94,
+  "profit_factor": 1.94,
+  "avg_win": 29.53,
+  "avg_loss": -26.36,
+  "brier_score": 0.2442,
+  "calibration_factor": 0.0232,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 65,
+      "pnl": 208.07,
+      "win_rate": 52.3
+    },
+    "trending_down": {
+      "trades": 22,
+      "pnl": 426.5,
+      "win_rate": 81.8
+    },
+    "trending_up": {
+      "trades": 35,
+      "pnl": 697.27,
+      "win_rate": 88.6
+    },
+    "volatile": {
+      "trades": 53,
+      "pnl": 259.37,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 38,
+      "pnl": 530.98,
+      "win_rate": 65.8
+    },
+    "ETH": {
+      "trades": 41,
+      "pnl": 411.29,
+      "win_rate": 68.3
+    },
+    "SOL": {
+      "trades": 48,
+      "pnl": 15.77,
+      "win_rate": 50.0
+    },
+    "XRP": {
+      "trades": 48,
+      "pnl": 633.16,
+      "win_rate": 70.8
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 135,
+    "confidence": 24,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  49: P&L   +796% | WR  63.4% | Gates 5/5 | DD   3.1% | Trades 175 | Bear 103
+{
+  "timestamp": "2026-05-14T10:09:55.181683",
+  "cycles": 200,
+  "bear_skipped": 85,
+  "bear_pct": 42.5,
+  "trades": 200,
+  "wins": 106,
+  "losses": 94,
+  "win_rate_pct": 53.0,
+  "capital_final": 1155.35,
+  "capital_start": 200.0,
+  "pnl_total": 955.35,
+  "pnl_pct": 477.7,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 2.61,
+  "profit_factor": 1.55,
+  "avg_win": 25.48,
+  "avg_loss": -18.56,
+  "brier_score": 0.25,
+  "calibration_factor": 0.0001,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 88,
+      "pnl": 53.47,
+      "win_rate": 46.6
+    },
+    "trending_down": {
+      "trades": 26,
+      "pnl": 260.89,
+      "win_rate": 69.2
+    },
+    "trending_up": {
+      "trades": 25,
+      "pnl": 99.1,
+      "win_rate": 60.0
+    },
+    "volatile": {
+      "trades": 61,
+      "pnl": 541.89,
+      "win_rate": 52.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 55,
+      "pnl": 245.42,
+      "win_rate": 50.9
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 195.59,
+      "win_rate": 49.1
+    },
+    "SOL": {
+      "trades": 48,
+      "pnl": 64.72,
+      "win_rate": 52.1
+    },
+    "XRP": {
+      "trades": 42,
+      "pnl": 449.62,
+      "win_rate": 61.9
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 149,
+    "confidence": 36,
+    "probe": 15
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  50: P&L   +478% | WR  53.0% | Gates 4/5 | DD   0.0% | Trades 200 | Bear 85
+{
+  "timestamp": "2026-05-14T10:10:06.390812",
+  "cycles": 200,
+  "bear_skipped": 83,
+  "bear_pct": 41.5,
+  "trades": 226,
+  "wins": 130,
+  "losses": 96,
+  "win_rate_pct": 57.5,
+  "capital_final": 1517.68,
+  "capital_start": 200.0,
+  "pnl_total": 1317.68,
+  "pnl_pct": 658.8,
+  "drawdown_pct": 14.4,
+  "sharpe_like": 2.86,
+  "profit_factor": 1.55,
+  "avg_win": 28.41,
+  "avg_loss": -24.75,
+  "brier_score": 0.2479,
+  "calibration_factor": 0.0083,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 83,
+      "pnl": 518.31,
+      "win_rate": 56.6
+    },
+    "trending_down": {
+      "trades": 34,
+      "pnl": 718.31,
+      "win_rate": 79.4
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 333.21,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 76,
+      "pnl": -252.15,
+      "win_rate": 40.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 55,
+      "pnl": 316.93,
+      "win_rate": 56.4
+    },
+    "ETH": {
+      "trades": 56,
+      "pnl": 374.0,
+      "win_rate": 55.4
+    },
+    "SOL": {
+      "trades": 53,
+      "pnl": 253.0,
+      "win_rate": 56.6
+    },
+    "XRP": {
+      "trades": 62,
+      "pnl": 373.74,
+      "win_rate": 61.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 43,
+    "conviction": 156,
+    "probe": 27
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  51: P&L   +659% | WR  57.5% | Gates 4/5 | DD  14.4% | Trades 226 | Bear 83
+{
+  "timestamp": "2026-05-14T10:10:17.789216",
+  "cycles": 200,
+  "bear_skipped": 81,
+  "bear_pct": 40.5,
+  "trades": 235,
+  "wins": 130,
+  "losses": 105,
+  "win_rate_pct": 55.3,
+  "capital_final": 1827.15,
+  "capital_start": 200.0,
+  "pnl_total": 1627.15,
+  "pnl_pct": 813.6,
+  "drawdown_pct": 5.9,
+  "sharpe_like": 3.16,
+  "profit_factor": 1.61,
+  "avg_win": 32.98,
+  "avg_loss": -25.34,
+  "brier_score": 0.2498,
+  "calibration_factor": 0.001,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 120.96,
+      "win_rate": 45.5
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 691.74,
+      "win_rate": 75.8
+    },
+    "trending_up": {
+      "trades": 35,
+      "pnl": 515.5,
+      "win_rate": 74.3
+    },
+    "volatile": {
+      "trades": 90,
+      "pnl": 298.95,
+      "win_rate": 48.9
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 54,
+      "pnl": 743.71,
+      "win_rate": 57.4
+    },
+    "ETH": {
+      "trades": 68,
+      "pnl": -42.28,
+      "win_rate": 45.6
+    },
+    "SOL": {
+      "trades": 49,
+      "pnl": 462.97,
+      "win_rate": 63.3
+    },
+    "XRP": {
+      "trades": 64,
+      "pnl": 462.75,
+      "win_rate": 57.8
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 169,
+    "confidence": 43,
+    "probe": 23
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  52: P&L   +814% | WR  55.3% | Gates 5/5 | DD   5.9% | Trades 235 | Bear 81
+{
+  "timestamp": "2026-05-14T10:10:26.741057",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 191,
+  "wins": 109,
+  "losses": 82,
+  "win_rate_pct": 57.1,
+  "capital_final": 1316.05,
+  "capital_start": 200.0,
+  "pnl_total": 1116.05,
+  "pnl_pct": 558.0,
+  "drawdown_pct": 10.0,
+  "sharpe_like": 3.09,
+  "profit_factor": 1.69,
+  "avg_win": 25.05,
+  "avg_loss": -19.69,
+  "brier_score": 0.2495,
+  "calibration_factor": 0.0021,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 85,
+      "pnl": 333.02,
+      "win_rate": 50.6
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 482.48,
+      "win_rate": 79.2
+    },
+    "trending_up": {
+      "trades": 26,
+      "pnl": 129.59,
+      "win_rate": 65.4
+    },
+    "volatile": {
+      "trades": 56,
+      "pnl": 170.95,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 49,
+      "pnl": -24.68,
+      "win_rate": 46.9
+    },
+    "ETH": {
+      "trades": 45,
+      "pnl": 355.9,
+      "win_rate": 64.4
+    },
+    "SOL": {
+      "trades": 48,
+      "pnl": 483.04,
+      "win_rate": 62.5
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 301.79,
+      "win_rate": 55.1
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 134,
+    "confidence": 38,
+    "probe": 19
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  53: P&L   +558% | WR  57.1% | Gates 4/5 | DD  10.0% | Trades 191 | Bear 89
+{
+  "timestamp": "2026-05-14T10:10:36.407863",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 208,
+  "wins": 114,
+  "losses": 94,
+  "win_rate_pct": 54.8,
+  "capital_final": 1595.43,
+  "capital_start": 200.0,
+  "pnl_total": 1395.43,
+  "pnl_pct": 697.7,
+  "drawdown_pct": 17.0,
+  "sharpe_like": 2.98,
+  "profit_factor": 1.62,
+  "avg_win": 31.92,
+  "avg_loss": -23.87,
+  "brier_score": 0.2503,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 81,
+      "pnl": 65.65,
+      "win_rate": 44.4
+    },
+    "trending_down": {
+      "trades": 34,
+      "pnl": 867.85,
+      "win_rate": 82.4
+    },
+    "trending_up": {
+      "trades": 32,
+      "pnl": 550.87,
+      "win_rate": 81.2
+    },
+    "volatile": {
+      "trades": 61,
+      "pnl": -88.95,
+      "win_rate": 39.3
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 54,
+      "pnl": 340.07,
+      "win_rate": 50.0
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 392.93,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 405.3,
+      "win_rate": 57.7
+    },
+    "XRP": {
+      "trades": 55,
+      "pnl": 257.13,
+      "win_rate": 52.7
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 145,
+    "confidence": 39,
+    "probe": 24
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 3,
+    "total": 5
+  }
+}
+  SEED  54: P&L   +698% | WR  54.8% | Gates 3/5 | DD  17.0% | Trades 208 | Bear 87
+{
+  "timestamp": "2026-05-14T10:10:44.855783",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 188,
+  "wins": 120,
+  "losses": 68,
+  "win_rate_pct": 63.8,
+  "capital_final": 2173.82,
+  "capital_start": 200.0,
+  "pnl_total": 1973.82,
+  "pnl_pct": 986.9,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 4.3,
+  "profit_factor": 2.09,
+  "avg_win": 31.57,
+  "avg_loss": -26.69,
+  "brier_score": 0.2424,
+  "calibration_factor": 0.0303,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 61,
+      "pnl": 597.22,
+      "win_rate": 60.7
+    },
+    "trending_down": {
+      "trades": 35,
+      "pnl": 490.05,
+      "win_rate": 68.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 580.7,
+      "win_rate": 88.9
+    },
+    "volatile": {
+      "trades": 56,
+      "pnl": 305.85,
+      "win_rate": 48.2
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 43,
+      "pnl": 707.61,
+      "win_rate": 65.1
+    },
+    "ETH": {
+      "trades": 53,
+      "pnl": 641.02,
+      "win_rate": 69.8
+    },
+    "SOL": {
+      "trades": 40,
+      "pnl": 140.9,
+      "win_rate": 55.0
+    },
+    "XRP": {
+      "trades": 52,
+      "pnl": 484.29,
+      "win_rate": 63.5
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 135,
+    "probe": 22,
+    "confidence": 31
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  55: P&L   +987% | WR  63.8% | Gates 5/5 | DD   0.0% | Trades 188 | Bear 87
+{
+  "timestamp": "2026-05-14T10:11:02.635213",
+  "cycles": 200,
+  "bear_skipped": 80,
+  "bear_pct": 40.0,
+  "trades": 249,
+  "wins": 145,
+  "losses": 104,
+  "win_rate_pct": 58.2,
+  "capital_final": 1670.32,
+  "capital_start": 200.0,
+  "pnl_total": 1470.32,
+  "pnl_pct": 735.2,
+  "drawdown_pct": 12.7,
+  "sharpe_like": 3.11,
+  "profit_factor": 1.56,
+  "avg_win": 28.26,
+  "avg_loss": -25.27,
+  "brier_score": 0.2468,
+  "calibration_factor": 0.0128,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 66,
+      "pnl": -52.94,
+      "win_rate": 45.5
+    },
+    "trending_down": {
+      "trades": 40,
+      "pnl": 667.28,
+      "win_rate": 80.0
+    },
+    "trending_up": {
+      "trades": 46,
+      "pnl": 491.0,
+      "win_rate": 76.1
+    },
+    "volatile": {
+      "trades": 97,
+      "pnl": 364.98,
+      "win_rate": 49.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 60,
+      "pnl": 233.42,
+      "win_rate": 53.3
+    },
+    "ETH": {
+      "trades": 61,
+      "pnl": 589.28,
+      "win_rate": 62.3
+    },
+    "SOL": {
+      "trades": 61,
+      "pnl": 426.02,
+      "win_rate": 63.9
+    },
+    "XRP": {
+      "trades": 67,
+      "pnl": 221.6,
+      "win_rate": 53.7
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 181,
+    "probe": 23,
+    "confidence": 45
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  56: P&L   +735% | WR  58.2% | Gates 4/5 | DD  12.7% | Trades 249 | Bear 80
+{
+  "timestamp": "2026-05-14T10:11:12.626476",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 202,
+  "wins": 124,
+  "losses": 78,
+  "win_rate_pct": 61.4,
+  "capital_final": 1999.67,
+  "capital_start": 200.0,
+  "pnl_total": 1799.67,
+  "pnl_pct": 899.8,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 3.99,
+  "profit_factor": 1.9,
+  "avg_win": 30.58,
+  "avg_loss": -25.54,
+  "brier_score": 0.2445,
+  "calibration_factor": 0.0218,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 343.99,
+      "win_rate": 53.2
+    },
+    "trending_down": {
+      "trades": 26,
+      "pnl": 518.74,
+      "win_rate": 76.9
+    },
+    "trending_up": {
+      "trades": 31,
+      "pnl": 605.12,
+      "win_rate": 93.5
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 331.82,
+      "win_rate": 50.0
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 391.79,
+      "win_rate": 55.3
+    },
+    "ETH": {
+      "trades": 48,
+      "pnl": 584.81,
+      "win_rate": 68.8
+    },
+    "SOL": {
+      "trades": 54,
+      "pnl": 482.42,
+      "win_rate": 59.3
+    },
+    "XRP": {
+      "trades": 53,
+      "pnl": 340.65,
+      "win_rate": 62.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 138,
+    "confidence": 38,
+    "probe": 26
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  57: P&L   +900% | WR  61.4% | Gates 5/5 | DD   0.0% | Trades 202 | Bear 87
+{
+  "timestamp": "2026-05-14T10:11:24.833778",
+  "cycles": 200,
+  "bear_skipped": 81,
+  "bear_pct": 40.5,
+  "trades": 237,
+  "wins": 138,
+  "losses": 99,
+  "win_rate_pct": 58.2,
+  "capital_final": 1878.01,
+  "capital_start": 200.0,
+  "pnl_total": 1678.01,
+  "pnl_pct": 839.0,
+  "drawdown_pct": 10.2,
+  "sharpe_like": 3.62,
+  "profit_factor": 1.69,
+  "avg_win": 29.81,
+  "avg_loss": -24.61,
+  "brier_score": 0.2476,
+  "calibration_factor": 0.0094,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 86,
+      "pnl": 360.44,
+      "win_rate": 52.3
+    },
+    "trending_down": {
+      "trades": 41,
+      "pnl": 835.05,
+      "win_rate": 75.6
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 472.59,
+      "win_rate": 75.7
+    },
+    "volatile": {
+      "trades": 73,
+      "pnl": 9.94,
+      "win_rate": 46.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 64,
+      "pnl": 652.97,
+      "win_rate": 60.9
+    },
+    "ETH": {
+      "trades": 56,
+      "pnl": 211.18,
+      "win_rate": 55.4
+    },
+    "SOL": {
+      "trades": 56,
+      "pnl": 347.59,
+      "win_rate": 55.4
+    },
+    "XRP": {
+      "trades": 61,
+      "pnl": 466.27,
+      "win_rate": 60.7
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 185,
+    "probe": 24,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  58: P&L   +839% | WR  58.2% | Gates 4/5 | DD  10.2% | Trades 237 | Bear 81
+{
+  "timestamp": "2026-05-14T10:11:34.371865",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 191,
+  "wins": 112,
+  "losses": 79,
+  "win_rate_pct": 58.6,
+  "capital_final": 1436.77,
+  "capital_start": 200.0,
+  "pnl_total": 1236.77,
+  "pnl_pct": 618.4,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 3.32,
+  "profit_factor": 1.72,
+  "avg_win": 26.36,
+  "avg_loss": -21.71,
+  "brier_score": 0.2479,
+  "calibration_factor": 0.0083,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 64,
+      "pnl": 15.05,
+      "win_rate": 50.0
+    },
+    "trending_down": {
+      "trades": 31,
+      "pnl": 655.3,
+      "win_rate": 74.2
+    },
+    "trending_up": {
+      "trades": 35,
+      "pnl": 375.17,
+      "win_rate": 77.1
+    },
+    "volatile": {
+      "trades": 61,
+      "pnl": 191.25,
+      "win_rate": 49.2
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 330.67,
+      "win_rate": 58.3
+    },
+    "ETH": {
+      "trades": 43,
+      "pnl": 383.67,
+      "win_rate": 65.1
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": 366.95,
+      "win_rate": 63.6
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 155.48,
+      "win_rate": 46.7
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 143,
+    "probe": 19,
+    "confidence": 29
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  59: P&L   +618% | WR  58.6% | Gates 5/5 | DD   0.0% | Trades 191 | Bear 89
+{
+  "timestamp": "2026-05-14T10:11:44.881592",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 218,
+  "wins": 124,
+  "losses": 94,
+  "win_rate_pct": 56.9,
+  "capital_final": 1846.67,
+  "capital_start": 200.0,
+  "pnl_total": 1646.67,
+  "pnl_pct": 823.3,
+  "drawdown_pct": 1.3,
+  "sharpe_like": 3.44,
+  "profit_factor": 1.74,
+  "avg_win": 31.14,
+  "avg_loss": -23.56,
+  "brier_score": 0.2482,
+  "calibration_factor": 0.007,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 78,
+      "pnl": 312.4,
+      "win_rate": 47.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 412.46,
+      "win_rate": 72.7
+    },
+    "trending_up": {
+      "trades": 30,
+      "pnl": 347.43,
+      "win_rate": 76.7
+    },
+    "volatile": {
+      "trades": 77,
+      "pnl": 574.38,
+      "win_rate": 51.9
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 60,
+      "pnl": 307.63,
+      "win_rate": 48.3
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 461.03,
+      "win_rate": 57.4
+    },
+    "SOL": {
+      "trades": 53,
+      "pnl": 492.31,
+      "win_rate": 64.2
+    },
+    "XRP": {
+      "trades": 51,
+      "pnl": 385.71,
+      "win_rate": 58.8
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 152,
+    "confidence": 48,
+    "probe": 18
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  60: P&L   +823% | WR  56.9% | Gates 5/5 | DD   1.3% | Trades 218 | Bear 89
+{
+  "timestamp": "2026-05-14T10:11:53.764388",
+  "cycles": 200,
+  "bear_skipped": 98,
+  "bear_pct": 49.0,
+  "trades": 176,
+  "wins": 112,
+  "losses": 64,
+  "win_rate_pct": 63.6,
+  "capital_final": 1400.22,
+  "capital_start": 200.0,
+  "pnl_total": 1200.22,
+  "pnl_pct": 600.1,
+  "drawdown_pct": 8.8,
+  "sharpe_like": 3.33,
+  "profit_factor": 1.82,
+  "avg_win": 23.85,
+  "avg_loss": -22.98,
+  "brier_score": 0.2448,
+  "calibration_factor": 0.0209,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 43,
+      "pnl": -52.56,
+      "win_rate": 46.5
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 493.68,
+      "win_rate": 78.8
+    },
+    "trending_up": {
+      "trades": 30,
+      "pnl": 298.85,
+      "win_rate": 90.0
+    },
+    "volatile": {
+      "trades": 70,
+      "pnl": 460.24,
+      "win_rate": 55.7
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 524.21,
+      "win_rate": 66.7
+    },
+    "ETH": {
+      "trades": 43,
+      "pnl": 377.34,
+      "win_rate": 62.8
+    },
+    "SOL": {
+      "trades": 42,
+      "pnl": 275.17,
+      "win_rate": 61.9
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 23.51,
+      "win_rate": 63.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 109,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  SEED  61: P&L   +600% | WR  63.6% | Gates 4/5 | DD   8.8% | Trades 176 | Bear 98
+
+  AGGREGATE:
+  P&L:     mean=+727%  min=+258%  max=+1122%
+  WR:      mean=58.4%  min=48.2%  max=65.1%
+  Gates:   83/100  mean=4.2/5
+  5/5:     8/20 seeds
+  DD:      mean=7.3%  min=0.0%  max=21.1%
+  Trades:  mean=208  min=175  max=249
+  Losing seeds: 0/20
+
+========================================================================
+  2. SINGLE-ASSET FILTERED 20-SEED BASELINE
+========================================================================
+{
+  "timestamp": "2026-05-14T10:11:57.605678",
+  "cycles": 200,
+  "cycles_filtered": 101,
+  "filter_pct": 50.5,
+  "trades": 89,
+  "wins": 68,
+  "losses": 21,
+  "win_rate_pct": 76.4,
+  "capital_final": 658.18,
+  "capital_start": 200.0,
+  "pnl_total": 458.18,
+  "pnl_pct": 229.1,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 5.6,
+  "profit_factor": 4.18,
+  "avg_win": 8.85,
+  "avg_loss": -6.85,
+  "brier_score": 0.2261,
+  "calibration_factor": 0.0954,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 16,
+      "pnl": 129.06,
+      "win_rate": 87.5
+    },
+    "trending_down": {
+      "trades": 16,
+      "pnl": -43.9,
+      "win_rate": 18.8
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 199.99,
+      "win_rate": 93.9
+    },
+    "volatile": {
+      "trades": 24,
+      "pnl": 173.04,
+      "win_rate": 83.3
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  42: P&L   +229% | WR  76.4% | Gates 5/5 | DD   0.0% | Trades 89 | Filt 101
+{
+  "timestamp": "2026-05-14T10:12:02.204635",
+  "cycles": 200,
+  "cycles_filtered": 108,
+  "filter_pct": 54.0,
+  "trades": 101,
+  "wins": 78,
+  "losses": 23,
+  "win_rate_pct": 77.2,
+  "capital_final": 768.53,
+  "capital_start": 200.0,
+  "pnl_total": 568.53,
+  "pnl_pct": 284.3,
+  "drawdown_pct": 0.5,
+  "sharpe_like": 4.54,
+  "profit_factor": 3.25,
+  "avg_win": 10.52,
+  "avg_loss": -10.96,
+  "brier_score": 0.2233,
+  "calibration_factor": 0.1069,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 35,
+      "pnl": 390.92,
+      "win_rate": 94.3
+    },
+    "trending_down": {
+      "trades": 10,
+      "pnl": -125.06,
+      "win_rate": 0.0
+    },
+    "trending_up": {
+      "trades": 31,
+      "pnl": 141.44,
+      "win_rate": 96.8
+    },
+    "volatile": {
+      "trades": 25,
+      "pnl": 161.23,
+      "win_rate": 60.0
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  43: P&L   +284% | WR  77.2% | Gates 5/5 | DD   0.5% | Trades 101 | Filt 108
+{
+  "timestamp": "2026-05-14T10:12:07.213402",
+  "cycles": 200,
+  "cycles_filtered": 99,
+  "filter_pct": 49.5,
+  "trades": 110,
+  "wins": 81,
+  "losses": 29,
+  "win_rate_pct": 73.6,
+  "capital_final": 657.24,
+  "capital_start": 200.0,
+  "pnl_total": 457.24,
+  "pnl_pct": 228.6,
+  "drawdown_pct": 2.0,
+  "sharpe_like": 4.24,
+  "profit_factor": 2.71,
+  "avg_win": 8.94,
+  "avg_loss": -9.2,
+  "brier_score": 0.2272,
+  "calibration_factor": 0.0912,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 31,
+      "pnl": 201.88,
+      "win_rate": 77.4
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": -98.58,
+      "win_rate": 29.2
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 232.33,
+      "win_rate": 100.0
+    },
+    "volatile": {
+      "trades": 19,
+      "pnl": 121.61,
+      "win_rate": 73.7
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  44: P&L   +229% | WR  73.6% | Gates 5/5 | DD   2.0% | Trades 110 | Filt 99
+{
+  "timestamp": "2026-05-14T10:12:12.295240",
+  "cycles": 200,
+  "cycles_filtered": 95,
+  "filter_pct": 47.5,
+  "trades": 114,
+  "wins": 87,
+  "losses": 27,
+  "win_rate_pct": 76.3,
+  "capital_final": 929.6,
+  "capital_start": 200.0,
+  "pnl_total": 729.6,
+  "pnl_pct": 364.8,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 6.52,
+  "profit_factor": 5.83,
+  "avg_win": 10.12,
+  "avg_loss": -5.59,
+  "brier_score": 0.2245,
+  "calibration_factor": 0.102,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 26,
+      "pnl": 140.21,
+      "win_rate": 80.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": -27.61,
+      "win_rate": 28.6
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 183.94,
+      "win_rate": 90.9
+    },
+    "volatile": {
+      "trades": 41,
+      "pnl": 433.06,
+      "win_rate": 78.0
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  45: P&L   +365% | WR  76.3% | Gates 5/5 | DD   0.0% | Trades 114 | Filt 95
+{
+  "timestamp": "2026-05-14T10:12:17.151682",
+  "cycles": 200,
+  "cycles_filtered": 86,
+  "filter_pct": 43.0,
+  "trades": 97,
+  "wins": 69,
+  "losses": 28,
+  "win_rate_pct": 71.1,
+  "capital_final": 551.12,
+  "capital_start": 200.0,
+  "pnl_total": 351.12,
+  "pnl_pct": 175.6,
+  "drawdown_pct": 0.2,
+  "sharpe_like": 5.43,
+  "profit_factor": 3.92,
+  "avg_win": 6.83,
+  "avg_loss": -4.3,
+  "brier_score": 0.2304,
+  "calibration_factor": 0.0784,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 21,
+      "pnl": 38.75,
+      "win_rate": 57.1
+    },
+    "trending_down": {
+      "trades": 18,
+      "pnl": -12.51,
+      "win_rate": 33.3
+    },
+    "trending_up": {
+      "trades": 31,
+      "pnl": 162.31,
+      "win_rate": 93.5
+    },
+    "volatile": {
+      "trades": 27,
+      "pnl": 162.58,
+      "win_rate": 81.5
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  46: P&L   +176% | WR  71.1% | Gates 5/5 | DD   0.2% | Trades 97 | Filt 86
+{
+  "timestamp": "2026-05-14T10:12:21.770511",
+  "cycles": 200,
+  "cycles_filtered": 106,
+  "filter_pct": 53.0,
+  "trades": 99,
+  "wins": 78,
+  "losses": 21,
+  "win_rate_pct": 78.8,
+  "capital_final": 797.76,
+  "capital_start": 200.0,
+  "pnl_total": 597.76,
+  "pnl_pct": 298.9,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 6.14,
+  "profit_factor": 5.11,
+  "avg_win": 9.53,
+  "avg_loss": -6.92,
+  "brier_score": 0.2248,
+  "calibration_factor": 0.1006,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 28,
+      "pnl": 286.83,
+      "win_rate": 96.4
+    },
+    "trending_down": {
+      "trades": 13,
+      "pnl": -10.93,
+      "win_rate": 30.8
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 149.46,
+      "win_rate": 90.9
+    },
+    "volatile": {
+      "trades": 25,
+      "pnl": 172.4,
+      "win_rate": 68.0
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  47: P&L   +299% | WR  78.8% | Gates 5/5 | DD   0.0% | Trades 99 | Filt 106
+{
+  "timestamp": "2026-05-14T10:12:26.765227",
+  "cycles": 200,
+  "cycles_filtered": 97,
+  "filter_pct": 48.5,
+  "trades": 103,
+  "wins": 81,
+  "losses": 22,
+  "win_rate_pct": 78.6,
+  "capital_final": 938.92,
+  "capital_start": 200.0,
+  "pnl_total": 738.92,
+  "pnl_pct": 369.5,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 6.22,
+  "profit_factor": 4.96,
+  "avg_win": 11.43,
+  "avg_loss": -8.49,
+  "brier_score": 0.2225,
+  "calibration_factor": 0.1101,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 26,
+      "pnl": 215.15,
+      "win_rate": 76.9
+    },
+    "trending_down": {
+      "trades": 20,
+      "pnl": -5.68,
+      "win_rate": 40.0
+    },
+    "trending_up": {
+      "trades": 35,
+      "pnl": 231.01,
+      "win_rate": 100.0
+    },
+    "volatile": {
+      "trades": 22,
+      "pnl": 298.45,
+      "win_rate": 81.8
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  48: P&L   +370% | WR  78.6% | Gates 5/5 | DD   0.0% | Trades 103 | Filt 97
+{
+  "timestamp": "2026-05-14T10:12:32.226850",
+  "cycles": 200,
+  "cycles_filtered": 95,
+  "filter_pct": 47.5,
+  "trades": 108,
+  "wins": 76,
+  "losses": 32,
+  "win_rate_pct": 70.4,
+  "capital_final": 681.47,
+  "capital_start": 200.0,
+  "pnl_total": 481.47,
+  "pnl_pct": 240.7,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 4.7,
+  "profit_factor": 3.01,
+  "avg_win": 9.48,
+  "avg_loss": -7.47,
+  "brier_score": 0.2298,
+  "calibration_factor": 0.0808,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 24,
+      "pnl": 169.43,
+      "win_rate": 75.0
+    },
+    "trending_down": {
+      "trades": 26,
+      "pnl": -91.94,
+      "win_rate": 23.1
+    },
+    "trending_up": {
+      "trades": 34,
+      "pnl": 202.67,
+      "win_rate": 94.1
+    },
+    "volatile": {
+      "trades": 24,
+      "pnl": 201.31,
+      "win_rate": 83.3
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  49: P&L   +241% | WR  70.4% | Gates 5/5 | DD   0.0% | Trades 108 | Filt 95
+{
+  "timestamp": "2026-05-14T10:12:37.712537",
+  "cycles": 200,
+  "cycles_filtered": 90,
+  "filter_pct": 45.0,
+  "trades": 109,
+  "wins": 81,
+  "losses": 28,
+  "win_rate_pct": 74.3,
+  "capital_final": 734.24,
+  "capital_start": 200.0,
+  "pnl_total": 534.24,
+  "pnl_pct": 267.1,
+  "drawdown_pct": 1.8,
+  "sharpe_like": 5.29,
+  "profit_factor": 3.67,
+  "avg_win": 9.07,
+  "avg_loss": -7.15,
+  "brier_score": 0.2269,
+  "calibration_factor": 0.0926,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 25,
+      "pnl": 256.67,
+      "win_rate": 92.0
+    },
+    "trending_down": {
+      "trades": 22,
+      "pnl": -30.09,
+      "win_rate": 31.8
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 147.9,
+      "win_rate": 89.2
+    },
+    "volatile": {
+      "trades": 25,
+      "pnl": 159.77,
+      "win_rate": 72.0
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  50: P&L   +267% | WR  74.3% | Gates 5/5 | DD   1.8% | Trades 109 | Filt 90
+{
+  "timestamp": "2026-05-14T10:12:43.362785",
+  "cycles": 200,
+  "cycles_filtered": 98,
+  "filter_pct": 49.0,
+  "trades": 113,
+  "wins": 79,
+  "losses": 34,
+  "win_rate_pct": 69.9,
+  "capital_final": 623.45,
+  "capital_start": 200.0,
+  "pnl_total": 423.45,
+  "pnl_pct": 211.7,
+  "drawdown_pct": 3.9,
+  "sharpe_like": 4.08,
+  "profit_factor": 2.59,
+  "avg_win": 8.72,
+  "avg_loss": -7.82,
+  "brier_score": 0.232,
+  "calibration_factor": 0.072,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 27,
+      "pnl": 213.45,
+      "win_rate": 85.2
+    },
+    "trending_down": {
+      "trades": 26,
+      "pnl": -30.67,
+      "win_rate": 34.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 195.67,
+      "win_rate": 94.4
+    },
+    "volatile": {
+      "trades": 24,
+      "pnl": 45.0,
+      "win_rate": 54.2
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  51: P&L   +212% | WR  69.9% | Gates 5/5 | DD   3.9% | Trades 113 | Filt 98
+{
+  "timestamp": "2026-05-14T10:12:48.281437",
+  "cycles": 200,
+  "cycles_filtered": 94,
+  "filter_pct": 47.0,
+  "trades": 105,
+  "wins": 81,
+  "losses": 24,
+  "win_rate_pct": 77.1,
+  "capital_final": 871.41,
+  "capital_start": 200.0,
+  "pnl_total": 671.41,
+  "pnl_pct": 335.7,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 4.84,
+  "profit_factor": 3.28,
+  "avg_win": 11.93,
+  "avg_loss": -12.27,
+  "brier_score": 0.2253,
+  "calibration_factor": 0.0986,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 29,
+      "pnl": 361.11,
+      "win_rate": 93.1
+    },
+    "trending_down": {
+      "trades": 16,
+      "pnl": -96.0,
+      "win_rate": 18.8
+    },
+    "trending_up": {
+      "trades": 39,
+      "pnl": 300.52,
+      "win_rate": 97.4
+    },
+    "volatile": {
+      "trades": 21,
+      "pnl": 105.79,
+      "win_rate": 61.9
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  52: P&L   +336% | WR  77.1% | Gates 5/5 | DD   0.0% | Trades 105 | Filt 94
+{
+  "timestamp": "2026-05-14T10:12:53.422261",
+  "cycles": 200,
+  "cycles_filtered": 95,
+  "filter_pct": 47.5,
+  "trades": 97,
+  "wins": 75,
+  "losses": 22,
+  "win_rate_pct": 77.3,
+  "capital_final": 658.77,
+  "capital_start": 200.0,
+  "pnl_total": 458.77,
+  "pnl_pct": 229.4,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 5.39,
+  "profit_factor": 3.57,
+  "avg_win": 8.5,
+  "avg_loss": -8.12,
+  "brier_score": 0.2227,
+  "calibration_factor": 0.1093,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 12,
+      "pnl": 53.44,
+      "win_rate": 66.7
+    },
+    "trending_down": {
+      "trades": 15,
+      "pnl": -1.09,
+      "win_rate": 33.3
+    },
+    "trending_up": {
+      "trades": 40,
+      "pnl": 214.03,
+      "win_rate": 97.5
+    },
+    "volatile": {
+      "trades": 30,
+      "pnl": 192.39,
+      "win_rate": 76.7
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  53: P&L   +229% | WR  77.3% | Gates 5/5 | DD   0.0% | Trades 97 | Filt 95
+{
+  "timestamp": "2026-05-14T10:12:58.772979",
+  "cycles": 200,
+  "cycles_filtered": 89,
+  "filter_pct": 44.5,
+  "trades": 116,
+  "wins": 87,
+  "losses": 29,
+  "win_rate_pct": 75.0,
+  "capital_final": 856.89,
+  "capital_start": 200.0,
+  "pnl_total": 656.89,
+  "pnl_pct": 328.4,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 5.94,
+  "profit_factor": 3.64,
+  "avg_win": 10.41,
+  "avg_loss": -8.57,
+  "brier_score": 0.2248,
+  "calibration_factor": 0.1009,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 27,
+      "pnl": 241.46,
+      "win_rate": 81.5
+    },
+    "trending_down": {
+      "trades": 19,
+      "pnl": -103.15,
+      "win_rate": 26.3
+    },
+    "trending_up": {
+      "trades": 34,
+      "pnl": 242.7,
+      "win_rate": 97.1
+    },
+    "volatile": {
+      "trades": 36,
+      "pnl": 275.88,
+      "win_rate": 75.0
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  54: P&L   +328% | WR  75.0% | Gates 5/5 | DD   0.0% | Trades 116 | Filt 89
+{
+  "timestamp": "2026-05-14T10:13:04.121815",
+  "cycles": 200,
+  "cycles_filtered": 85,
+  "filter_pct": 42.5,
+  "trades": 115,
+  "wins": 84,
+  "losses": 31,
+  "win_rate_pct": 73.0,
+  "capital_final": 812.13,
+  "capital_start": 200.0,
+  "pnl_total": 612.13,
+  "pnl_pct": 306.1,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 5.26,
+  "profit_factor": 3.41,
+  "avg_win": 10.32,
+  "avg_loss": -8.2,
+  "brier_score": 0.2247,
+  "calibration_factor": 0.1013,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 40,
+      "pnl": 251.6,
+      "win_rate": 75.0
+    },
+    "trending_down": {
+      "trades": 12,
+      "pnl": 9.69,
+      "win_rate": 41.7
+    },
+    "trending_up": {
+      "trades": 28,
+      "pnl": 143.46,
+      "win_rate": 96.4
+    },
+    "volatile": {
+      "trades": 35,
+      "pnl": 207.38,
+      "win_rate": 62.9
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  55: P&L   +306% | WR  73.0% | Gates 5/5 | DD   0.0% | Trades 115 | Filt 85
+{
+  "timestamp": "2026-05-14T10:13:08.294439",
+  "cycles": 200,
+  "cycles_filtered": 105,
+  "filter_pct": 52.5,
+  "trades": 94,
+  "wins": 72,
+  "losses": 22,
+  "win_rate_pct": 76.6,
+  "capital_final": 683.03,
+  "capital_start": 200.0,
+  "pnl_total": 483.03,
+  "pnl_pct": 241.5,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.97,
+  "profit_factor": 3.35,
+  "avg_win": 9.56,
+  "avg_loss": -9.33,
+  "brier_score": 0.2256,
+  "calibration_factor": 0.0978,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 27,
+      "pnl": 248.84,
+      "win_rate": 85.2
+    },
+    "trending_down": {
+      "trades": 7,
+      "pnl": -23.24,
+      "win_rate": 42.9
+    },
+    "trending_up": {
+      "trades": 27,
+      "pnl": 177.17,
+      "win_rate": 92.6
+    },
+    "volatile": {
+      "trades": 33,
+      "pnl": 80.26,
+      "win_rate": 63.6
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  56: P&L   +242% | WR  76.6% | Gates 5/5 | DD   3.0% | Trades 94 | Filt 105
+{
+  "timestamp": "2026-05-14T10:13:12.052293",
+  "cycles": 200,
+  "cycles_filtered": 101,
+  "filter_pct": 50.5,
+  "trades": 64,
+  "wins": 48,
+  "losses": 16,
+  "win_rate_pct": 75.0,
+  "capital_final": 438.07,
+  "capital_start": 200.0,
+  "pnl_total": 238.07,
+  "pnl_pct": 119.0,
+  "drawdown_pct": 0.1,
+  "sharpe_like": 4.98,
+  "profit_factor": 4.41,
+  "avg_win": 6.42,
+  "avg_loss": -4.37,
+  "brier_score": 0.2285,
+  "calibration_factor": 0.086,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 15,
+      "pnl": 98.04,
+      "win_rate": 86.7
+    },
+    "trending_down": {
+      "trades": 6,
+      "pnl": -19.06,
+      "win_rate": 0.0
+    },
+    "trending_up": {
+      "trades": 24,
+      "pnl": 98.86,
+      "win_rate": 91.7
+    },
+    "volatile": {
+      "trades": 19,
+      "pnl": 60.24,
+      "win_rate": 68.4
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  57: P&L   +119% | WR  75.0% | Gates 5/5 | DD   0.1% | Trades 64 | Filt 101
+{
+  "timestamp": "2026-05-14T10:13:16.591818",
+  "cycles": 200,
+  "cycles_filtered": 111,
+  "filter_pct": 55.5,
+  "trades": 88,
+  "wins": 62,
+  "losses": 26,
+  "win_rate_pct": 70.5,
+  "capital_final": 430.34,
+  "capital_start": 200.0,
+  "pnl_total": 230.34,
+  "pnl_pct": 115.2,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 4.21,
+  "profit_factor": 2.98,
+  "avg_win": 5.59,
+  "avg_loss": -4.47,
+  "brier_score": 0.2327,
+  "calibration_factor": 0.0693,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 21,
+      "pnl": 64.54,
+      "win_rate": 71.4
+    },
+    "trending_down": {
+      "trades": 16,
+      "pnl": 3.18,
+      "win_rate": 43.8
+    },
+    "trending_up": {
+      "trades": 30,
+      "pnl": 138.34,
+      "win_rate": 93.3
+    },
+    "volatile": {
+      "trades": 21,
+      "pnl": 24.28,
+      "win_rate": 57.1
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  58: P&L   +115% | WR  70.5% | Gates 5/5 | DD   0.0% | Trades 88 | Filt 111
+{
+  "timestamp": "2026-05-14T10:13:21.851003",
+  "cycles": 200,
+  "cycles_filtered": 86,
+  "filter_pct": 43.0,
+  "trades": 119,
+  "wins": 85,
+  "losses": 34,
+  "win_rate_pct": 71.4,
+  "capital_final": 785.48,
+  "capital_start": 200.0,
+  "pnl_total": 585.48,
+  "pnl_pct": 292.7,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 5.2,
+  "profit_factor": 3.33,
+  "avg_win": 9.84,
+  "avg_loss": -7.39,
+  "brier_score": 0.227,
+  "calibration_factor": 0.0919,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 36,
+      "pnl": 299.0,
+      "win_rate": 80.6
+    },
+    "trending_down": {
+      "trades": 18,
+      "pnl": -120.5,
+      "win_rate": 5.6
+    },
+    "trending_up": {
+      "trades": 39,
+      "pnl": 225.93,
+      "win_rate": 92.3
+    },
+    "volatile": {
+      "trades": 26,
+      "pnl": 181.06,
+      "win_rate": 73.1
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  59: P&L   +293% | WR  71.4% | Gates 5/5 | DD   1.0% | Trades 119 | Filt 86
+{
+  "timestamp": "2026-05-14T10:13:26.803660",
+  "cycles": 200,
+  "cycles_filtered": 105,
+  "filter_pct": 52.5,
+  "trades": 88,
+  "wins": 72,
+  "losses": 16,
+  "win_rate_pct": 81.8,
+  "capital_final": 828.5,
+  "capital_start": 200.0,
+  "pnl_total": 628.5,
+  "pnl_pct": 314.2,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 6.24,
+  "profit_factor": 5.03,
+  "avg_win": 10.9,
+  "avg_loss": -9.75,
+  "brier_score": 0.2231,
+  "calibration_factor": 0.1078,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 19,
+      "pnl": 174.45,
+      "win_rate": 84.2
+    },
+    "trending_down": {
+      "trades": 13,
+      "pnl": 1.42,
+      "win_rate": 38.5
+    },
+    "trending_up": {
+      "trades": 39,
+      "pnl": 295.33,
+      "win_rate": 97.4
+    },
+    "volatile": {
+      "trades": 17,
+      "pnl": 157.29,
+      "win_rate": 76.5
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  60: P&L   +314% | WR  81.8% | Gates 5/5 | DD   0.0% | Trades 88 | Filt 105
+{
+  "timestamp": "2026-05-14T10:13:31.919351",
+  "cycles": 200,
+  "cycles_filtered": 84,
+  "filter_pct": 42.0,
+  "trades": 104,
+  "wins": 77,
+  "losses": 27,
+  "win_rate_pct": 74.0,
+  "capital_final": 713.67,
+  "capital_start": 200.0,
+  "pnl_total": 513.67,
+  "pnl_pct": 256.8,
+  "drawdown_pct": 0.0,
+  "sharpe_like": 5.62,
+  "profit_factor": 3.77,
+  "avg_win": 9.08,
+  "avg_loss": -6.87,
+  "brier_score": 0.2305,
+  "calibration_factor": 0.078,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 25,
+      "pnl": 140.34,
+      "win_rate": 72.0
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 23.93,
+      "win_rate": 50.0
+    },
+    "trending_up": {
+      "trades": 34,
+      "pnl": 200.42,
+      "win_rate": 94.1
+    },
+    "volatile": {
+      "trades": 21,
+      "pnl": 148.98,
+      "win_rate": 71.4
+    }
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+  SEED  61: P&L   +257% | WR  74.0% | Gates 5/5 | DD   0.0% | Trades 104 | Filt 84
+
+  AGGREGATE:
+  P&L:     mean=+260%  min=+115%  max=+370%
+  WR:      mean=74.9%  min=69.9%  max=81.8%
+  Gates:   100/100  mean=5.0/5
+  5/5:     20/20 seeds
+  DD:      mean=0.6%  min=0.0%  max=3.9%
+  Losing seeds: 0/20
+
+========================================================================
+  3. HEAD-TO-HEAD (per-seed comparison)
+========================================================================
+  SEED 200: MA  +1054% vs SA   +229% → Δ   +825% [MA]
+  SEED 200: MA  +1122% vs SA   +284% → Δ   +838% [MA]
+  SEED 200: MA   +804% vs SA   +229% → Δ   +575% [MA]
+  SEED 200: MA   +258% vs SA   +365% → Δ   -106% [SA]
+  SEED 200: MA   +555% vs SA   +176% → Δ   +379% [MA]
+  SEED 200: MA   +345% vs SA   +299% → Δ    +46% [MA]
+  SEED 200: MA   +894% vs SA   +370% → Δ   +525% [MA]
+  SEED 200: MA   +796% vs SA   +241% → Δ   +555% [MA]
+  SEED 200: MA   +478% vs SA   +267% → Δ   +211% [MA]
+  SEED 200: MA   +659% vs SA   +212% → Δ   +447% [MA]
+  SEED 200: MA   +814% vs SA   +336% → Δ   +478% [MA]
+  SEED 200: MA   +558% vs SA   +229% → Δ   +329% [MA]
+  SEED 200: MA   +698% vs SA   +328% → Δ   +369% [MA]
+  SEED 200: MA   +987% vs SA   +306% → Δ   +681% [MA]
+  SEED 200: MA   +735% vs SA   +242% → Δ   +494% [MA]
+  SEED 200: MA   +900% vs SA   +119% → Δ   +781% [MA]
+  SEED 200: MA   +839% vs SA   +115% → Δ   +724% [MA]
+  SEED 200: MA   +618% vs SA   +293% → Δ   +326% [MA]
+  SEED 200: MA   +823% vs SA   +314% → Δ   +509% [MA]
+  SEED 200: MA   +600% vs SA   +257% → Δ   +343% [MA]
+
+  Multi-Asset wins: 19/20
+  Single-Asset wins: 1/20
+  Ties: 0/20
+
+========================================================================
+  4. WORST SEED DEEP DIVE (seed with worst P&L)
+  Seed: worst=+258% | WR=48.2% | DD=14.0%
+  Regime breakdown:
+    ranging          73 tr  P&L $ -69.96  WR    40%
+    trending_down    33 tr  P&L $+432.86  WR    67%
+    trending_up      19 tr  P&L $+224.52  WR    90%
+    volatile         74 tr  P&L $ -70.82  WR    38%
+  Asset breakdown:
+    BTC    48 tr  P&L $ +25.90  WR    40%
+    ETH    51 tr  P&L $+162.35  WR    55%
+    SOL    55 tr  P&L $ -17.39  WR    46%
+    XRP    45 tr  P&L $+345.74  WR    53%
+  Sizing tiers: {'confidence': 41, 'probe': 20, 'conviction': 138}
+
+========================================================================
+  5. PARAMETER SWEEP: max_conviction_dollar
+  (5 seeds, 200 cycles each)
+========================================================================
+{
+  "timestamp": "2026-05-14T10:13:47.554037",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 1633.05,
+  "capital_start": 200.0,
+  "pnl_total": 1433.05,
+  "pnl_pct": 716.5,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 4.65,
+  "profit_factor": 2.21,
+  "avg_win": 22.02,
+  "avg_loss": -15.62,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 353.7,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 252.65,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 379.31,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 447.39,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 499.68,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 245.28,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 110.09,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 578.0,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:13:59.434857",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 1628.14,
+  "capital_start": 200.0,
+  "pnl_total": 1428.14,
+  "pnl_pct": 714.1,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.74,
+  "profit_factor": 2.03,
+  "avg_win": 19.79,
+  "avg_loss": -18.19,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 545.69,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 499.96,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 248.56,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 133.93,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 525.9,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 245.71,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 486.62,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 169.91,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:14:09.838907",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 1274.84,
+  "capital_start": 200.0,
+  "pnl_total": 1074.84,
+  "pnl_pct": 537.4,
+  "drawdown_pct": 7.4,
+  "sharpe_like": 3.49,
+  "profit_factor": 1.72,
+  "avg_win": 19.43,
+  "avg_loss": -16.56,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 221.98,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 217.33,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 407.22,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 228.3,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 235.09,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 152.06,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 252.4,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 435.29,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:14:19.726762",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 199,
+  "wins": 96,
+  "losses": 103,
+  "win_rate_pct": 48.2,
+  "capital_final": 597.56,
+  "capital_start": 200.0,
+  "pnl_total": 397.56,
+  "pnl_pct": 198.8,
+  "drawdown_pct": 13.5,
+  "sharpe_like": 1.54,
+  "profit_factor": 1.28,
+  "avg_win": 19.08,
+  "avg_loss": -13.92,
+  "brier_score": 0.2522,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 73,
+      "pnl": -34.06,
+      "win_rate": 39.7
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 289.29,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 19,
+      "pnl": 208.56,
+      "win_rate": 89.5
+    },
+    "volatile": {
+      "trades": 74,
+      "pnl": -66.23,
+      "win_rate": 37.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 7.62,
+      "win_rate": 39.6
+    },
+    "ETH": {
+      "trades": 51,
+      "pnl": 138.11,
+      "win_rate": 54.9
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": 10.63,
+      "win_rate": 45.5
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 241.2,
+      "win_rate": 53.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 41,
+    "probe": 20,
+    "conviction": 138
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 2,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:14:29.411864",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 199,
+  "wins": 114,
+  "losses": 85,
+  "win_rate_pct": 57.3,
+  "capital_final": 922.28,
+  "capital_start": 200.0,
+  "pnl_total": 722.28,
+  "pnl_pct": 361.1,
+  "drawdown_pct": 21.3,
+  "sharpe_like": 2.68,
+  "profit_factor": 1.52,
+  "avg_win": 18.52,
+  "avg_loss": -16.34,
+  "brier_score": 0.2481,
+  "calibration_factor": 0.0074,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 67,
+      "pnl": 411.48,
+      "win_rate": 65.7
+    },
+    "trending_down": {
+      "trades": 27,
+      "pnl": 237.97,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 285.31,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": -212.48,
+      "win_rate": 37.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 264.16,
+      "win_rate": 59.5
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 155.95,
+      "win_rate": 55.6
+    },
+    "SOL": {
+      "trades": 45,
+      "pnl": 95.68,
+      "win_rate": 55.6
+    },
+    "XRP": {
+      "trades": 58,
+      "pnl": 206.49,
+      "win_rate": 58.6
+    }
+  },
+  "tier_breakdown": {
+    "probe": 21,
+    "conviction": 136,
+    "confidence": 42
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  max_conv=$15: P&L=+506% | WR=58.2% | Gates=4.2/5 | DD=9.2%
+{
+  "timestamp": "2026-05-14T10:14:39.039477",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 2307.45,
+  "capital_start": 200.0,
+  "pnl_total": 2107.45,
+  "pnl_pct": 1053.7,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 4.47,
+  "profit_factor": 2.13,
+  "avg_win": 33.34,
+  "avg_loss": -24.47,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 541.91,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 413.98,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 482.1,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 669.46,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 804.78,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 382.47,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 109.19,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 811.01,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:14:49.497851",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 2445.02,
+  "capital_start": 200.0,
+  "pnl_total": 2245.02,
+  "pnl_pct": 1122.5,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.77,
+  "profit_factor": 2.05,
+  "avg_win": 30.93,
+  "avg_loss": -28.25,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 886.82,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 824.64,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 284.17,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 249.4,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 845.01,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 405.3,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 734.99,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 259.72,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:15:00.254945",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 1807.57,
+  "capital_start": 200.0,
+  "pnl_total": 1607.57,
+  "pnl_pct": 803.8,
+  "drawdown_pct": 8.2,
+  "sharpe_like": 3.45,
+  "profit_factor": 1.71,
+  "avg_win": 29.39,
+  "avg_loss": -25.25,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 386.45,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 321.05,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 523.63,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 376.44,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 347.66,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 217.13,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 371.24,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 671.55,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:15:09.902596",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 199,
+  "wins": 96,
+  "losses": 103,
+  "win_rate_pct": 48.2,
+  "capital_final": 716.6,
+  "capital_start": 200.0,
+  "pnl_total": 516.6,
+  "pnl_pct": 258.3,
+  "drawdown_pct": 14.0,
+  "sharpe_like": 1.35,
+  "profit_factor": 1.25,
+  "avg_win": 27.14,
+  "avg_loss": -20.28,
+  "brier_score": 0.2522,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 73,
+      "pnl": -69.96,
+      "win_rate": 39.7
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 432.86,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 19,
+      "pnl": 224.52,
+      "win_rate": 89.5
+    },
+    "volatile": {
+      "trades": 74,
+      "pnl": -70.82,
+      "win_rate": 37.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 25.9,
+      "win_rate": 39.6
+    },
+    "ETH": {
+      "trades": 51,
+      "pnl": 162.35,
+      "win_rate": 54.9
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": -17.39,
+      "win_rate": 45.5
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 345.74,
+      "win_rate": 53.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 41,
+    "probe": 20,
+    "conviction": 138
+  },
+  "gates": {
+    "sharpe_gt_1.5": false,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 1,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:15:19.302407",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 199,
+  "wins": 114,
+  "losses": 85,
+  "win_rate_pct": 57.3,
+  "capital_final": 1309.32,
+  "capital_start": 200.0,
+  "pnl_total": 1109.32,
+  "pnl_pct": 554.7,
+  "drawdown_pct": 21.1,
+  "sharpe_like": 2.69,
+  "profit_factor": 1.53,
+  "avg_win": 27.97,
+  "avg_loss": -24.47,
+  "brier_score": 0.2481,
+  "calibration_factor": 0.0074,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 67,
+      "pnl": 664.21,
+      "win_rate": 65.7
+    },
+    "trending_down": {
+      "trades": 27,
+      "pnl": 396.66,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 336.24,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": -287.79,
+      "win_rate": 37.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 369.18,
+      "win_rate": 59.5
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 268.94,
+      "win_rate": 55.6
+    },
+    "SOL": {
+      "trades": 45,
+      "pnl": 158.19,
+      "win_rate": 55.6
+    },
+    "XRP": {
+      "trades": 58,
+      "pnl": 313.01,
+      "win_rate": 58.6
+    }
+  },
+  "tier_breakdown": {
+    "probe": 21,
+    "conviction": 136,
+    "confidence": 42
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  max_conv=$25: P&L=+759% | WR=58.2% | Gates=3.8/5 | DD=9.5%
+{
+  "timestamp": "2026-05-14T10:15:29.961368",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 2869.12,
+  "capital_start": 200.0,
+  "pnl_total": 2669.12,
+  "pnl_pct": 1334.6,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 4.29,
+  "profit_factor": 2.08,
+  "avg_win": 43.26,
+  "avg_loss": -32.62,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 717.17,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 573.37,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 507.78,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 870.8,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 1067.08,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 508.76,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 85.51,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 1007.78,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:15:40.173217",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 3163.34,
+  "capital_start": 200.0,
+  "pnl_total": 2963.34,
+  "pnl_pct": 1481.7,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.77,
+  "profit_factor": 2.06,
+  "avg_win": 40.54,
+  "avg_loss": -36.76,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 1159.02,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 1146.17,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 283.71,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 374.44,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 1135.76,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 566.93,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 907.32,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 353.32,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:15:51.193539",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 2253.77,
+  "capital_start": 200.0,
+  "pnl_total": 2053.77,
+  "pnl_pct": 1026.9,
+  "drawdown_pct": 8.8,
+  "sharpe_like": 3.34,
+  "profit_factor": 1.68,
+  "avg_win": 38.32,
+  "avg_loss": -33.38,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 555.41,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 413.56,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 561.22,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 523.58,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 443.16,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 275.97,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 466.73,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 867.92,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:16:00.144495",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 199,
+  "wins": 96,
+  "losses": 103,
+  "win_rate_pct": 48.2,
+  "capital_final": 740.62,
+  "capital_start": 200.0,
+  "pnl_total": 540.62,
+  "pnl_pct": 270.3,
+  "drawdown_pct": 17.5,
+  "sharpe_like": 1.18,
+  "profit_factor": 1.22,
+  "avg_win": 31.25,
+  "avg_loss": -23.88,
+  "brier_score": 0.2522,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 73,
+      "pnl": -76.73,
+      "win_rate": 39.7
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 486.23,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 19,
+      "pnl": 224.52,
+      "win_rate": 89.5
+    },
+    "volatile": {
+      "trades": 74,
+      "pnl": -93.4,
+      "win_rate": 37.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 51.9,
+      "win_rate": 39.6
+    },
+    "ETH": {
+      "trades": 51,
+      "pnl": 149.05,
+      "win_rate": 54.9
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": -41.78,
+      "win_rate": 45.5
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 381.44,
+      "win_rate": 53.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 41,
+    "probe": 20,
+    "conviction": 138
+  },
+  "gates": {
+    "sharpe_gt_1.5": false,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 1,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:16:09.695382",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 199,
+  "wins": 114,
+  "losses": 85,
+  "win_rate_pct": 57.3,
+  "capital_final": 1616.22,
+  "capital_start": 200.0,
+  "pnl_total": 1416.22,
+  "pnl_pct": 708.1,
+  "drawdown_pct": 20.9,
+  "sharpe_like": 2.61,
+  "profit_factor": 1.53,
+  "avg_win": 36.05,
+  "avg_loss": -31.68,
+  "brier_score": 0.2481,
+  "calibration_factor": 0.0074,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 67,
+      "pnl": 864.4,
+      "win_rate": 65.7
+    },
+    "trending_down": {
+      "trades": 27,
+      "pnl": 555.38,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 336.24,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": -339.8,
+      "win_rate": 37.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 433.72,
+      "win_rate": 59.5
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 394.67,
+      "win_rate": 55.6
+    },
+    "SOL": {
+      "trades": 45,
+      "pnl": 213.14,
+      "win_rate": 55.6
+    },
+    "XRP": {
+      "trades": 58,
+      "pnl": 374.69,
+      "win_rate": 58.6
+    }
+  },
+  "tier_breakdown": {
+    "probe": 21,
+    "conviction": 136,
+    "confidence": 42
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  max_conv=$35: P&L=+964% | WR=58.2% | Gates=3.8/5 | DD=10.2%
+
+========================================================================
+  6. PARAMETER SWEEP: conviction_pct
+========================================================================
+{
+  "timestamp": "2026-05-14T10:16:19.593195",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 1756.25,
+  "capital_start": 200.0,
+  "pnl_total": 1556.25,
+  "pnl_pct": 778.1,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 3.96,
+  "profit_factor": 1.99,
+  "avg_win": 26.24,
+  "avg_loss": -20.62,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 339.46,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 401.93,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 246.76,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 568.1,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 621.78,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 288.72,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 35.44,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 610.31,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:16:29.425347",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 2003.05,
+  "capital_start": 200.0,
+  "pnl_total": 1803.05,
+  "pnl_pct": 901.5,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.6,
+  "profit_factor": 2.05,
+  "avg_win": 24.79,
+  "avg_loss": -22.6,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 561.59,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 810.46,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 138.55,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 292.46,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 693.66,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 370.29,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 506.9,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 232.2,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:16:39.543562",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 1352.54,
+  "capital_start": 200.0,
+  "pnl_total": 1152.54,
+  "pnl_pct": 576.3,
+  "drawdown_pct": 9.8,
+  "sharpe_like": 3.06,
+  "profit_factor": 1.62,
+  "avg_win": 22.89,
+  "avg_loss": -20.76,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 259.86,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 251.26,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 270.72,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 370.71,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 267.77,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 107.74,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 238.14,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 538.9,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:16:48.549104",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 199,
+  "wins": 96,
+  "losses": 103,
+  "win_rate_pct": 48.2,
+  "capital_final": 442.32,
+  "capital_start": 200.0,
+  "pnl_total": 242.32,
+  "pnl_pct": 121.2,
+  "drawdown_pct": 17.5,
+  "sharpe_like": 1.2,
+  "profit_factor": 1.21,
+  "avg_win": 14.49,
+  "avg_loss": -11.15,
+  "brier_score": 0.2522,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 73,
+      "pnl": -36.64,
+      "win_rate": 39.7
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 218.41,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 19,
+      "pnl": 129.1,
+      "win_rate": 89.5
+    },
+    "volatile": {
+      "trades": 74,
+      "pnl": -68.54,
+      "win_rate": 37.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 7.59,
+      "win_rate": 39.6
+    },
+    "ETH": {
+      "trades": 51,
+      "pnl": 79.24,
+      "win_rate": 54.9
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": -12.54,
+      "win_rate": 45.5
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 168.03,
+      "win_rate": 53.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 41,
+    "probe": 20,
+    "conviction": 138
+  },
+  "gates": {
+    "sharpe_gt_1.5": false,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 1,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:16:59.574295",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 199,
+  "wins": 114,
+  "losses": 85,
+  "win_rate_pct": 57.3,
+  "capital_final": 989.45,
+  "capital_start": 200.0,
+  "pnl_total": 789.45,
+  "pnl_pct": 394.7,
+  "drawdown_pct": 20.7,
+  "sharpe_like": 2.28,
+  "profit_factor": 1.46,
+  "avg_win": 21.88,
+  "avg_loss": -20.06,
+  "brier_score": 0.2481,
+  "calibration_factor": 0.0074,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 67,
+      "pnl": 408.6,
+      "win_rate": 65.7
+    },
+    "trending_down": {
+      "trades": 27,
+      "pnl": 390.25,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 185.28,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": -194.67,
+      "win_rate": 37.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 258.59,
+      "win_rate": 59.5
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 175.11,
+      "win_rate": 55.6
+    },
+    "SOL": {
+      "trades": 45,
+      "pnl": 159.33,
+      "win_rate": 55.6
+    },
+    "XRP": {
+      "trades": 58,
+      "pnl": 196.43,
+      "win_rate": 58.6
+    }
+  },
+  "tier_breakdown": {
+    "probe": 21,
+    "conviction": 136,
+    "confidence": 42
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 3,
+    "total": 5
+  }
+}
+  conviction=3%: P&L=+554% | WR=58.2% | Gates=3.6/5 | DD=10.4%
+{
+  "timestamp": "2026-05-14T10:17:12.365867",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 2307.45,
+  "capital_start": 200.0,
+  "pnl_total": 2107.45,
+  "pnl_pct": 1053.7,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 4.47,
+  "profit_factor": 2.13,
+  "avg_win": 33.34,
+  "avg_loss": -24.47,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 541.91,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 413.98,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 482.1,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 669.46,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 804.78,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 382.47,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 109.19,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 811.01,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:17:23.905480",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 2445.02,
+  "capital_start": 200.0,
+  "pnl_total": 2245.02,
+  "pnl_pct": 1122.5,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.77,
+  "profit_factor": 2.05,
+  "avg_win": 30.93,
+  "avg_loss": -28.25,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 886.82,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 824.64,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 284.17,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 249.4,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 845.01,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 405.3,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 734.99,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 259.72,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:17:34.704098",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 1807.57,
+  "capital_start": 200.0,
+  "pnl_total": 1607.57,
+  "pnl_pct": 803.8,
+  "drawdown_pct": 8.2,
+  "sharpe_like": 3.45,
+  "profit_factor": 1.71,
+  "avg_win": 29.39,
+  "avg_loss": -25.25,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 386.45,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 321.05,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 523.63,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 376.44,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 347.66,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 217.13,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 371.24,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 671.55,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:17:44.302527",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 199,
+  "wins": 96,
+  "losses": 103,
+  "win_rate_pct": 48.2,
+  "capital_final": 716.6,
+  "capital_start": 200.0,
+  "pnl_total": 516.6,
+  "pnl_pct": 258.3,
+  "drawdown_pct": 14.0,
+  "sharpe_like": 1.35,
+  "profit_factor": 1.25,
+  "avg_win": 27.14,
+  "avg_loss": -20.28,
+  "brier_score": 0.2522,
+  "calibration_factor": 0.0,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 73,
+      "pnl": -69.96,
+      "win_rate": 39.7
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 432.86,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 19,
+      "pnl": 224.52,
+      "win_rate": 89.5
+    },
+    "volatile": {
+      "trades": 74,
+      "pnl": -70.82,
+      "win_rate": 37.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 48,
+      "pnl": 25.9,
+      "win_rate": 39.6
+    },
+    "ETH": {
+      "trades": 51,
+      "pnl": 162.35,
+      "win_rate": 54.9
+    },
+    "SOL": {
+      "trades": 55,
+      "pnl": -17.39,
+      "win_rate": 45.5
+    },
+    "XRP": {
+      "trades": 45,
+      "pnl": 345.74,
+      "win_rate": 53.3
+    }
+  },
+  "tier_breakdown": {
+    "confidence": 41,
+    "probe": 20,
+    "conviction": 138
+  },
+  "gates": {
+    "sharpe_gt_1.5": false,
+    "win_rate_gt_55pct": false,
+    "profit_factor_gt_1.5": false,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 1,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:17:54.167193",
+  "cycles": 200,
+  "bear_skipped": 89,
+  "bear_pct": 44.5,
+  "trades": 199,
+  "wins": 114,
+  "losses": 85,
+  "win_rate_pct": 57.3,
+  "capital_final": 1309.32,
+  "capital_start": 200.0,
+  "pnl_total": 1109.32,
+  "pnl_pct": 554.7,
+  "drawdown_pct": 21.1,
+  "sharpe_like": 2.69,
+  "profit_factor": 1.53,
+  "avg_win": 27.97,
+  "avg_loss": -24.47,
+  "brier_score": 0.2481,
+  "calibration_factor": 0.0074,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 67,
+      "pnl": 664.21,
+      "win_rate": 65.7
+    },
+    "trending_down": {
+      "trades": 27,
+      "pnl": 396.66,
+      "win_rate": 66.7
+    },
+    "trending_up": {
+      "trades": 33,
+      "pnl": 336.24,
+      "win_rate": 75.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": -287.79,
+      "win_rate": 37.5
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 42,
+      "pnl": 369.18,
+      "win_rate": 59.5
+    },
+    "ETH": {
+      "trades": 54,
+      "pnl": 268.94,
+      "win_rate": 55.6
+    },
+    "SOL": {
+      "trades": 45,
+      "pnl": 158.19,
+      "win_rate": 55.6
+    },
+    "XRP": {
+      "trades": 58,
+      "pnl": 313.01,
+      "win_rate": 58.6
+    }
+  },
+  "tier_breakdown": {
+    "probe": 21,
+    "conviction": 136,
+    "confidence": 42
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": false,
+    "green_trades_gte_7": true,
+    "passed": 4,
+    "total": 5
+  }
+}
+  conviction=5%: P&L=+759% | WR=58.2% | Gates=3.8/5 | DD=9.5%
+{
+  "timestamp": "2026-05-14T10:18:03.685066",
+  "cycles": 200,
+  "bear_skipped": 92,
+  "bear_pct": 46.0,
+  "trades": 195,
+  "wins": 119,
+  "losses": 76,
+  "win_rate_pct": 61.0,
+  "capital_final": 2483.97,
+  "capital_start": 200.0,
+  "pnl_total": 2283.97,
+  "pnl_pct": 1142.0,
+  "drawdown_pct": 1.0,
+  "sharpe_like": 4.64,
+  "profit_factor": 2.19,
+  "avg_win": 35.33,
+  "avg_loss": -25.27,
+  "brier_score": 0.2447,
+  "calibration_factor": 0.0213,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 77,
+      "pnl": 562.19,
+      "win_rate": 55.8
+    },
+    "trending_down": {
+      "trades": 14,
+      "pnl": 417.0,
+      "win_rate": 78.6
+    },
+    "trending_up": {
+      "trades": 36,
+      "pnl": 602.83,
+      "win_rate": 77.8
+    },
+    "volatile": {
+      "trades": 68,
+      "pnl": 701.94,
+      "win_rate": 54.4
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 46,
+      "pnl": 812.97,
+      "win_rate": 65.2
+    },
+    "ETH": {
+      "trades": 47,
+      "pnl": 400.92,
+      "win_rate": 59.6
+    },
+    "SOL": {
+      "trades": 52,
+      "pnl": 172.71,
+      "win_rate": 48.1
+    },
+    "XRP": {
+      "trades": 50,
+      "pnl": 897.37,
+      "win_rate": 72.0
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 144,
+    "probe": 23,
+    "confidence": 28
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:18:14.282246",
+  "cycles": 200,
+  "bear_skipped": 93,
+  "bear_pct": 46.5,
+  "trades": 218,
+  "wins": 142,
+  "losses": 76,
+  "win_rate_pct": 65.1,
+  "capital_final": 2567.63,
+  "capital_start": 200.0,
+  "pnl_total": 2367.63,
+  "pnl_pct": 1183.8,
+  "drawdown_pct": 3.0,
+  "sharpe_like": 4.85,
+  "profit_factor": 2.06,
+  "avg_win": 32.36,
+  "avg_loss": -29.3,
+  "brier_score": 0.2435,
+  "calibration_factor": 0.0261,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 93,
+      "pnl": 900.84,
+      "win_rate": 63.4
+    },
+    "trending_down": {
+      "trades": 33,
+      "pnl": 828.6,
+      "win_rate": 84.8
+    },
+    "trending_up": {
+      "trades": 23,
+      "pnl": 400.75,
+      "win_rate": 78.3
+    },
+    "volatile": {
+      "trades": 69,
+      "pnl": 237.43,
+      "win_rate": 53.6
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 57,
+      "pnl": 862.27,
+      "win_rate": 70.2
+    },
+    "ETH": {
+      "trades": 55,
+      "pnl": 412.52,
+      "win_rate": 61.8
+    },
+    "SOL": {
+      "trades": 57,
+      "pnl": 798.71,
+      "win_rate": 68.4
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 294.13,
+      "win_rate": 59.2
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 170,
+    "confidence": 32,
+    "probe": 16
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+{
+  "timestamp": "2026-05-14T10:18:24.472146",
+  "cycles": 200,
+  "bear_skipped": 87,
+  "bear_pct": 43.5,
+  "trades": 222,
+  "wins": 132,
+  "losses": 90,
+  "win_rate_pct": 59.5,
+  "capital_final": 1939.11,
+  "capital_start": 200.0,
+  "pnl_total": 1739.11,
+  "pnl_pct": 869.6,
+  "drawdown_pct": 7.9,
+  "sharpe_like": 3.55,
+  "profit_factor": 1.73,
+  "avg_win": 31.17,
+  "avg_loss": -26.4,
+  "brier_score": 0.2456,
+  "calibration_factor": 0.0177,
+  "regime_breakdown": {
+    "ranging": {
+      "trades": 89,
+      "pnl": 379.62,
+      "win_rate": 53.9
+    },
+    "trending_down": {
+      "trades": 24,
+      "pnl": 338.13,
+      "win_rate": 62.5
+    },
+    "trending_up": {
+      "trades": 37,
+      "pnl": 643.21,
+      "win_rate": 83.8
+    },
+    "volatile": {
+      "trades": 72,
+      "pnl": 378.14,
+      "win_rate": 52.8
+    }
+  },
+  "asset_breakdown": {
+    "BTC": {
+      "trades": 47,
+      "pnl": 369.53,
+      "win_rate": 53.2
+    },
+    "ETH": {
+      "trades": 64,
+      "pnl": 263.37,
+      "win_rate": 57.8
+    },
+    "SOL": {
+      "trades": 62,
+      "pnl": 407.94,
+      "win_rate": 61.3
+    },
+    "XRP": {
+      "trades": 49,
+      "pnl": 698.27,
+      "win_rate": 65.3
+    }
+  },
+  "tier_breakdown": {
+    "conviction": 155,
+    "confidence": 42,
+    "probe": 25
+  },
+  "gates": {
+    "sharpe_gt_1.5": true,
+    "win_rate_gt_55pct": true,
+    "profit_factor_gt_1.5": true,
+    "drawdown_lt_8pct": true,
+    "green_trades_gte_7": true,
+    "passed": 5,
+    "total": 5
+  }
+}
+Traceback (most recent call last):
+  File "/mnt/c/Users/12035/father_daddy_capital/test_battery.py", line 164, in <module>
+    r = multi.simulate(cycles=200, bankroll=200.0, seed=s, json_mode=True)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/12035/father_daddy_capital/test_pm_sim_multi.py", line 126, in simulate
+    cal = bl.BayesianCalibrator()
+          ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/c/Users/12035/father_daddy_capital/src/neural/bayesian_layer.py", line 64, in __init__
+    self._load()
+  File "/mnt/c/Users/12035/father_daddy_capital/src/neural/bayesian_layer.py", line 273, in _load
+    state = json.loads(BAYESIAN_STATE.read_text())
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/__init__.py", line 346, in loads
+    return _default_decoder.decode(s)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 337, in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.12/json/decoder.py", line 355, in raw_decode
+    raise JSONDecodeError("Expecting value", s, err.value) from None
+json.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)

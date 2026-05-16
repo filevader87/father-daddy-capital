@@ -16,7 +16,7 @@ PAPER_ONLY = True  # <- FLIP THIS for live
 CLOB_URL = "https://clob.polymarket.com"
 GAMMA_URL = "https://gamma-api.polymarket.com"
 CHAIN_ID = 137
-POLYGON_RPC = "https://polygon-rpc.com"
+POLYGON_RPC = "https://rpc-mainnet.matic.quiknode.pro"
 
 ENV_FILE = Path("/mnt/c/Users/12035/father_daddy_capital/.env")
 

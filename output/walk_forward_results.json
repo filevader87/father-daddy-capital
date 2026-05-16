@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-05-15T22:27:30.196267",
+  "timestamp": "2026-05-16T06:15:21.036751",
   "method": "unanchored_rolling_walk_forward",
   "configuration": {
     "total_cycles": 480,
@@ -24,43 +24,43 @@
     "wins": 114,
     "losses": 39,
     "win_rate_pct": 74.51,
-    "pnl_total": 750.403,
-    "pnl_pct": 100.64,
+    "pnl_total": 745.988,
+    "pnl_pct": 100.89,
     "sharpe": 0.56,
-    "profit_factor": 4.22,
-    "max_drawdown_pct": 51.99,
+    "profit_factor": 4.23,
+    "max_drawdown_pct": 51.88,
     "calmar_ratio": 1.94,
-    "final_equity": 501.59,
-    "total_fees_paid": 1.3658
+    "final_equity": 502.21,
+    "total_fees_paid": 1.3567
   },
   "regime_breakdown_combined": {
     "ranging": {
       "trades": 48,
-      "pnl": 323.3,
+      "pnl": 321.26,
       "win_rate": 87.5,
-      "fees": 0.48
+      "fees": 0.47
     },
     "trending_down": {
       "trades": 18,
-      "pnl": 7.93,
+      "pnl": 8.02,
       "win_rate": 38.9,
       "fees": 0.12
     },
     "trending_up": {
       "trades": 38,
-      "pnl": 322.71,
+      "pnl": 320.84,
       "win_rate": 92.1,
       "fees": 0.41
     },
     "volatile": {
       "trades": 49,
-      "pnl": 96.47,
+      "pnl": 95.87,
       "win_rate": 61.2,
-      "fees": 0.36
+      "fees": 0.35
     }
   },
   "stability": {
-    "max_single_win_pct": 4.1,
+    "max_single_win_pct": 4.0,
     "giant_wins_count": 0,
     "relies_on_giants": false
   },
@@ -80,49 +80,49 @@
         "wins": 42,
         "losses": 13,
         "win_rate_pct": 76.36,
-        "pnl_total": 269.7602,
-        "pnl_pct": 107.84,
+        "pnl_total": 270.008,
+        "pnl_pct": 107.94,
         "sharpe": 3.73,
-        "profit_factor": 4.57,
-        "max_drawdown_pct": 2.97,
-        "calmar_ratio": 36.33,
-        "final_equity": 519.61
+        "profit_factor": 4.6,
+        "max_drawdown_pct": 2.94,
+        "calmar_ratio": 36.67,
+        "final_equity": 519.86
       },
       "oos_stats": {
         "trades": 13,
         "wins": 7,
         "losses": 6,
         "win_rate_pct": 53.85,
-        "pnl_total": 17.4232,
-        "pnl_pct": 3.39,
-        "sharpe": 0.61,
+        "pnl_total": 17.3481,
+        "pnl_pct": 3.37,
+        "sharpe": 0.62,
         "profit_factor": 1.59,
-        "max_drawdown_pct": 3.75,
-        "calmar_ratio": 0.9,
-        "final_equity": 530.95
+        "max_drawdown_pct": 3.71,
+        "calmar_ratio": 0.91,
+        "final_equity": 531.15
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 2,
-          "pnl": 1.53,
+          "pnl": 1.54,
           "win_rate": 100.0,
           "fees": 0.0
         },
         "trending_up": {
           "trades": 3,
-          "pnl": 36.57,
+          "pnl": 36.24,
           "win_rate": 100.0,
           "fees": 0.04
         },
         "volatile": {
           "trades": 8,
-          "pnl": -20.68,
+          "pnl": -20.44,
           "win_rate": 25.0,
           "fees": 0.03
         }
       },
-      "frozen_brier": 0.2317,
-      "oos_equity_final": 530.95
+      "frozen_brier": 0.2321,
+      "oos_equity_final": 531.15
     },
     {
       "window": 2,
@@ -139,55 +139,55 @@
         "wins": 45,
         "losses": 17,
         "win_rate_pct": 72.58,
-        "pnl_total": 271.7411,
-        "pnl_pct": 108.63,
+        "pnl_total": 271.9378,
+        "pnl_pct": 108.7,
         "sharpe": 3.77,
-        "profit_factor": 3.95,
-        "max_drawdown_pct": 7.61,
-        "calmar_ratio": 14.27,
-        "final_equity": 521.56
+        "profit_factor": 3.97,
+        "max_drawdown_pct": 7.57,
+        "calmar_ratio": 14.36,
+        "final_equity": 521.76
       },
       "oos_stats": {
         "trades": 20,
         "wins": 16,
         "losses": 4,
         "win_rate_pct": 80.0,
-        "pnl_total": 105.9136,
-        "pnl_pct": 19.32,
-        "sharpe": 2.37,
+        "pnl_total": 105.7029,
+        "pnl_pct": 19.27,
+        "sharpe": 2.38,
         "profit_factor": 5.21,
         "max_drawdown_pct": 3.01,
         "calmar_ratio": 6.41,
-        "final_equity": 653.85
+        "final_equity": 653.81
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 7,
-          "pnl": 44.76,
+          "pnl": 44.68,
           "win_rate": 100.0,
           "fees": 0.06
         },
         "trending_down": {
           "trades": 3,
-          "pnl": -19.72,
+          "pnl": -19.68,
           "win_rate": 0.0,
           "fees": 0.01
         },
         "trending_up": {
           "trades": 5,
-          "pnl": 62.07,
+          "pnl": 61.94,
           "win_rate": 100.0,
           "fees": 0.06
         },
         "volatile": {
           "trades": 5,
-          "pnl": 18.81,
+          "pnl": 18.76,
           "win_rate": 80.0,
           "fees": 0.03
         }
       },
-      "frozen_brier": 0.2307,
-      "oos_equity_final": 653.85
+      "frozen_brier": 0.2309,
+      "oos_equity_final": 653.81
     },
     {
       "window": 3,
@@ -204,55 +204,55 @@
         "wins": 43,
         "losses": 12,
         "win_rate_pct": 78.18,
-        "pnl_total": 320.0323,
-        "pnl_pct": 127.94,
+        "pnl_total": 319.2951,
+        "pnl_pct": 127.65,
         "sharpe": 3.73,
-        "profit_factor": 4.56,
-        "max_drawdown_pct": 4.28,
-        "calmar_ratio": 29.92,
-        "final_equity": 569.85
+        "profit_factor": 4.59,
+        "max_drawdown_pct": 4.24,
+        "calmar_ratio": 30.08,
+        "final_equity": 569.11
       },
       "oos_stats": {
         "trades": 15,
         "wins": 11,
         "losses": 4,
         "win_rate_pct": 73.33,
-        "pnl_total": 65.1373,
-        "pnl_pct": 11.42,
+        "pnl_total": 64.3648,
+        "pnl_pct": 11.3,
         "sharpe": 2.19,
         "profit_factor": 3.9,
-        "max_drawdown_pct": 0.82,
-        "calmar_ratio": 14.0,
-        "final_equity": 634.94
+        "max_drawdown_pct": 0.81,
+        "calmar_ratio": 13.99,
+        "final_equity": 633.43
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 2,
-          "pnl": 21.11,
+          "pnl": 20.86,
           "win_rate": 100.0,
-          "fees": 0.03
+          "fees": 0.02
         },
         "trending_down": {
           "trades": 1,
-          "pnl": -4.98,
+          "pnl": -4.92,
           "win_rate": 0.0,
           "fees": 0.0
         },
         "trending_up": {
           "trades": 3,
-          "pnl": 19.87,
+          "pnl": 19.66,
           "win_rate": 100.0,
           "fees": 0.03
         },
         "volatile": {
           "trades": 9,
-          "pnl": 29.14,
+          "pnl": 28.77,
           "win_rate": 66.7,
           "fees": 0.07
         }
       },
-      "frozen_brier": 0.2307,
-      "oos_equity_final": 634.94
+      "frozen_brier": 0.2311,
+      "oos_equity_final": 633.43
     },
     {
       "window": 4,
@@ -269,55 +269,55 @@
         "wins": 46,
         "losses": 18,
         "win_rate_pct": 71.88,
-        "pnl_total": 256.3209,
-        "pnl_pct": 102.45,
-        "sharpe": 3.48,
-        "profit_factor": 3.28,
-        "max_drawdown_pct": 9.14,
-        "calmar_ratio": 11.21,
-        "final_equity": 506.13
+        "pnl_total": 256.7017,
+        "pnl_pct": 102.6,
+        "sharpe": 3.49,
+        "profit_factor": 3.3,
+        "max_drawdown_pct": 9.06,
+        "calmar_ratio": 11.32,
+        "final_equity": 506.51
       },
       "oos_stats": {
         "trades": 21,
         "wins": 19,
         "losses": 2,
         "win_rate_pct": 90.48,
-        "pnl_total": 131.413,
-        "pnl_pct": 25.96,
+        "pnl_total": 130.5167,
+        "pnl_pct": 25.76,
         "sharpe": 3.02,
-        "profit_factor": 25.01,
+        "profit_factor": 24.98,
         "max_drawdown_pct": 0.0,
-        "calmar_ratio": 2595.51,
-        "final_equity": 637.49
+        "calmar_ratio": 2575.86,
+        "final_equity": 636.98
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 8,
-          "pnl": 52.57,
+          "pnl": 52.2,
           "win_rate": 100.0,
           "fees": 0.06
         },
         "trending_down": {
           "trades": 5,
-          "pnl": 18.1,
+          "pnl": 17.93,
           "win_rate": 60.0,
           "fees": 0.03
         },
         "trending_up": {
           "trades": 7,
-          "pnl": 51.65,
+          "pnl": 51.35,
           "win_rate": 100.0,
           "fees": 0.06
         },
         "volatile": {
           "trades": 1,
-          "pnl": 9.09,
+          "pnl": 9.03,
           "win_rate": 100.0,
           "fees": 0.01
         }
       },
-      "frozen_brier": 0.2341,
-      "oos_equity_final": 637.49
+      "frozen_brier": 0.2344,
+      "oos_equity_final": 636.98
     },
     {
       "window": 5,
@@ -334,55 +334,55 @@
         "wins": 41,
         "losses": 9,
         "win_rate_pct": 82.0,
-        "pnl_total": 295.7319,
-        "pnl_pct": 118.23,
+        "pnl_total": 295.7929,
+        "pnl_pct": 118.26,
         "sharpe": 4.1,
-        "profit_factor": 7.3,
-        "max_drawdown_pct": 6.19,
-        "calmar_ratio": 19.11,
-        "final_equity": 545.58
+        "profit_factor": 7.35,
+        "max_drawdown_pct": 6.12,
+        "calmar_ratio": 19.33,
+        "final_equity": 545.65
       },
       "oos_stats": {
         "trades": 13,
         "wins": 8,
         "losses": 5,
         "win_rate_pct": 61.54,
-        "pnl_total": 45.5861,
-        "pnl_pct": 8.35,
+        "pnl_total": 45.4803,
+        "pnl_pct": 8.33,
         "sharpe": 0.99,
         "profit_factor": 2.65,
-        "max_drawdown_pct": 3.39,
+        "max_drawdown_pct": 3.38,
         "calmar_ratio": 2.46,
-        "final_equity": 591.13
+        "final_equity": 591.08
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 4,
-          "pnl": 16.63,
+          "pnl": 16.55,
           "win_rate": 75.0,
           "fees": 0.03
         },
         "trending_down": {
           "trades": 1,
-          "pnl": -3.12,
+          "pnl": -3.13,
           "win_rate": 0.0,
           "fees": 0.0
         },
         "trending_up": {
           "trades": 5,
-          "pnl": 38.74,
+          "pnl": 38.67,
           "win_rate": 80.0,
           "fees": 0.06
         },
         "volatile": {
           "trades": 3,
-          "pnl": -6.66,
+          "pnl": -6.61,
           "win_rate": 33.3,
           "fees": 0.02
         }
       },
-      "frozen_brier": 0.2228,
-      "oos_equity_final": 591.13
+      "frozen_brier": 0.2233,
+      "oos_equity_final": 591.08
     },
     {
       "window": 6,
@@ -399,55 +399,55 @@
         "wins": 43,
         "losses": 6,
         "win_rate_pct": 87.76,
-        "pnl_total": 269.4244,
-        "pnl_pct": 107.71,
+        "pnl_total": 268.6021,
+        "pnl_pct": 107.38,
         "sharpe": 3.87,
-        "profit_factor": 8.74,
-        "max_drawdown_pct": 4.86,
-        "calmar_ratio": 22.19,
-        "final_equity": 519.28
+        "profit_factor": 8.7,
+        "max_drawdown_pct": 4.87,
+        "calmar_ratio": 22.03,
+        "final_equity": 518.46
       },
       "oos_stats": {
         "trades": 20,
         "wins": 14,
         "losses": 6,
         "win_rate_pct": 70.0,
-        "pnl_total": 96.3711,
-        "pnl_pct": 19.31,
+        "pnl_total": 95.8499,
+        "pnl_pct": 19.23,
         "sharpe": 2.13,
         "profit_factor": 2.73,
         "max_drawdown_pct": 3.96,
-        "calmar_ratio": 4.87,
-        "final_equity": 594.97
+        "calmar_ratio": 4.85,
+        "final_equity": 593.67
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 7,
-          "pnl": -4.46,
+          "pnl": -4.49,
           "win_rate": 42.9,
           "fees": 0.06
         },
         "trending_down": {
           "trades": 3,
-          "pnl": 20.72,
+          "pnl": 20.74,
           "win_rate": 66.7,
           "fees": 0.04
         },
         "trending_up": {
           "trades": 5,
-          "pnl": 54.55,
+          "pnl": 54.2,
           "win_rate": 100.0,
           "fees": 0.07
         },
         "volatile": {
           "trades": 5,
-          "pnl": 25.56,
+          "pnl": 25.4,
           "win_rate": 80.0,
           "fees": 0.06
         }
       },
-      "frozen_brier": 0.2161,
-      "oos_equity_final": 594.97
+      "frozen_brier": 0.2167,
+      "oos_equity_final": 593.67
     },
     {
       "window": 7,
@@ -464,55 +464,55 @@
         "wins": 51,
         "losses": 22,
         "win_rate_pct": 69.86,
-        "pnl_total": 270.4982,
-        "pnl_pct": 108.13,
+        "pnl_total": 270.7438,
+        "pnl_pct": 108.23,
         "sharpe": 3.58,
         "profit_factor": 3.96,
-        "max_drawdown_pct": 6.36,
-        "calmar_ratio": 17.0,
-        "final_equity": 520.32
+        "max_drawdown_pct": 6.35,
+        "calmar_ratio": 17.04,
+        "final_equity": 520.56
       },
       "oos_stats": {
         "trades": 13,
         "wins": 9,
         "losses": 4,
         "win_rate_pct": 69.23,
-        "pnl_total": 31.2871,
-        "pnl_pct": 5.84,
+        "pnl_total": 31.3941,
+        "pnl_pct": 5.85,
         "sharpe": 1.23,
         "profit_factor": 2.77,
         "max_drawdown_pct": 1.67,
-        "calmar_ratio": 3.5,
-        "final_equity": 566.75
+        "calmar_ratio": 3.51,
+        "final_equity": 567.1
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 5,
-          "pnl": 31.85,
+          "pnl": 31.93,
           "win_rate": 80.0,
           "fees": 0.05
         },
         "trending_down": {
           "trades": 1,
-          "pnl": -2.51,
+          "pnl": -2.53,
           "win_rate": 0.0,
           "fees": 0.0
         },
         "trending_up": {
           "trades": 3,
-          "pnl": 8.15,
+          "pnl": 8.19,
           "win_rate": 100.0,
           "fees": 0.01
         },
         "volatile": {
           "trades": 4,
-          "pnl": -6.21,
+          "pnl": -6.19,
           "win_rate": 50.0,
           "fees": 0.01
         }
       },
-      "frozen_brier": 0.2354,
-      "oos_equity_final": 566.75
+      "frozen_brier": 0.2355,
+      "oos_equity_final": 567.1
     },
     {
       "window": 8,
@@ -529,13 +529,13 @@
         "wins": 21,
         "losses": 9,
         "win_rate_pct": 70.0,
-        "pnl_total": 80.3291,
-        "pnl_pct": 32.1,
+        "pnl_total": 80.3006,
+        "pnl_pct": 32.09,
         "sharpe": 2.35,
-        "profit_factor": 2.7,
-        "max_drawdown_pct": 3.24,
-        "calmar_ratio": 9.92,
-        "final_equity": 330.25
+        "profit_factor": 2.69,
+        "max_drawdown_pct": 3.25,
+        "calmar_ratio": 9.87,
+        "final_equity": 330.22
       },
       "oos_stats": {
         "trades": 0,
@@ -548,11 +548,11 @@
         "profit_factor": 0.0,
         "max_drawdown_pct": 0.0,
         "calmar_ratio": 0.0,
-        "final_equity": 330.2476429175633
+        "final_equity": 330.21916129918174
       },
       "regime_breakdown": {},
-      "frozen_brier": 0.2456,
-      "oos_equity_final": 330.25
+      "frozen_brier": 0.2457,
+      "oos_equity_final": 330.22
     },
     {
       "window": 9,
@@ -569,49 +569,49 @@
         "wins": 63,
         "losses": 13,
         "win_rate_pct": 82.89,
-        "pnl_total": 534.012,
-        "pnl_pct": 213.47,
+        "pnl_total": 533.9424,
+        "pnl_pct": 213.44,
         "sharpe": 4.53,
-        "profit_factor": 4.78,
-        "max_drawdown_pct": 10.88,
-        "calmar_ratio": 19.62,
-        "final_equity": 783.68
+        "profit_factor": 4.79,
+        "max_drawdown_pct": 10.85,
+        "calmar_ratio": 19.68,
+        "final_equity": 783.61
       },
       "oos_stats": {
         "trades": 8,
         "wins": 8,
         "losses": 0,
         "win_rate_pct": 100.0,
-        "pnl_total": 132.2166,
-        "pnl_pct": 15.53,
-        "sharpe": 2.53,
-        "profit_factor": 13221.66,
+        "pnl_total": 131.5242,
+        "pnl_pct": 15.45,
+        "sharpe": 2.52,
+        "profit_factor": 13152.42,
         "max_drawdown_pct": 0.0,
-        "calmar_ratio": 1553.31,
-        "final_equity": 983.02
+        "calmar_ratio": 1545.36,
+        "final_equity": 982.23
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 4,
-          "pnl": 66.04,
+          "pnl": 65.85,
           "win_rate": 100.0,
           "fees": 0.09
         },
         "trending_up": {
           "trades": 1,
-          "pnl": 26.11,
+          "pnl": 25.92,
           "win_rate": 100.0,
           "fees": 0.03
         },
         "volatile": {
           "trades": 3,
-          "pnl": 40.07,
+          "pnl": 39.75,
           "win_rate": 100.0,
           "fees": 0.06
         }
       },
-      "frozen_brier": 0.2191,
-      "oos_equity_final": 983.02
+      "frozen_brier": 0.2198,
+      "oos_equity_final": 982.23
     },
     {
       "window": 10,
@@ -628,55 +628,55 @@
         "wins": 57,
         "losses": 13,
         "win_rate_pct": 81.43,
-        "pnl_total": 395.3229,
-        "pnl_pct": 158.03,
+        "pnl_total": 393.5877,
+        "pnl_pct": 157.34,
         "sharpe": 4.82,
-        "profit_factor": 5.22,
-        "max_drawdown_pct": 3.48,
-        "calmar_ratio": 45.45,
-        "final_equity": 645.08
+        "profit_factor": 5.25,
+        "max_drawdown_pct": 3.45,
+        "calmar_ratio": 45.54,
+        "final_equity": 643.34
       },
       "oos_stats": {
         "trades": 16,
         "wins": 11,
         "losses": 5,
         "win_rate_pct": 68.75,
-        "pnl_total": 101.2415,
-        "pnl_pct": 15.41,
+        "pnl_total": 100.1187,
+        "pnl_pct": 15.28,
         "sharpe": 1.38,
-        "profit_factor": 3.48,
-        "max_drawdown_pct": 2.81,
-        "calmar_ratio": 5.47,
-        "final_equity": 757.83
+        "profit_factor": 3.49,
+        "max_drawdown_pct": 2.79,
+        "calmar_ratio": 5.49,
+        "final_equity": 754.87
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 3,
-          "pnl": 76.07,
+          "pnl": 75.0,
           "win_rate": 100.0,
           "fees": 0.07
         },
         "trending_down": {
           "trades": 3,
-          "pnl": -1.37,
+          "pnl": -1.19,
           "win_rate": 33.3,
           "fees": 0.03
         },
         "trending_up": {
           "trades": 4,
-          "pnl": 30.87,
+          "pnl": 30.52,
           "win_rate": 100.0,
           "fees": 0.05
         },
         "volatile": {
           "trades": 6,
-          "pnl": -4.33,
+          "pnl": -4.22,
           "win_rate": 50.0,
-          "fees": 0.05
+          "fees": 0.04
         }
       },
-      "frozen_brier": 0.2258,
-      "oos_equity_final": 757.83
+      "frozen_brier": 0.2265,
+      "oos_equity_final": 754.87
     },
     {
       "window": 11,
@@ -693,31 +693,31 @@
         "wins": 33,
         "losses": 13,
         "win_rate_pct": 71.74,
-        "pnl_total": 226.76,
-        "pnl_pct": 90.66,
+        "pnl_total": 227.5022,
+        "pnl_pct": 90.95,
         "sharpe": 3.37,
-        "profit_factor": 5.83,
-        "max_drawdown_pct": 3.91,
-        "calmar_ratio": 23.16,
-        "final_equity": 476.64
+        "profit_factor": 5.86,
+        "max_drawdown_pct": 3.87,
+        "calmar_ratio": 23.51,
+        "final_equity": 477.38
       },
       "oos_stats": {
         "trades": 14,
         "wins": 11,
         "losses": 3,
         "win_rate_pct": 78.57,
-        "pnl_total": 23.8135,
-        "pnl_pct": 4.98,
+        "pnl_total": 23.6883,
+        "pnl_pct": 4.95,
         "sharpe": 1.9,
         "profit_factor": 3.87,
-        "max_drawdown_pct": 1.23,
+        "max_drawdown_pct": 1.22,
         "calmar_ratio": 4.04,
-        "final_equity": 501.59
+        "final_equity": 502.21
       },
       "regime_breakdown": {
         "ranging": {
           "trades": 6,
-          "pnl": 17.22,
+          "pnl": 17.14,
           "win_rate": 100.0,
           "fees": 0.03
         },
@@ -729,19 +729,19 @@
         },
         "trending_up": {
           "trades": 2,
-          "pnl": -5.88,
+          "pnl": -5.85,
           "win_rate": 0.0,
           "fees": 0.0
         },
         "volatile": {
           "trades": 5,
-          "pnl": 11.68,
+          "pnl": 11.6,
           "win_rate": 80.0,
           "fees": 0.02
         }
       },
-      "frozen_brier": 0.2381,
-      "oos_equity_final": 501.59
+      "frozen_brier": 0.2384,
+      "oos_equity_final": 502.21
     }
   ]
 }

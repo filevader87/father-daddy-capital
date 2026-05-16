@@ -1,0 +1,80 @@
+{
+  "timestamp": "2026-05-16T06:15:06.448948",
+  "configuration": {
+    "total_cycles": 200,
+    "is_cycles": 140,
+    "purge_cycles": 5,
+    "oos_cycles": 55,
+    "bankroll": 200.0,
+    "taker_fee_bps": 5,
+    "seed": 42
+  },
+  "in_sample": {
+    "trades": 58,
+    "wins": 40,
+    "losses": 18,
+    "win_rate_pct": 68.97,
+    "pnl_total": 168.0107,
+    "pnl_pct": 83.95,
+    "sharpe": 3.59,
+    "profit_factor": 4.5,
+    "max_drawdown_pct": 1.99,
+    "calmar_ratio": 42.29,
+    "cycles_filtered": 71,
+    "final_equity": 367.9
+  },
+  "out_of_sample": {
+    "trades": 22,
+    "wins": 16,
+    "losses": 6,
+    "win_rate_pct": 72.73,
+    "pnl_total": 49.6776,
+    "pnl_pct": 13.24,
+    "sharpe": 1.95,
+    "profit_factor": 3.55,
+    "max_drawdown_pct": 0.95,
+    "calmar_ratio": 13.92,
+    "cycles_filtered": 25,
+    "final_equity": 424.64,
+    "gross_pnl_before_fees": 49.7668,
+    "total_fees_paid": 0.0892,
+    "net_pnl_after_fees": 49.6776
+  },
+  "regime_breakdown_oos": {
+    "ranging": {
+      "trades": 5,
+      "pnl": 22.77,
+      "win_rate": 100.0,
+      "fees": 0.03
+    },
+    "trending_down": {
+      "trades": 5,
+      "pnl": -12.1,
+      "win_rate": 20.0,
+      "fees": 0.01
+    },
+    "trending_up": {
+      "trades": 8,
+      "pnl": 28.99,
+      "win_rate": 100.0,
+      "fees": 0.03
+    },
+    "volatile": {
+      "trades": 4,
+      "pnl": 10.02,
+      "win_rate": 50.0,
+      "fees": 0.02
+    }
+  },
+  "stability": {
+    "equity_curve_shape": "upward",
+    "positive_cycles_pct": 18.2,
+    "max_single_win_pct": 28.4,
+    "giant_wins_count": 0,
+    "reliance_on_giants": false
+  },
+  "frozen_model_info": {
+    "updates_at_freeze": 58,
+    "brier_at_freeze": 0.238
+  }
+}

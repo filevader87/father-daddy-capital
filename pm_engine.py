@@ -66,28 +66,28 @@ COLD_PCT  = 0.02   # Fixed 2% until calibrator has data
 WARM_CAL_FLOOR  = 0.25  # Floor on cal_factor during warm-up
 WARM_CERT_FLOOR = 0.25  # Floor on certainty during warm-up
 MAX_BANKROLL_FRAC = 0.02  # Hard 2% cap per trade
-MIN_BET = 3.0   # Lowered from 5.0 for paper data accumulation (calibration factor low at cold start)
+MIN_BET = 5.0
 KELLY_MULT = 1.5
 ENTRY_STRATEGY = "scaled"  # "scaled" (0xce25 bot) or "kelly" (traditional)
 COLD_UPDATES = 10   # Trades before leaving cold phase
 WARM_UPDATES = 30   # Trades before leaving warm phase
 
-# Signals
-RSI_OVERSOLD = 45; RSI_OVERBOUGHT = 55  # Widened bands for paper data accumulation
-MIN_CONFIDENCE = 0.10  # Lowered from 0.15 for paper data accumulation phase
+# Signals — tightened for live deployment readiness
+RSI_OVERSOLD = 35; RSI_OVERBOUGHT = 65
+MIN_CONFIDENCE = 0.15
 MAX_CONFIDENCE = 0.90
 
 # Contracts — short-duration "Up or Down"
 MAX_WINDOW_MINUTES = 15
 MIN_VOLUME_USD = 5000
-MIN_CONTRACT_PRICE = 0.02  # Lowered for near-ATM contracts that spike to extremes
+MIN_CONTRACT_PRICE = 0.05
 MAX_CONTRACT_PRICE = 0.85
-MIN_EDGE = 0.01  # Lowered from 0.02 for paper data accumulation phase
+MIN_EDGE = 0.02
 MAX_OPEN_POSITIONS = 3
 
-# Guards
-BEAR_SKIP = False  # Disabled for paper data accumulation. Re-enable before live.
-TREND_GUARD = False  # Disabled for paper data accumulation. Re-enable before live.
+# Guards — re-enabled for live deployment readiness
+BEAR_SKIP = True
+TREND_GUARD = True
 
 # Neural
 NEURAL_BLEND_MAX = 0.30; NEURAL_BLEND_UPDATES = 200; NEURAL_CONS_EVERY = 50
@@ -161,7 +161,7 @@ def _ema(vals,span):
 def fetch_5m():
     try:
         import yfinance as yf
-        h=yf.Ticker(ASSET["yf"]).history(period="1d",interval="5m")
+        h=yf.Ticker(ASSET["yf"]).history(period="5d",interval="5m")
         return h['Close'].tolist()[-60:] if len(h)>=14 else []
     except: return []
 
