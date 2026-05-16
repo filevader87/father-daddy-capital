@@ -74,6 +74,11 @@ models/
 data/
 *.csv
 *.json
+!output/alerts.json
+!output/dashboard.json
+!output/stress_battery_results.json
+!output/oos_validation_results.json
+!output/hardening_state.json
 *.parquet
 *.feather
 *.hdf
@@ -131,6 +136,7 @@ archive/
 *.dump
 *.sqlite
 *.db
+!output/fdc_audit.db
 
 # Jupyter Notebooks (optional - uncomment if you want to exclude)
 # *.ipynb

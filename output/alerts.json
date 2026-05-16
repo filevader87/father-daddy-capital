@@ -1,0 +1,8 @@
+{
+  "active_alerts": 0,
+  "total_fired": 0,
+  "consecutive_losses": 0,
+  "api_error_rate": 0,
+  "recent": [],
+  "trading_paused": false
+}
