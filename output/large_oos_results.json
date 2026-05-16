@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-05-15T22:33:27.918831",
+  "config": {
+    "cycles": 800,
+    "is": 560,
+    "oos": 220,
+    "bankroll": 250.0,
+    "seed": 42
+  },
+  "is": {
+    "trades": 288,
+    "wins": 217,
+    "losses": 71,
+    "win_rate_pct": 75.35,
+    "pnl_total": 18978.2977,
+    "pnl_pct": 7584.87,
+    "sharpe": 8.16,
+    "profit_factor": 2.91,
+    "max_drawdown_pct": 0.0,
+    "calmar_ratio": 758486.5,
+    "final_equity": 19212.16
+  },
+  "oos": {
+    "trades": 139,
+    "wins": 101,
+    "losses": 38,
+    "win_rate_pct": 72.66,
+    "pnl_total": 854.407,
+    "pnl_pct": 341.35,
+    "sharpe": 4.61,
+    "profit_factor": 2.18,
+    "max_drawdown_pct": 3.58,
+    "calmar_ratio": 95.41,
+    "final_equity": 1103.37
+  },
+  "regime": {
+    "trending_up": {
+      "trades": 47,
+      "pnl": 487.43,
+      "win_rate": 97.9
+    },
+    "ranging": {
+      "trades": 36,
+      "pnl": 297.8,
+      "win_rate": 72.2
+    },
+    "trending_down": {
+      "trades": 20,
+      "pnl": -196.6,
+      "win_rate": 30.0
+    },
+    "volatile": {
+      "trades": 36,
+      "pnl": 265.77,
+      "win_rate": 63.9
+    }
+  }
+}
