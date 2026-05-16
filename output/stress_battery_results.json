@@ -1,0 +1,209 @@
+{
+  "timestamp": "2026-05-16T10:37:42.420636",
+  "passed": 35,
+  "failed": 0,
+  "total": 35,
+  "results": [
+    {
+      "name": "Normal debate produces verdict",
+      "passed": true,
+      "detail": "verdict=ENTER net=+0.970"
+    },
+    {
+      "name": "Muted bull: bull_score \u2248 0",
+      "passed": true,
+      "detail": "bull=0.000 (expected ~0)"
+    },
+    {
+      "name": "Muted bull: verdict degrades gracefully (SKIP or REDUCE)",
+      "passed": true,
+      "detail": "verdict=SKIP net=-0.030"
+    },
+    {
+      "name": "Muted bear: still requires bull_score >= min_bull_score",
+      "passed": true,
+      "detail": "verdict=ENTER bull=1.000 (need \u22650.30)"
+    },
+    {
+      "name": "Total debate failure \u2192 blocks entry (SKIP or REDUCE, not ENTER)",
+      "passed": true,
+      "detail": "verdict=REDUCE"
+    },
+    {
+      "name": "Spoofed 99%/99% market: bear_score detects extreme conditions",
+      "passed": true,
+      "detail": "bear=0.390 bull=0.650"
+    },
+    {
+      "name": "Extreme contract price triggers bear penalty",
+      "passed": true,
+      "detail": "reasons: ['RSI overbought (99) \u2014 may reverse against UP', 'Expiry 1m \u2014 limited time for signal to resolve', 'Contract price 0.990 \u2014 extreme, may be illiquid']"
+    },
+    {
+      "name": "Near-expiry (1 min) adds time pressure penalty",
+      "passed": true,
+      "detail": "reasons: ['RSI overbought (99) \u2014 may reverse against UP', 'Expiry 1m \u2014 limited time for signal to resolve', 'Contract price 0.990 \u2014 extreme, may be illiquid']"
+    },
+    {
+      "name": "Zero-edge (50/50): bull_score is minimal",
+      "passed": true,
+      "detail": "bull=0.150 edge_strength unable to contribute"
+    },
+    {
+      "name": "All bull / zero bear \u2192 ENTER verdict",
+      "passed": true,
+      "detail": "verdict=ENTER bull=1.000 bear=0.000"
+    },
+    {
+      "name": "Bankroll $50: blended \u2264 10% cap ($5)",
+      "passed": true,
+      "detail": "blended=$4.58 cap=$5.00 risky=$5.00 safe=$1.50"
+    },
+    {
+      "name": "Bankroll $50: risky_size \u2264 10% cap",
+      "passed": true,
+      "detail": "risky=$5.00 cap=$5.00"
+    },
+    {
+      "name": "Bankroll $250: blended \u2264 10% cap ($25)",
+      "passed": true,
+      "detail": "blended=$22.92 cap=$25.00 risky=$25.00 safe=$7.50"
+    },
+    {
+      "name": "Bankroll $250: risky_size \u2264 10% cap",
+      "passed": true,
+      "detail": "risky=$25.00 cap=$25.00"
+    },
+    {
+      "name": "Bankroll $1000: blended \u2264 10% cap ($100)",
+      "passed": true,
+      "detail": "blended=$91.68 cap=$100.00 risky=$100.00 safe=$30.00"
+    },
+    {
+      "name": "Bankroll $1000: risky_size \u2264 10% cap",
+      "passed": true,
+      "detail": "risky=$100.00 cap=$100.00"
+    },
+    {
+      "name": "Kill switch blocks at -$30 daily (cap=$25)",
+      "passed": true,
+      "detail": "reason=Daily loss $-30.00 exceeds $-25.0 limit"
+    },
+    {
+      "name": "Kill switch blocks at 50% drawdown (cap=40%)",
+      "passed": true,
+      "detail": "reason=Drawdown 50.0% exceeds 40% limit"
+    },
+    {
+      "name": "OOD detector fitted on 100 in-dist samples",
+      "passed": true,
+      "detail": "mean shape=(8,)"
+    },
+    {
+      "name": "In-distribution vector \u2192 NOT flagged OOD",
+      "passed": true,
+      "detail": "dist=1.10 level=IN_DIST"
+    },
+    {
+      "name": "Extreme OOD vector \u2192 flagged CRITICAL",
+      "passed": true,
+      "detail": "dist=33.76 level=CRITICAL threshold_99=20.1"
+    },
+    {
+      "name": "Zero vector: distance measured (not NaN)",
+      "passed": true,
+      "detail": "dist=2.88 level=IN_DIST"
+    },
+    {
+      "name": "Online update with OOD vector \u2192 doesn't crash",
+      "passed": true,
+      "detail": "buffer size=101"
+    },
+    {
+      "name": "50 rapid updates \u2192 stable, no NaN in mean",
+      "passed": true,
+      "detail": "mean range=[-0.09, 0.33]"
+    },
+    {
+      "name": "Identical networks: correlation \u2248 1.0",
+      "passed": true,
+      "detail": "corr=1.000000"
+    },
+    {
+      "name": "30 identical updates: networks still correlated",
+      "passed": true,
+      "detail": "corr=1.0000 frozen=False"
+    },
+    {
+      "name": "After corrupting live: divergence detected",
+      "passed": true,
+      "detail": "corr=0.2370"
+    },
+    {
+      "name": "Frozen guard: live weights unchanged after update_both",
+      "passed": true,
+      "detail": "frozen=True reason=Manual: divergence 0.2370"
+    },
+    {
+      "name": "Frozen: shadow continues updating (monitoring only)",
+      "passed": true,
+      "detail": "shadow diverged from live \u2713"
+    },
+    {
+      "name": "Total latency (mean) < 50ms",
+      "passed": true,
+      "detail": "0.02ms"
+    },
+    {
+      "name": "Total latency p99 < 100ms",
+      "passed": true,
+      "detail": "0.03ms"
+    },
+    {
+      "name": "Debate dominates pipeline (< 30ms mean)",
+      "passed": true,
+      "detail": "0.01ms"
+    },
+    {
+      "name": "Dead market \u2192 SKIP or REDUCE",
+      "passed": true,
+      "detail": "verdict=SKIP"
+    },
+    {
+      "name": "Whale manipulation: bear warnings fire",
+      "passed": true,
+      "detail": "bear=0.180 reasons=['Expiry 2m \u2014 limited time for signal to resolve', 'Contract price 0.950 \u2014 extreme, may be illiquid']"
+    },
+    {
+      "name": "All adversarial cases: no exceptions, risk caps respected",
+      "passed": true,
+      "detail": "4 cases passed"
+    }
+  ],
+  "latency": {
+    "debate": {
+      "mean": 0.00726942386245355,
+      "p50": 0.007094000466167927,
+      "p95": 0.0082182050391566,
+      "p99": 0.011202860478078936
+    },
+    "risk_sizer": {
+      "mean": 0.007919687952380627,
+      "p50": 0.007733506208751351,
+      "p95": 0.008823747339192776,
+      "p99": 0.0143040358670987
+    },
+    "total": {
+      "mean": 0.015336571959778666,
+      "p50": 0.014970995835028589,
+      "p95": 0.017172096704598513,
+      "p99": 0.026661340962164097
+    },
+    "killswitch": {
+      "mean": 0.00038378601311706007,
+      "p50": 0.0003595050657168031,
+      "p95": 0.00048700894694775343,
+      "p99": 0.0010083967936225231
+    }
+  }
+}
