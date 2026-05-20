@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Run the FDC monitoring pipeline and report results."""
 from monitoring import MonitoringPipeline
 
 mon = MonitoringPipeline()

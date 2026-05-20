@@ -7,7 +7,7 @@ Target: $100/day → $500/day
 Strategy: Multi-signal aggregation across momentum, mean-reversion, and trend-following
 with position sizing via Kelly-inspired risk allocation.
 
-Data: yfinance (all symbols). CCXT available for Phase 1B paper engine upgrade.
+Data: yfinance (all symbols). CCXT removed — not useful for PM trading.
 """
 
 import pandas as pd
@@ -46,11 +46,8 @@ from src.neural.plastic_network import (
     NeuralPlasticityEngine, encode_signal_vector, scale_pnl_to_target,
 )
 
-# ─── Meta-Controller ────────────────────────────────────────────────────────
+# ─── Meta-Controller ────────────────────────────────────────────────
 from src.trading.meta_controller import MetaController
-
-# ─── CCXT Data Layer ────────────────────────────────────────────────────────
-from src.trading.ccxt_layer import CCXTDataProvider, get_provider, shutdown_provider
 
 # ─── Orderbook Layer (from poly-maker) ─────────────────────────────────────
 from fdc_orderbook import analyze_orderbook, simulate_fill, get_trade_params
@@ -58,26 +55,8 @@ from fdc_orderbook import analyze_orderbook, simulate_fill, get_trade_params
 # ─── Smart Money API (Track 5) ─────────────────────────────────────────────
 from fdc_smart_money_api import run_smart_money_cycle, smart_money_summary
 
-_ccxt_provider = None
 _neural = None
 _meta_controller = None
-
-def _get_ccxt() -> CCXTDataProvider | None:
-    """Returns the active CCXT provider, or None if unavailable."""
-    global _ccxt_provider
-    if _ccxt_provider is not None:
-        return _ccxt_provider
-    if not _check_ccxt():
-        return None
-    try:
-        import asyncio
-        loop = asyncio.get_event_loop()
-        if not loop.is_running():
-            _ccxt_provider = loop.run_until_complete(get_provider())
-            return _ccxt_provider
-    except Exception:
-        pass
-    return None
 
 def _get_neural():
     global _neural
@@ -119,27 +98,6 @@ _alt_spec.loader.exec_module(_alt_module)
 run_alt_cycle = _alt_module.run_alt_cycle
 alt_summary = _alt_module.alt_summary
 ALTCOIN_UNIVERSE = _alt_module.ALTCOIN_UNIVERSE
-
-# ─── CCXT Status Check (non-blocking, logged only) ──────────────────────────
-
-_CCXT_STATUS = "unknown"
-
-def _check_ccxt():
-    """Quick CCXT availability check — logged, not required."""
-    global _CCXT_STATUS
-    try:
-        sys.path.insert(0, str(Path(__file__).parent / "src" / "trading"))
-        from market_data_provider import MarketDataProvider
-        import asyncio
-        provider = MarketDataProvider(use_ccxt=True)
-        asyncio.run(provider.connect())
-        if provider.using_ccxt:
-            _CCXT_STATUS = "connected (coinbase/kraken/okx/gate)"
-        else:
-            _CCXT_STATUS = "disabled"
-        asyncio.run(provider.close())
-    except Exception as e:
-        _CCXT_STATUS = f"unavailable"
 
 
 # ─── Signal Generation ───────────────────────────────────────────────────────
@@ -478,8 +436,6 @@ def generate_report(state: dict, scan_results: list[dict], orders: list[dict]) -
             report += f"  {sym}: {pos['shares']} @ ${pos['entry_price']:.2f} → ${cp:.2f} | ${pnl:+,.2f} ({pnl_pct:+.1f}%)\n"
 
     report += f"\n⏳ Next scan: {SCAN_INTERVAL_MINUTES} min\n"
-    if _CCXT_STATUS != "unknown":
-        report += f"🔌 CCXT: {_CCXT_STATUS}\n"
     return report
 
 
@@ -559,7 +515,6 @@ def run_once():
                 correlation = 0.0
 
         meta = _get_meta()
-        ccxt = _get_ccxt()
         decision = meta.decide(
             state=state,
             swing_scan_results=scan_results,
@@ -568,7 +523,6 @@ def run_once():
             alt_entries=alt_entries or [],
             arb_tick=arb_tick,
             crypto_equity_correlation=correlation,
-            ccxt_provider=ccxt,
         )
 
         # Apply meta decision directives
@@ -689,10 +643,8 @@ def run_once():
 
 def run_continuous():
     """Continuous loop."""
-    _check_ccxt()
-    print("🚀 FDC — Quad-Track + CCXT-ready")
+    print("🚀 FDC — Quad-Track Paper Engine")
     print(f"   Tracks: Swing | Scalp | Polymarket | Alt Farm")
-    print(f"   CCXT: {_CCXT_STATUS}")
     print(f"   Scan: {SCAN_INTERVAL_MINUTES} min | Ctrl+C to stop\n")
 
     while True:
@@ -709,7 +661,6 @@ def run_continuous():
 
 if __name__ == "__main__":
     if "--once" in sys.argv:
-        _check_ccxt()
         run_once()
     elif "--continuous" in sys.argv or "-c" in sys.argv:
         run_continuous()

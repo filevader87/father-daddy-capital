@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Cron script to run FDC monitoring pipeline."""
 from monitoring import MonitoringPipeline
 
 mon = MonitoringPipeline()

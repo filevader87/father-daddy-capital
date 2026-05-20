@@ -1,38 +1,37 @@
 #!/usr/bin/env python3
 import sqlite3
-conn = sqlite3.connect('/mnt/c/Users/12035/father_daddy_capital/output/fdc_audit.db')
-cur = conn.cursor()
-# Count by event type
-types = cur.execute('SELECT event_type, COUNT(*) FROM audit_trail GROUP BY event_type').fetchall()
-print("Events by type:")
-for t in types:
-    print(f"  {t[0]:15s} {t[1]}")
+from pathlib import Path
 
-# Check chain integrity properly - only where prev_row_hash is NOT NULL
-# The LEFT JOIN creates nulls; let's do it correctly
-chain_ok = cur.execute('''
-    SELECT COUNT(*) FROM audit_trail a
-    JOIN audit_trail b ON a.id = b.id + 1
-    WHERE b.prev_row_hash IS NOT NULL AND b.prev_row_hash != a.row_hash
-''').fetchone()[0]
-print(f'Chain integrity violations: {chain_ok}')
+db = Path("/mnt/c/Users/12035/father_daddy_capital/output/fdc_audit.db")
+if db.exists():
+    conn = sqlite3.connect(str(db))
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute('SELECT COUNT(*) as cnt FROM audit_trail')
+    total = cur.fetchone()['cnt']
+    cur.execute('SELECT event_type, ts_utc, signal_direction, contract_question FROM audit_trail ORDER BY id DESC LIMIT 5')
+    rows = cur.fetchall()
+    print(f'Audit DB: {total} total events')
+    for r in rows:
+        q = (r["contract_question"] or "")[:40]
+        print(f'  {r["event_type"]:12s} | {r["ts_utc"][:19]} | dir={r["signal_direction"]} | q={q}')
+    conn.close()
+else:
+    print('Audit DB not found')
 
-# Recent entries (type=entry)
-entries = cur.execute('SELECT id, ts_utc, signal_direction, debate_verdict, order_bet, settle_pnl FROM audit_trail WHERE event_type="entry" ORDER BY id DESC LIMIT 10').fetchall()
-print(f'\nRecent entries:')
-for e in entries:
-    print(f'  #{e[0]} {e[1]} dir={e[2]} verdict={e[3]} bet={e[4]} pnl={e[5]}')
+# Check alerts and scan output
+import json
+alerts = Path("/mnt/c/Users/12035/father_daddy_capital/output/alerts.json")
+if alerts.exists():
+    a = json.loads(alerts.read_text())
+    print(f'\nAlerts: {a["active_alerts"]} active, {a["total_fired"]} fired, {a["consecutive_losses"]} consec losses')
+    print(f'  Trading paused: {a["trading_paused"]}')
 
-# Recent settlements
-settles = cur.execute('SELECT id, ts_utc, settle_pnl, settle_won FROM audit_trail WHERE event_type="settlement" ORDER BY id DESC LIMIT 10').fetchall()
-print(f'\nRecent settlements:')
-for s in settles:
-    print(f'  #{s[0]} {s[1]} pnl={s[2]} won={s[3]}')
-
-# Alerts
-alerts = cur.execute('SELECT id, ts_utc, signal_raw_json FROM audit_trail WHERE event_type="alert" ORDER BY id DESC LIMIT 5').fetchall()
-print(f'\nRecent alerts:')
-for a in alerts:
-    print(f'  #{a[0]} {a[1]} {a[2][:80] if a[2] else ""}')
-
-conn.close()
+# Check scan output
+import glob
+scans = sorted(glob.glob(str(Path("/mnt/c/Users/12035/father_daddy_capital/output/scan_*.json"))))
+if scans:
+    latest = scans[-1]
+    s = json.loads(Path(latest).read_text())
+    print(f'\nLatest scan: {Path(latest).name}')
+    print(f'  Entries: {s.get("entries",0)}, Settled: {s.get("settled",0)}')

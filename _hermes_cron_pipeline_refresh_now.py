@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Hermes cron: run FDC monitoring pipeline and report results."""
-from monitoring import MonitoringPipeline
+"""Hermes cron: run FDC monitoring pipeline refresh."""
+import sys, os, json, traceback
+sys.path.insert(0, os.path.dirname(__file__))
 
-def main():
+try:
+    from monitoring import MonitoringPipeline
     mon = MonitoringPipeline()
     result = mon.run_monitored_scan()
     entries = result.get("entries", 0)
@@ -12,6 +14,6 @@ def main():
     alerts_fired = result.get("alerts_fired", 0)
     print(f"Scan: {entries} entries, {settled} settled, {contracts} contracts")
     print(f"Audit events: {audit_events}, Alerts: {alerts_fired}")
-
-if __name__ == "__main__":
-    main()
+except Exception as e:
+    traceback.print_exc()
+    sys.exit(1)

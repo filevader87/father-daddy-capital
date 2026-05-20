@@ -4,7 +4,6 @@ numpy>=1.24.0
 pandas>=2.0.0
 scipy>=1.10.0
 
-ccxt>=4.0.0
 yfinance>=0.2.18
 ta>=0.10.0
 

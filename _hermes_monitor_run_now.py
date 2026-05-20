@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Hermes cron job: Run FDC monitoring pipeline refresh."""
-import sys
-import traceback
+"""Hermes cron: run FDC monitoring pipeline."""
+import json, sys, traceback
 
 try:
     from monitoring import MonitoringPipeline
@@ -15,6 +14,5 @@ try:
     print(f'Scan: {entries} entries, {settled} settled, {contracts} contracts')
     print(f'Audit events: {audit_events}, Alerts: {alerts_fired}')
 except Exception as e:
-    print(f"ERROR: {e}")
     traceback.print_exc()
     sys.exit(1)

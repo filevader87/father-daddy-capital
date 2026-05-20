@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""Hermes cron: run monitoring pipeline refresh."""
+import sys, os
+sys.path.insert(0, "/mnt/c/Users/12035/father_daddy_capital")
+os.chdir("/mnt/c/Users/12035/father_daddy_capital")
+
 from monitoring import MonitoringPipeline
 
 mon = MonitoringPipeline()

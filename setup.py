@@ -20,7 +20,7 @@ setup(
         "yfinance>=0.1.63",
         "prometheus-client>=0.12.0",
         "pyyaml>=5.4.1",
-        "ccxt>=1.60.0",
+
         "python-dotenv>=0.19.0",
         "requests>=2.25.0",
         "psutil>=5.8.0",
