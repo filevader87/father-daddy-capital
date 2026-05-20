@@ -345,21 +345,29 @@ class AuditTrail:
 
     def _insert(self, event_type: str, data: dict):
         """Insert with row chaining for immutability."""
-        data["row_hash"] = self._compute_hash(**data)
-        data["prev_row_hash"] = self._last_hash
-
-        columns = []
-        placeholders = []
-        values = []
-        for col in self._columns():
-            if col in data:
-                columns.append(col)
-                placeholders.append("?")
-                values.append(data[col])
-
-        sql = f"INSERT INTO audit_trail ({','.join(columns)}) VALUES ({','.join(placeholders)})"
-
         with self._lock:
+            # Always fetch the latest hash from DB to ensure chain integrity
+            # across processes (e.g. cron runs) and within a single session.
+            with self._conn() as conn:
+                row = conn.execute(
+                    "SELECT row_hash FROM audit_trail ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                prev_hash = row[0] if row else None
+
+            data["row_hash"] = self._compute_hash(**data)
+            data["prev_row_hash"] = prev_hash
+
+            columns = []
+            placeholders = []
+            values = []
+            for col in self._columns():
+                if col in data:
+                    columns.append(col)
+                    placeholders.append("?")
+                    values.append(data[col])
+
+            sql = f"INSERT INTO audit_trail ({','.join(columns)}) VALUES ({','.join(placeholders)})"
+
             with self._conn() as conn:
                 conn.execute(sql, values)
                 conn.commit()

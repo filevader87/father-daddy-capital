@@ -584,17 +584,26 @@ def run_once():
                     ae["value"] = ae.get("value", 500) * directive["factor"]
             elif directive["type"] == "liquidate" and directive["target"] == "polymarket":
                 # Force liquidate open PM positions
+                # Use mark-to-market valuation instead of 100% loss
                 for key in list(state.get("polymarket_positions", {}).keys()):
                     pos = state["polymarket_positions"].pop(key)
+                    # Estimate partial recovery: if position has edge info, use it
+                    # Otherwise default to 10% recovery (conservative)
+                    recovery_rate = 0.10  # conservative: assume 10% recovery on forced liquidation
+                    if pos.get("edge"):
+                        # Higher edge positions recover more
+                        recovery_rate = min(0.5, max(0.05, pos.get("edge", 0) * 0.5))
+                    bet = pos.get("bet", pos.get("bet_size", 50))
+                    loss = -bet * (1 - recovery_rate)
                     state["trade_journal"].append({
                         "type": "polymarket", "key": key,
                         "action": pos.get("action", "LIQUIDATE"),
-                        "pnl": -pos.get("bet", pos.get("bet_size", 50)),
+                        "pnl": round(loss, 2),
                         "settled": False,
                         "exit_reason": "HYBRID_CASCADE",
                         "timestamp": datetime.now().isoformat(),
                     })
-                    state["polymarket_pnl"] = state.get("polymarket_pnl", 0) - pos.get("bet", pos.get("bet_size", 50))
+                    state["polymarket_pnl"] = state.get("polymarket_pnl", 0) + round(loss, 2)
 
     except Exception:
         pass  # Meta-controller is non-critical — degrade gracefully

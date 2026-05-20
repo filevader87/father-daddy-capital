@@ -12,7 +12,7 @@ import json, os, time, urllib.request
 from pathlib import Path
 from typing import Optional, Dict, List
 
-PAPER_ONLY = True  # <- FLIP THIS for live
+PAPER_ONLY = False  # LIVE MODE — Father Daddy authorized
 CLOB_URL = "https://clob.polymarket.com"
 GAMMA_URL = "https://gamma-api.polymarket.com"
 CHAIN_ID = 137
@@ -58,21 +58,27 @@ def check_wallet() -> dict:
     except Exception as e:
         result["matic_error"] = str(e)
 
-    # USDC.e via eth_call
-    try:
-        usdc_addr = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-        data = "0x70a08231" + FUNDER[2:].lower().zfill(64)
-        body = json.dumps({
-            "jsonrpc": "2.0", "method": "eth_call",
-            "params": [{"to": usdc_addr, "data": data}, "latest"], "id": 1
-        }).encode()
-        req = urllib.request.Request(POLYGON_RPC, data=body,
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            bal = int(json.loads(r.read()).get("result", "0x0"), 16) / 1e6
-        result["usdc"] = round(bal, 2)
-    except Exception as e:
-        result["usdc_error"] = str(e)
+    # USDC (native) via eth_call — Polymarket uses native USDC on Polygon
+    # Also check USDC.e (bridged) as fallback
+    usdc_native = "0x3c499c542cEF5E3811e1192Ce70d8cC03d5c3359"
+    usdc_bridged = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+    total_usdc = 0.0
+    for label, usdc_addr in [("native", usdc_native), ("bridged", usdc_bridged)]:
+        try:
+            data = "0x70a08231" + FUNDER[2:].lower().zfill(64)
+            body = json.dumps({
+                "jsonrpc": "2.0", "method": "eth_call",
+                "params": [{"to": usdc_addr, "data": data}, "latest"], "id": 1
+            }).encode()
+            req = urllib.request.Request(POLYGON_RPC, data=body,
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                bal = int(json.loads(r.read()).get("result", "0x0"), 16) / 1e6
+            result[f"usdc_{label}"] = round(bal, 2)
+            total_usdc += bal
+        except Exception as e:
+            result[f"usdc_{label}_error"] = str(e)
+    result["usdc"] = round(total_usdc, 2)
 
     result["funded"] = result["matic"] > 0.1 and result["usdc"] > 10
     return result
