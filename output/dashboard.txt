@@ -1,28 +1,35 @@
 ╔══════════════════════════════════════════════════════════════════╗
 ║           FDC LIVE TRADING DASHBOARD                           ║
-║           2026-05-20 18:30:16 UTC                       ║
+║           2026-05-26 12:52:35 UTC                       ║
 ╠══════════════════════════════════════════════════════════════════╣
 ║ 📡 SIGNAL                                                       ║
-║   BTC: $77,404 ▲ UP | RSI: 48 | MACD: -48.2
-║   Confidence: 0.200 | SMA20: $77,482 | Momentum: 3/3
+║   BTC: $76,358 ▼ DOWN | RSI: 52 | MACD: -23.8
+║   Confidence: 0.000 | SMA20: $76,410 | Momentum: 0/3
 ╟──────────────────────────────────────────────────────────────────╢
 ║ 💰 POSITIONS & P&L                                               ║
-║   Bankroll: $325.91  |  P&L: $+75.91  |  WR: 33% (1W/2L)
-║   Exposed: $47.50 (14.6%)  |  Open: 5  |  Free: $278.41
+║   Bankroll: $30.00  |  P&L: $+0.00  |  WR: 0% (0W/0L)
+║   Exposed: $13.20 (44.0%)  |  Open: 5  |  Free: $16.80
 ╟──────────────────────────────────────────────────────────────────╢
 ║ 📌 OPEN POSITIONS                                               ║
-║   Down $ 11.25 @ 0.069  e=0.738  /  Will the price of Bitcoin be above 
-║   Up   $ 11.25 @ 0.085  e=0.310  /  Will the price of Bitcoin be above 
-║   Up   $  5.93 @ 0.335  e=0.465  R/CON  Bitcoin Up or Down - May 16, 12:05A
-║   Up   $  8.92 @ 0.485  e=0.363  E/CON  Bitcoin Up or Down - May 16, 12AM E
-║   Up   $ 10.15 @ 0.495  e=0.405  E/CON  Bitcoin Up or Down - May 16, 12:00A
+║   Down $  2.10 @ 0.145  e=0.553  R/BAL  Will the price of Bitcoin be above 
+║   Down $  2.10 @ 0.225  e=0.473  R/BAL  Will the price of Bitcoin be betwee
+║   Up   $  3.00 @ 0.100  e=0.800  E/BAL  Will the price of Bitcoin be betwee
+║   Up   $  3.00 @ 0.105  e=0.795  E/BAL  Will the price of Bitcoin be betwee
+║   Up   $  3.00 @ 0.111  e=0.789  E/CON  Will the price of Bitcoin be above 
 ╟──────────────────────────────────────────────────────────────────╢
 ║ 🧠 NEURAL & BAYESIAN                                            ║
-║   Neural: 368 updates  | Loss: 0.0000  | Acc: 0.0%
-║   Bayes:  205 updates  | Brier: 0.0000  | CF: 0.042
+║   Neural: 505 updates  | Loss: 0.0000  | Acc: 0.0%
+║   Bayes:  200 updates  | Brier: 0.0000  | CF: 0.022
 ╟──────────────────────────────────────────────────────────────────╢
 ║ ⚡ PERFORMANCE                                                   ║
-║   Latency: debate=1207400μs  risk=0μs  total=2414800μs
+║   Latency: debate=3502426μs  risk=0μs  total=7004853μs
+╟──────────────────────────────────────────────────────────────────╢
+║ 📋 RECENT ACTIVITY                                               ║
+║   R up     open  Will the price of Bitcoin be above 
+║   R up     open  Will the price of Bitcoin be above 
+║   E up     open  Will the price of Bitcoin be above 
+║   E up     open  Will the price of Bitcoin be above 
+║   E up     open  Will the price of Bitcoin be above 
 ╟──────────────────────────────────────────────────────────────────╢
 ║ 📊 Audit: 1 events  | WR: 0.0%  | ✅ CHAIN INTACT
 ╚══════════════════════════════════════════════════════════════════╝
