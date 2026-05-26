@@ -1,34 +1,46 @@
 #!/usr/bin/env python3
-import json
-import os
+"""Check audit DB schema and data."""
+import sqlite3, json
+from pathlib import Path
 
-base = "/mnt/c/Users/12035/father_daddy_capital"
+DB = Path("/mnt/c/Users/12035/father_daddy_capital/output/fdc_audit.db")
+print(f"DB size: {DB.stat().st_size} bytes")
 
-# Check dashboard data freshness
-dash_path = os.path.join(base, "data/dashboard.json")
-if os.path.exists(dash_path):
-    with open(dash_path) as f:
-        dash = json.load(f)
-    print("Dashboard timestamp:", dash.get("last_updated", "N/A"))
-    print("Portfolio value:", dash.get("portfolio_value", "N/A"))
-    print("Top holdings:", len(dash.get("holdings", [])))
-else:
-    print("dashboard.json not found")
+conn = sqlite3.connect(str(DB))
 
-# Check audit trail
-audit_path = os.path.join(base, "data/audit_trail.json")
-if os.path.exists(audit_path):
-    with open(audit_path) as f:
-        audit = json.load(f)
-    print("Audit entries:", len(audit) if isinstance(audit, list) else "N/A")
-else:
-    print("audit_trail.json not found")
+# List all tables
+cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+tables = [r[0] for r in cur.fetchall()]
+print(f"\nTables: {tables}")
+
+for table in tables:
+    cur = conn.execute(f"SELECT COUNT(*) FROM [{table}]")
+    count = cur.fetchone()[0]
+    print(f"  {table}: {count} rows")
+    cur = conn.execute(f"PRAGMA table_info([{table}])")
+    cols = [(r[1], r[2]) for r in cur.fetchall()]
+    print(f"    Columns: {cols}")
+
+# Show last 3 entries from each table
+for table in tables:
+    try:
+        cur = conn.execute(f"SELECT * FROM [{table}] ORDER BY rowid DESC LIMIT 3")
+        rows = cur.fetchall()
+        if rows:
+            print(f"\nLast 3 rows from {table}:")
+            for r in rows:
+                print(f"  {r[:5]}{'...' if len(r) > 5 else ''}")
+    except Exception as e:
+        print(f"  Error reading {table}: {e}")
+
+conn.close()
 
 # Check alerts
-alerts_path = os.path.join(base, "data/alerts.json")
-if os.path.exists(alerts_path):
-    with open(alerts_path) as f:
-        alerts = json.load(f)
-    print("Active alerts:", len(alerts) if isinstance(alerts, list) else "N/A")
+alerts_path = Path("/mnt/c/Users/12035/father_daddy_capital/output/monitoring_alerts.json")
+if alerts_path.exists():
+    alerts = json.loads(alerts_path.read_text())
+    print(f"\n⚠  Active alerts: {len(alerts)}")
+    for a in alerts:
+        print(f"  [{a.get('level','?')}] {a.get('type','?')}: {a.get('message','')[:80]}")
 else:
-    print("alerts.json not found")
+    print("\n✅ No alerts file (0 active alerts)")

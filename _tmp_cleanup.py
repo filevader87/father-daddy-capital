@@ -1,1 +1,0 @@
-import os; os.remove('/mnt/c/Users/12035/father_daddy_capital/_tmp_hermes_run.py')

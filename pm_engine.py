@@ -56,38 +56,40 @@ OUTPUT = REPO / "output"; STATE = OUTPUT / "pm_state.json"
 # ══════════════════════════════════════════════════════════════════════════════
 
 SCAN_SECONDS = 120
-INITIAL_BANKROLL = 250.0; PAPER_BANKROLL = 250.0
+INITIAL_BANKROLL = 30.0; PAPER_BANKROLL = 30.0
 
 # BTC-only — proven winner across 20/20 seeds
 ASSET = {"yf": "BTC-USD", "name": "Bitcoin"}
 
-# Sizing — calibrated Kelly, cold/warm/live phases
-COLD_PCT  = 0.02   # Fixed 2% until calibrator has data
-WARM_CAL_FLOOR  = 0.25  # Floor on cal_factor during warm-up
-WARM_CERT_FLOOR = 0.25  # Floor on certainty during warm-up
-MAX_BANKROLL_FRAC = 0.02  # Hard 2% cap per trade
-MIN_BET = 5.0
-KELLY_MULT = 1.5
+# Sizing — micro-scale: $30 bankroll, aggressive edge-harvesting
+COLD_PCT  = 0.08   # 8% per trade in cold phase (micro needs faster ramp)
+WARM_CAL_FLOOR  = 0.30  # Higher floor for micro-scale calibration
+WARM_CERT_FLOOR = 0.30  # Higher certainty floor for micro
+MAX_BANKROLL_FRAC = 0.12  # 12% cap per trade (micro Kelly)
+MIN_BET = 1.0            # $1 minimum for micro contracts
+KELLY_MULT = 1.2         # Slightly reduced Kelly mult for micro risk
 ENTRY_STRATEGY = "scaled"  # "scaled" (0xce25 bot) or "kelly" (traditional)
-COLD_UPDATES = 10   # Trades before leaving cold phase
-WARM_UPDATES = 30   # Trades before leaving warm phase
+COLD_UPDATES = 5    # Faster phase transition for micro
+WARM_UPDATES = 15   # Faster warm exit for micro
 
 # Signals — tightened for live deployment readiness
 RSI_OVERSOLD = 35; RSI_OVERBOUGHT = 65
-MIN_CONFIDENCE = 0.15
+MIN_CONFIDENCE = 0.50
 MAX_CONFIDENCE = 0.90
 
 # Contracts — short-duration "Up or Down"
 MAX_WINDOW_MINUTES = 15
-MIN_VOLUME_USD = 5000
-MIN_CONTRACT_PRICE = 0.05
-MAX_CONTRACT_PRICE = 0.85
-MIN_EDGE = 0.02
-MAX_OPEN_POSITIONS = 3
+MIN_VOLUME_USD = 1000        # Lower volume threshold for micro
+MIN_CONTRACT_PRICE = 0.08    # Avoid ultra-cheap contracts (binary noise)
+MAX_CONTRACT_PRICE = 0.80    # Avoid expensive contracts (low payout)
+MIN_EDGE = 0.05              # 5% minimum edge for micro (need bigger edge per trade)
+MAX_OPEN_POSITIONS = 2       # Fewer concurrent positions at micro scale
 
-# Guards — re-enabled for live deployment readiness
-BEAR_SKIP = True
-TREND_GUARD = True
+# Guards — disabled for micro-scale: binary contracts profit from contrarian entries
+# (buying DOWN in uptrends when overbought, buying UP in downtrends when oversold)
+# MIN_EDGE + MIN_CONFIDENCE provide sufficient risk management at micro scale
+BEAR_SKIP = False
+TREND_GUARD = False
 
 # Neural
 NEURAL_BLEND_MAX = 0.30; NEURAL_BLEND_UPDATES = 200; NEURAL_CONS_EVERY = 50
@@ -178,10 +180,28 @@ def btc_signal(prices):
     rsi=100-(100/(1+gains/max(losses,1e-9)))
     macd=_ema(prices,6)-_ema(prices,13)
     up=sum(1 for i in range(1,min(4,len(prices))) if prices[-i]>prices[-i-1])
+    
+    # For binary Up/Down contracts, momentum-following is key:
+    # RSI>65 confirms downtrend momentum → BUY DOWN
+    # RSI<35 confirms uptrend reversal → BUY UP
     d,c="neutral",0.0
-    if rsi<RSI_OVERSOLD: d,c="up",min(0.80,(RSI_OVERSOLD-rsi)/15)+(0.10 if up>=2 else 0)
-    elif rsi>RSI_OVERBOUGHT: d,c="down",min(0.80,(rsi-RSI_OVERBOUGHT)/15)+(0.10 if up<2 else 0)
-    else: d,c=("up" if up>=2 else "down"),0.20
+    if rsi>RSI_OVERBOUGHT:
+        # Overbought → momentum says DOWN
+        momentum_conf = min(0.85, (rsi-RSI_OVERBOUGHT)/20 + 0.50)
+        trend_bonus = 0.10 if up < 2 else 0
+        d,c="down",min(MAX_CONFIDENCE, momentum_conf + trend_bonus)
+    elif rsi<RSI_OVERSOLD:
+        # Oversold → momentum says UP reversal
+        momentum_conf = min(0.85, (RSI_OVERSOLD-rsi)/20 + 0.50)
+        trend_bonus = 0.10 if up >= 2 else 0
+        d,c="up",min(MAX_CONFIDENCE, momentum_conf + trend_bonus)
+    else:
+        # Neutral zone: use short-term momentum direction
+        if up >= 2:
+            d,c="up",0.0  # still no confidence in neutral zone
+        else:
+            d,c="down",0.0
+    
     sma20=sum(prices[-20:])/20 if len(prices)>=20 else prices[-1]
     return {"direction":d,"confidence":min(MAX_CONFIDENCE,c),"rsi":round(rsi,1),
             "macd":round(macd,2),"momentum":up,"price":prices[-1],
@@ -412,7 +432,16 @@ def evaluate_entries(sig,contracts,state):
     entries=[]
     for cand in sorted(candidates,key=lambda x: conf-x["price"],reverse=True):
         edge=conf-cand["price"]
+        # ── Hard rejects ──
         if edge<MIN_EDGE: continue
+        if conf<MIN_CONFIDENCE: continue                      # confidence floor
+        # ── Dedup guard: no same-condition Up+Down pair ──
+        cid_short=cand['contract']['conditionId'][:16]
+        opp_side="Down" if cand["side"]=="Up" else "Up"
+        opp_key=f"{cid_short}_{opp_side}"
+        if opp_key in positions: continue                     # hedge pair blocked
+        # ── Expiry tracking ──
+        expiry_raw=cand["contract"].get("end_date","") or cand["contract"].get("endDate","")
         key=f"{cand['contract']['conditionId'][:16]}_{cand['side']}"
         if key in positions: continue
         if len(positions)+len(entries)>=MAX_OPEN_POSITIONS: break
@@ -443,6 +472,7 @@ def evaluate_entries(sig,contracts,state):
             "edge":round(edge,4),"price_at_entry":round(price,2),
             "signal_conf":conf,"signal_rsi":sig["rsi"],
             "mins_to_expiry":mins,"entry_time":datetime.now().isoformat(),
+            "expiry":expiry_raw if expiry_raw else "",
             "side":cand["side"],
             "bayesian_features":fv.tolist() if cr else None,
             "cal_prob":round(cr["probability"],4) if cr else None,

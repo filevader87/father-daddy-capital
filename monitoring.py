@@ -329,6 +329,23 @@ class AuditTrail:
         }
         self._insert("settlement", row_data)
 
+    def add_node(self, node_type: str, data: dict):
+        """Add a node to the audit trail database."""
+        # Insert into AuditNode table
+        try:
+            with self._conn() as conn:
+                conn.execute(
+                    "INSERT INTO AuditNode (node_type, node_hash, timestamp, data) VALUES (?, ?, ?, ?)",
+                    (node_type, hashlib.sha256(str(data).encode()).hexdigest()[:16],
+                     datetime.now(timezone.utc).isoformat(), json.dumps(data))
+                )
+                conn.commit()
+            return conn.lastrowid
+        except:
+            # If AuditNode table is not implemented yet, fall back to simple log
+            self.log_alert("AUDIT_NODE_ERROR", f"Failed to add node of type {node_type}", {"data": data})
+            return None
+
     def log_alert(self, alert_type: str, message: str, severity: str = "WARNING",
                   context: Optional[dict] = None):
         """Log an alert event."""

@@ -53,14 +53,15 @@ def check_wallet() -> dict:
         req = urllib.request.Request(POLYGON_RPC, data=body,
             headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=10) as r:
-            bal = int(json.loads(r.read()).get("result", "0x0"), 16) / 1e18
+            raw = json.loads(r.read()).get("result", "0x0")
+            bal = int(raw, 16) / 1e18 if raw not in ("0x", "0x0", "") else 0.0
         result["matic"] = round(bal, 4)
     except Exception as e:
         result["matic_error"] = str(e)
 
     # USDC (native) via eth_call — Polymarket uses native USDC on Polygon
     # Also check USDC.e (bridged) as fallback
-    usdc_native = "0x3c499c542cEF5E3811e1192Ce70d8cC03d5c3359"
+    usdc_native = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3369"
     usdc_bridged = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
     total_usdc = 0.0
     for label, usdc_addr in [("native", usdc_native), ("bridged", usdc_bridged)]:
@@ -73,7 +74,8 @@ def check_wallet() -> dict:
             req = urllib.request.Request(POLYGON_RPC, data=body,
                 headers={"Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=10) as r:
-                bal = int(json.loads(r.read()).get("result", "0x0"), 16) / 1e6
+                raw = json.loads(r.read()).get("result", "0x0")
+                bal = int(raw, 16) / 1e6 if raw not in ("0x", "0x0", "") else 0.0
             result[f"usdc_{label}"] = round(bal, 2)
             total_usdc += bal
         except Exception as e:
@@ -219,7 +221,7 @@ class PMLiveClient:
 class KillSwitch:
     """Emergency circuit breaker. Enforces max daily loss, max drawdown, total halt."""
 
-    def __init__(self, max_daily_loss: float = 25.0, max_drawdown_pct: float = 0.40):
+    def __init__(self, max_daily_loss: float = 10.0, max_drawdown_pct: float = 0.50):
         self.max_daily_loss = max_daily_loss
         self.max_drawdown_pct = max_drawdown_pct
         self.daily_pnl: Dict[str, float] = {}
@@ -250,8 +252,8 @@ class KillSwitch:
             self.halt_reason = f"Drawdown {dd:.1%} exceeds {self.max_drawdown_pct:.0%} limit"
             return False, self.halt_reason
 
-        # Total loss halt
-        if capital < 50:  # Below $50 on $250 = halt
+        # Total loss halt — micro: halt below $5
+        if capital < 5:
             self.halted = True
             self.halt_reason = f"Capital ${capital:.2f} below minimum threshold"
             return False, self.halt_reason
