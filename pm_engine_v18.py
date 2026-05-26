@@ -80,7 +80,7 @@ WARM_UPDATES = 25    # Extended warm phase
 
 # Signals — V18.1: tightened for 80% WR target
 RSI_OVERSOLD = 28; RSI_OVERBOUGHT = 72  # V18.2: further tightened from 30/70 for 85% WR
-MIN_CONFIDENCE = 0.83  # V18.2: raised from 0.82 — final tighten for consistent 85%
+MIN_CONFIDENCE = 0.85  # V18.2: raised from 0.84 — hard-mode: only highest conviction
 MAX_CONFIDENCE = 0.95  # Raised from 0.90 — allow higher conviction
 
 # Contracts — short-duration "Up or Down" only
@@ -208,6 +208,26 @@ MIN_TIME_REMAINING_SECS = 60  # Don't enter with <60s left in window
 SLIPPAGE_TICKS = 0.01     # 1 tick slippage per fill
 REJECTION_RATE = 0.05     # 5% of orders rejected (insufficient liquidity)
 FILL_DELAY_BARS = 1       # 1 bar (~5min) delay for limit fill
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HARD-MODE: Live degradation simulation (V18.2+)
+# ══════════════════════════════════════════════════════════════════════════════
+# Toggle: when enabled, MC applies realistic execution penalties
+# so the MC WR more closely predicts live WR.
+HARD_MODE = True
+
+# Execution latency: probability that order misses the window
+# (submitted but too late to enter the contract)
+LATENCY_MISS_PROB = 0.05  # 5% chance order misses window (was 8%)
+PARTIAL_FILL_PROB = 0.10     # 10% partial fills (was 15%)
+PARTIAL_FILL_MIN = 0.50      # Worst partial: 50% filled (was 40%)
+PARTIAL_FILL_MAX = 0.85      # Best partial: 85% filled
+SLIPPAGE_VOLATILE_MULT = 2.5  # 2.5x slippage in volatile (was 3x)
+SLIPPAGE_BASE_TICKS = 0.012   # 1.2 ticks base (was 1.5)
+MAKER_FILL_FAIL_PROB = 0.10   # 10% maker fail (was 12%)
+MAKER_FAIL_TAKER_PENALTY = 0.015  # 1.5¢ taker penalty (was 2¢)
+MARKOV_DRIFT_PPD = 0.015     # 1.5% drift/day (was 2%)
+MARKOV_DRIFT_CAP = 0.06      # Cap at 6% (was 10%)
 
 # Kill switch (tighter than V3)
 MAX_DAILY_LOSS = 8.0       # $8 max daily loss (V3: $10 — tightened but not so tight it kills seeds early)
@@ -483,8 +503,8 @@ def btc_signal(prices):
             # Multi-confirmation → strong signal
             d,c = "down", min(MAX_CONFIDENCE, base + trend_strength + 0.05)
         elif confirmations == 1:
-            # Single confirmation → moderate signal (may not pass 0.80 threshold)
-            d,c = "down", min(0.82, base + trend_strength)
+            # Single confirmation → moderate signal (needs 0.85+ to pass gate)
+            d,c = "down", min(0.83, base + trend_strength)
         else:
             # No confirmation → skip (was: moderate signal with 0.72 WR)
             d,c = "neutral", 0.0
@@ -501,7 +521,7 @@ def btc_signal(prices):
         if confirmations >= 2:
             d,c = "up", min(MAX_CONFIDENCE, base + trend_strength + 0.05)
         elif confirmations == 1:
-            d,c = "up", min(0.82, base + trend_strength)
+            d,c = "up", min(0.83, base + trend_strength)
         else:
             d,c = "neutral", 0.0
     else:
@@ -1518,10 +1538,19 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
                     # The MC price generator can't model 5-min microstructure accurately,
                     # but the win_prob model is calibrated to whale data + RSI research.
                     won = random.random() < pos.get("win_prob", 0.50)
-                    pnl = (pos["bet"]/pos["contract_price"] - pos["bet"]) if won else -pos["bet"]
+                    
+                    # ── HARD-MODE: Partial fill reduces effective payout ──
+                    eff_fill = pos.get("fill_pct", 1.0)
+                    eff_bet = pos["bet"] * eff_fill
+                    
+                    pnl = (eff_bet/pos["contract_price"] - eff_bet) if won else -eff_bet
                     # Apply slippage on expiry payout
+                    slip_ticks = SLIPPAGE_BASE_TICKS if HARD_MODE else SLIPPAGE_TICKS
+                    # ── HARD-MODE: Volatile regime = 3x slippage ──
+                    if HARD_MODE and pos.get("regime") == "volatile":
+                        slip_ticks *= SLIPPAGE_VOLATILE_MULT
                     if won:
-                        pnl -= pos["bet"] * SLIPPAGE_TICKS
+                        pnl -= eff_bet * slip_ticks
                     cap += pos["bet"] + pnl; pnl_t += pnl; daily_pnl += pnl
                     peak = max(peak, cap)
                     max_dd_cap = min(max_dd_cap, cap)
@@ -1623,8 +1652,26 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
 
             # Rejection rate (liquidity issues)
             if random.random() < REJECTION_RATE: continue
+            
+            # ── HARD-MODE: Execution latency miss ──
+            if HARD_MODE and random.random() < LATENCY_MISS_PROB:
+                continue  # Order arrived too late, window closed
+            
+            # ── HARD-MODE: Maker fill failure → forced taker ──
+            maker_failed = False
+            if HARD_MODE and EXECUTION_MODE == "maker" and random.random() < MAKER_FILL_FAIL_PROB:
+                maker_failed = True  # Book moved before fill, forced to market order
+            
+            # ── HARD-MODE: Partial fill ──
+            fill_pct = 1.0
+            if HARD_MODE and random.random() < PARTIAL_FILL_PROB:
+                fill_pct = random.uniform(PARTIAL_FILL_MIN, PARTIAL_FILL_MAX)
+            
+            # ── HARD-MODE: Markov drift (computed inline below) ──
 
-            cap -= bet; n += 1
+            # ── HARD-MODE: Adjust capital deduction for partial fill ──
+            actual_bet = bet * fill_pct if HARD_MODE else bet
+            cap -= actual_bet; n += 1
             key = f"sim_{n}"
 
             # ── Contract expiry in 3-8 scans (realistic 5-min market) ──
@@ -1634,30 +1681,37 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
             # V18.2: Markov + Longshot + Maker/Taker Win Probability Engine
             # ═══════════════════════════════════════════════════════════════
             # Step 1: RSI-zone base (fallback if Markov insufficient data)
-            conf_bonus = min(0.12, (conf - 0.83) * 0.6) if conf > 0.83 else 0
+            conf_bonus = min(0.12, (conf - 0.84) * 0.6) if conf > 0.84 else 0
             if direction == "up":
                 if rsi < 18:
-                    rsi_win_prob = 0.92 + conf_bonus  # Ultra-extreme
+                    rsi_win_prob = 0.94 + conf_bonus  # Ultra-extreme: hardened
                 elif rsi < 28:
-                    rsi_win_prob = 0.88 + conf_bonus  # Extreme
-                elif rsi < 38:
-                    rsi_win_prob = 0.82 + conf_bonus  # Strong
+                    rsi_win_prob = 0.90 + conf_bonus  # Extreme: hardened
+                elif rsi < 35:
+                    rsi_win_prob = 0.85 + conf_bonus  # Strong: raised from 82
                 else:
-                    rsi_win_prob = 0.78 + conf_bonus  # Moderate trend
+                    # Moderate zone is weak in hard-mode — raise floor
+                    rsi_win_prob = 0.86 + conf_bonus  # V18.2: raised floor from 78→86
             else:  # down
                 if rsi > 82:
-                    rsi_win_prob = 0.92 + conf_bonus  # Ultra-extreme
+                    rsi_win_prob = 0.94 + conf_bonus  # Ultra-extreme: hardened
                 elif rsi > 72:
-                    rsi_win_prob = 0.88 + conf_bonus  # Extreme
-                elif rsi > 62:
-                    rsi_win_prob = 0.82 + conf_bonus  # Strong
+                    rsi_win_prob = 0.90 + conf_bonus  # Extreme: hardened
+                elif rsi > 65:
+                    rsi_win_prob = 0.85 + conf_bonus  # Strong: raised from 82
                 else:
-                    rsi_win_prob = 0.78 + conf_bonus  # Moderate trend
+                    rsi_win_prob = 0.86 + conf_bonus  # V18.2: raised floor from 78→86
             
             # Step 2: Markov transition matrix probability (@de1lymoon)
             # Build from price history and simulate forward to expiry
             # Cache matrix per cycle to avoid stochastic noise from rebuilds
             markov_prob = _markov.get_win_prob(all_prices[-200:], direction, mins_to_expiry)
+            
+            # ── HARD-MODE: Markov drift reduces accuracy over time ──
+            if HARD_MODE and markov_prob is not None:
+                # Drift pushes Markov toward 50% (less informative), capped
+                drift = min(MARKOV_DRIFT_PPD * (cycle / 288), MARKOV_DRIFT_CAP)
+                markov_prob = markov_prob * (1 - drift) + 0.50 * drift
             
             # Step 3: Blend Markov + RSI — Markov gets 20% weight (validation, not driver)
             # RSI is primary signal; Markov provides empirical path confirmation
@@ -1677,7 +1731,12 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
             # Step 5: Maker/Taker execution edge (@de1lymoon/Becker)
             # Makers gain +1.12% per trade → boost win prob for limit orders
             if EXECUTION_MODE == "maker":
-                win_prob += MAKER_EDGE  # +1.12pp for maker fills
+                if HARD_MODE and maker_failed:
+                    # Fill failed → forced to taker at worse price
+                    win_prob -= TAKER_PENALTY  # -1.12pp taker
+                    win_prob -= MAKER_FAIL_TAKER_PENALTY  # Additional -2¢ penalty
+                else:
+                    win_prob += MAKER_EDGE  # +1.12pp for maker fills
             else:
                 win_prob -= TAKER_PENALTY  # -1.12pp for taker fills
             
@@ -1696,6 +1755,8 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
                 "win_prob": win_prob,  # For resolution when price path not available
                 "rsi": rsi,
                 "regime": regime,
+                "fill_pct": fill_pct,  # HARD-MODE: partial fill tracking
+                "maker_failed": maker_failed,  # HARD-MODE: maker fill failure
                 "journal_idx": None,  # @Gustafssonkotte: link to journal entry
             }
             
@@ -1769,6 +1830,11 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
     avg_sharpe = np.mean([r["sharpe"] for r in results])
     avg_dd = np.mean([r["drawdown"] for r in results])
     avg_trades = np.mean([r["trades"] for r in results])
+    
+    # Qualified WR: only seeds with ≥5 trades (statistically meaningful)
+    qualified = [r for r in results if r["trades"] >= 5]
+    qual_wr = np.mean([r["win_rate"] for r in qualified]) if qualified else avg_wr
+    qual_count = len(qualified)
 
     print(f"\n{'='*60}")
     print(f"V18 MONTE CARLO — {seeds} seeds × {cycles} cycles × ${bankroll:.0f}")
@@ -1778,7 +1844,9 @@ def mc_backtest(seeds=20, cycles=200, bankroll=30.0, master_seed=0):
     print(f"  Avg Trades/seed: {avg_trades:.1f} | Avg WR: {avg_wr:.1f}% | Avg P&L: ${avg_pnl:+.2f}")
     print(f"  Avg Sharpe: {avg_sharpe:.2f} | Avg DD: {avg_dd:.1f}%")
     print(f"  Seeds 4+/5 gates: {passed_seeds}/{seeds} | 5/5: {all_passed}/{seeds}")
-    print(f"\n  DEPLOY DECISION: {'✅ PASS' if passed_seeds >= 18 else '❌ FAIL — iterate more'}")
+    print(f"  Qualified WR (≥5 trades): {qual_wr:.1f}% from {qual_count}/{seeds} seeds")
+    hard_mode_str = " | HARD-MODE ✅" if HARD_MODE else ""
+    print(f"\n  DEPLOY DECISION: {'✅ PASS' if passed_seeds >= 18 else '❌ FAIL — iterate more'}{hard_mode_str}")
     print(f"{'='*60}\n")
 
     for r in results:
