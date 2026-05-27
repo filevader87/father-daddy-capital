@@ -201,3 +201,6 @@ run_monitoring_temp.py
 test_fetch.py
 index.html
 metar_research/
+poly_data/data/
+poly_data/processed/
+poly_data/.env
