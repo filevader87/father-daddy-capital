@@ -293,7 +293,7 @@ def run_live_scan():
     signal = generate_signal(current_rsi, direction, strength)
     
     if signal is None:
-        print("[2] No signal — RSI {current_rsi:.1f} ({rsi_zone}) + {direction} direction = NO TRADE")
+        print(f"[2] No signal — RSI {current_rsi:.1f} ({rsi_zone}) + {direction} direction = NO TRADE")
         print("    Waiting for extreme RSI + confirmed direction...")
         return signal
     
