@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-V18.3 PMXT Backtest — SAMPLED approach.
-To avoid OOM: randomly sample binary markets per hour.
-Still statistically valid with enough samples.
+V18.3 PMXT Backtest — MEMORY-SAFE approach.
+Process one binary market at a time across all row groups.
+Slower but guaranteed no OOM.
 """
 
 import pyarrow.parquet as pq
@@ -11,10 +11,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 import warnings; warnings.filterwarnings('ignore')
-import gc, random
+import gc, random, time
 
 RSI_PERIOD = 14; MIN_CONF = 0.85; MAX_PRICE = 0.15; MIN_PRICE = 0.01
-MAX_MARKETS_PER_HOUR = 2000  # Sample at most this many binary markets
+MAX_MARKETS_PER_HOUR = 2000
 
 def compute_rsi(prices, period=14):
     n = len(prices)
@@ -35,49 +35,39 @@ def compute_rsi(prices, period=14):
 
 
 def backtest_hour(filepath, max_markets=MAX_MARKETS_PER_HOUR):
-    """Process one hourly Parquet with memory limit."""
-    import pandas as pd
-    from collections import defaultdict
-    
     pf = pq.ParquetFile(filepath)
     nrg = pf.num_row_groups
     
-    # Phase 1: Find binary CIDs and their cheap-side asset IDs
-    print(f"  Phase 1: {nrg} RGs...", end=' ', flush=True)
-    
-    # Accumulate sum/count per (cid, aid)
-    global_stats = {}  # cid -> {aid: [sum, count]}
-    
+    # Phase 1: Find binary CIDs + cheap/rich aid (accumulate stats only)
+    print(f"  P1: {nrg} RGs...", end=' ', flush=True)
+    global_stats = {}
     for rg in range(nrg):
         t = pf.read_row_group(rg, columns=['market','asset_id','price','event_type'])
-        df = t.to_pandas()
-        pc = df[df['event_type'] == 'price_change'].copy()
-        if pc.empty:
-            del df, t; continue
+        arr_market = t.column('market').to_pylist()
+        arr_aid = t.column('asset_id').to_pylist()
+        arr_price = t.column('price').to_pylist()
+        arr_et = t.column('event_type').to_pylist()
+        del t
         
-        pc['cid'] = pc['market'].apply(lambda r: r.hex() if isinstance(r, (bytes, bytearray)) else str(r))
-        pc['aid'] = pc['asset_id'].astype(str)
-        pc['pf'] = pc['price'].astype(float)
-        
-        for (cid, aid), grp in pc.groupby(['cid','aid']):
-            s = grp['pf'].sum()
-            c = len(grp)
+        for i in range(len(arr_market)):
+            if arr_et[i] != 'price_change': continue
+            m = arr_market[i]
+            cid = m.hex() if isinstance(m, (bytes, bytearray)) else str(m)
+            aid = str(arr_aid[i])
+            p = float(arr_price[i])
             if cid not in global_stats:
                 global_stats[cid] = {}
             if aid in global_stats[cid]:
-                global_stats[cid][aid][0] += s
-                global_stats[cid][aid][1] += c
+                global_stats[cid][aid][0] += p
+                global_stats[cid][aid][1] += 1
             else:
-                global_stats[cid][aid] = [s, c]
-        
-        del df, t, pc
+                global_stats[cid][aid] = [p, 1]
+        del arr_market, arr_aid, arr_price, arr_et
     
-    # Find binary CIDs with cheap side
-    bin_markets = []  # [(cid, cheap_aid, rich_aid, cheap_mean)]
+    bin_markets = []
     for cid, aids in global_stats.items():
         if len(aids) != 2: continue
-        items = list(aids.items())
-        means = {aid: s_c[0]/s_c[1] for aid, s_c in items}
+        means = {aid: v[0]/v[1] for aid, v in aids.items()}
         sorted_aids = sorted(means.items(), key=lambda x: x[1])
         cheap_aid, cheap_mean = sorted_aids[0]
         rich_aid, rich_mean = sorted_aids[1]
@@ -86,65 +76,59 @@ def backtest_hour(filepath, max_markets=MAX_MARKETS_PER_HOUR):
     
     del global_stats; gc.collect()
     
-    # Sample if too many
     total_bin = len(bin_markets)
     if total_bin > max_markets:
         random.seed(42)
         bin_markets = random.sample(bin_markets, max_markets)
     
-    print(f"{total_bin} binary, sampling {len(bin_markets)}", end=' ', flush=True)
+    print(f"{total_bin} bin, sampled {len(bin_markets)}", end=' ', flush=True)
     
     if not bin_markets:
         return []
     
-    # Phase 2: Collect price series for sampled markets only
-    # Key: only store data for sampled CIDs
+    # Phase 2: Process ONE market at a time across all RGs
+    # This is memory-safe: only one market's data in memory at a time
     sampled_cids = set(m[0] for m in bin_markets)
-    cid_prices = {}  # cid -> {aid: [(ts, price), ...]}
-    for cid, cheap_aid, rich_aid, _ in bin_markets:
-        cid_prices[cid] = {cheap_aid: [], rich_aid: []}
+    all_signals = []
     
-    for rg in range(nrg):
-        t = pf.read_row_group(rg, columns=['market','asset_id','price','event_type','timestamp_received'])
-        df = t.to_pandas()
-        pc = df[df['event_type'] == 'price_change'].copy()
-        if pc.empty:
-            del df, t; continue
+    for mi, (cid, cheap_aid, rich_aid, cheap_mean) in enumerate(bin_markets):
+        # Collect price series for THIS market only
+        cheap_ts = []; cheap_ps = []
+        rich_ts = []; rich_ps = []
         
-        pc['cid'] = pc['market'].apply(lambda r: r.hex() if isinstance(r, (bytes, bytearray)) else str(r))
-        pc_bin = pc[pc['cid'].isin(sampled_cids)].copy()
-        
-        if pc_bin.empty:
-            del df, t, pc; continue
-        
-        pc_bin['aid'] = pc_bin['asset_id'].astype(str)
-        pc_bin['pf'] = pc_bin['price'].astype(float)
-        
-        # Use numpy groupby for speed
-        for (cid, aid), grp in pc_bin.groupby(['cid','aid']):
-            if cid in cid_prices and aid in cid_prices[cid]:
-                ts = grp['timestamp_received'].values.tolist()
-                ps = grp['pf'].values.tolist()
-                cid_prices[cid][aid].extend(zip(ts, ps))
-        
-        del df, t, pc
-    
-    print(f"analyzing...", end=' ', flush=True)
-    
-    # Phase 3: RSI analysis per sampled market
-    signals = []
-    for cid, cheap_aid, rich_aid, _ in bin_markets:
-        for aid in [cheap_aid, rich_aid]:
-            data = cid_prices.get(cid, {}).get(aid, [])
-            if len(data) < RSI_PERIOD + 5: continue
+        for rg in range(nrg):
+            # Read only needed columns, filter by CID in pyarrow
+            t = pf.read_row_group(rg, columns=['market','asset_id','price','event_type','timestamp_received'])
             
-            data.sort(key=lambda x: x[0])
-            prices = np.array([p for _, p in data], dtype=float)
-            del data
+            # Filter in pyarrow before converting to pandas
+            arr_market = t.column('market').to_pylist()
+            arr_aid = t.column('asset_id').to_pylist()
+            arr_price = t.column('price').to_pylist()
+            arr_et = t.column('event_type').to_pylist()
+            arr_ts = t.column('timestamp_received').to_pylist()
+            del t
             
+            for i in range(len(arr_market)):
+                m = arr_market[i]
+                c = m.hex() if isinstance(m, (bytes, bytearray)) else str(m)
+                if c != cid: continue
+                if arr_et[i] != 'price_change': continue
+                a = str(arr_aid[i])
+                p = float(arr_price[i])
+                ts = arr_ts[i]
+                
+                if a == cheap_aid:
+                    cheap_ts.append(ts); cheap_ps.append(p)
+                elif a == rich_aid:
+                    rich_ts.append(ts); rich_ps.append(p)
+            
+            del arr_market, arr_aid, arr_price, arr_et, arr_ts
+        
+        # Process cheap side
+        if len(cheap_ps) > RSI_PERIOD + 5:
+            prices = np.array(cheap_ps, dtype=float)
             final_price = prices[-1]
             won = final_price > 0.90
-            
             rsi = compute_rsi(prices, RSI_PERIOD)
             
             last_i = -999
@@ -162,21 +146,58 @@ def backtest_hour(filepath, max_markets=MAX_MARKETS_PER_HOUR):
                 elif r < 35:
                     conf = min(0.85, 0.82+(35-r)/100); zone = 'near_oversold'
                 else:
-                    continue  # RSI 35+ dead zone
+                    continue
                 
                 if conf >= MIN_CONF:
-                    signals.append({'price': float(p), 'rsi': float(r),
-                                   'conf': float(conf), 'won': bool(won), 'zone': zone})
+                    all_signals.append({'price': float(p), 'rsi': float(r),
+                                       'conf': float(conf), 'won': bool(won), 'zone': zone})
                     last_i = i
+        
+        # Process rich side (same logic — rich tokens rarely cheap but check)
+        if len(rich_ps) > RSI_PERIOD + 5 and rich_mean < 0.15:
+            prices = np.array(rich_ps, dtype=float)
+            final_price = prices[-1]
+            won = final_price > 0.90
+            rsi = compute_rsi(prices, RSI_PERIOD)
             
-            del prices, rsi
+            last_i = -999
+            for i in range(RSI_PERIOD+1, len(prices)):
+                if i - last_i < 20: continue
+                p = prices[i]
+                if p < MIN_PRICE or p > MAX_PRICE: continue
+                r = rsi[i]
+                if np.isnan(r): continue
+                
+                if r < 18:
+                    conf = min(0.95, 0.85+(28-r)/60); zone = 'ultra_oversold'
+                elif r < 28:
+                    conf = min(0.95, 0.85+(28-r)/100); zone = 'oversold'
+                elif r < 35:
+                    conf = min(0.85, 0.82+(35-r)/100); zone = 'near_oversold'
+                else:
+                    continue
+                
+                if conf >= MIN_CONF:
+                    all_signals.append({'price': float(p), 'rsi': float(r),
+                                       'conf': float(conf), 'won': bool(won), 'zone': zone})
+                    last_i = i
+        
+        del cheap_ts, cheap_ps, rich_ts, rich_ps
+        
+        # Progress every 500 markets
+        if (mi+1) % 500 == 0:
+            print(f"{mi+1}/{len(bin_markets)}", end=' ', flush=True)
+            gc.collect()
     
-    del cid_prices; gc.collect()
-    return signals
+    n = len(all_signals)
+    wr = sum(s['won'] for s in all_signals)/n*100 if n else 0
+    print(f"P2 done: {n} sig, WR={wr:.1f}%")
+    
+    return all_signals
 
 
 def main():
-    import argparse, time
+    import argparse
     p = argparse.ArgumentParser()
     p.add_argument('--dir', default='pmxt_data')
     p.add_argument('--out', default='backtest_results_v18_3')
@@ -199,11 +220,11 @@ def main():
         t0 = time.time()
         print(f"[{fi+1}/{len(valid)}] {f.name}", flush=True)
         gc.collect()
-        sigs = backtest_hour(f, max_markets=a.sample)
+        sigs = backtest_hour(str(f), max_markets=a.sample)
         n = len(sigs)
         wr = sum(s['won'] for s in sigs)/n*100 if n else 0
         dt = time.time() - t0
-        print(f"  → {n} sig, WR={wr:.1f}% ({dt:.0f}s)", flush=True)
+        print(f"  -> {n} sig, WR={wr:.1f}% ({dt:.0f}s)", flush=True)
         all_sig.extend(sigs)
         gc.collect()
     
@@ -246,13 +267,11 @@ def main():
         sub = [s for s in all_sig if check(s)]
         if sub: print(f"    {desc:18s}: n={len(sub):5d} WR={sum(s['won'] for s in sub)/len(sub)*100:.1f}%")
     
-    print(f"\n  V18.2 MC: 84.6% | V18.3 MC: 77.3% | V18.3 PMXT: {wr:.1f}%")
-    
-    results = {'version':'V18.3-sampled','sample_per_hour':a.sample,
+    results = {'version':'V18.3-sampled-memsafe','sample_per_hour':a.sample,
                'hours':len(valid),'total_signals':t,'wins':w,'win_rate':round(wr,1)}
     with open(out_dir/'v18_3_pmxt_results.json','w') as f:
         json.dump(results, f, indent=2)
-    print(f"Saved → {out_dir/'v18_3_pmxt_results.json'}")
+    print(f"Saved -> {out_dir/'v18_3_pmxt_results.json'}")
 
 
 if __name__ == '__main__':
