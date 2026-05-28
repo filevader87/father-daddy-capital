@@ -150,14 +150,30 @@ def run_scan():
         if price is None or price <= 0:
             continue
         
-        # Cheap side: prefer 5-15¢
-        if 0.03 <= price <= 0.20:
-            if best_market is None or price < best_price:
+        # Cheap side: prefer 5-15¢, accept 3-45¢
+        if 0.05 <= price <= 0.15:
+            # Sweet spot — pick cheapest
+            if best_market is None or price < (best_price or 999):
                 best_market = m
                 best_price = price
     
     if best_market is None:
-        log(f"  ❌ No suitable {side} market found (price 3-20¢)")
+        log(f"  No sweet-spot {side} market (5-15¢), expanding to 3-45¢...")
+        # Wider search
+        for m in markets:
+            if m['duration'] not in ('5m', 'unknown'):
+                continue
+            token_id = m['up_token'] if side == 'UP' else m['down_token']
+            price = fetch_clob_price(token_id)
+            if price is None or price <= 0:
+                continue
+            if 0.03 <= price <= 0.45:
+                if best_market is None or price < (best_price or 999):
+                    best_market = m
+                    best_price = price
+    
+    if best_market is None:
+        log(f"  ❌ No suitable {side} market found (3-45¢)")
         state["last_scan"] = datetime.now(timezone.utc).isoformat()
         save_state(state)
         return

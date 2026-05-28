@@ -488,6 +488,9 @@ def generate_signal_v186(prices, candles=None, idx=None):
                     "blacklist_reason": reason}
     
     # ── Markov Blend (skipped in MC mode for speed) ──
+    # V18.6b: Markov can only BOOST confidence, never dilute it.
+    # Severe zones (RSI<25, RSI>73) are empirically validated at 80-87% WR.
+    # Markov's noisy short-term estimate should not override that.
     if signal and not _MC_MODE:
         markov_prob = _markov.get_win_prob(list(prices), 
                                             "down" if signal[0] == 'BUY_DOWN' else "up",
@@ -495,7 +498,10 @@ def generate_signal_v186(prices, candles=None, idx=None):
         if markov_prob is not None:
             base_prob = WIN_PROB_BASE.get(signal[2], 0.65)
             blended = base_prob * 0.70 + markov_prob * 0.30
-            signal = (signal[0], min(0.95, signal[1] * blended / max(base_prob, 0.5)), signal[2])
+            # Only apply Markov boost; never let it reduce below original confidence
+            adjustment = blended / max(base_prob, 0.5)
+            new_conf = min(0.95, signal[1] * max(adjustment, 1.0))  # floor at 1.0 = no dilution
+            signal = (signal[0], new_conf, signal[2])
     
     # ── MIN_CONFIDENCE gate ──
     if signal and signal[1] < MIN_CONFIDENCE:
@@ -937,11 +943,18 @@ def live_scan(dry_run=True):
         # Apply Becker longshot calibration to adjust expected win prob
         adjusted_prob = compute_win_probability(sig_strategy, price)
         
-        # Dynamic price gate: only buy at significant discount to estWR
-        if DYNAMIC_PRICE_GATE and price > adjusted_prob - DYNAMIC_PRICE_GATE_BUFFER:
+        # Dynamic price gate: only buy when price is not absurdly above win prob
+        # V18.6b: relaxed for severe zones — they're empirically validated at 80%+ WR
+        gate_buffer = DYNAMIC_PRICE_GATE_BUFFER
+        if sig_strategy.startswith('severe_'):
+            gate_buffer = DYNAMIC_PRICE_GATE_BUFFER * 2  # 20¢ buffer for severe zones
+        if DYNAMIC_PRICE_GATE and price > adjusted_prob + gate_buffer:
+            # Price WAY above estimated WR — skip (overpriced)
             continue
+        # Don't gate on price being ABOVE win prob — cheap tokens are always < win prob
+        # The original gate was backwards: it rejected cheap tokens (price < win_prob)
         
-        # Sweet spot: prefer 5-15¢ entries
+        # Sweet spot: prefer 5-15¢ entries, but accept 3-45¢
         if SWEET_SPOT_MIN <= price <= SWEET_SPOT_MAX:
             if best_market is None or price < (best_price or 999):
                 best_market = m

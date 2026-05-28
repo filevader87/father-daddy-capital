@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 from monitoring import MonitoringPipeline
 
 mon = MonitoringPipeline()
