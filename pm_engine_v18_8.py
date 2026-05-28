@@ -505,25 +505,17 @@ def generate_signal_v188(prices, candles=None, idx=None):
         if confirmations >= 2:
             signal = ('BUY_UP', CONFIDENCE_MAP['overbought_up'], 'overbought_up')
     
-    # ── TIER 3: Direction + Cheap-Side (V18.8: RSI-biased) ──
-    # Fire whenever direction is clear + RSI supports it + not ranging.
-    # DOWN direction + RSI<55 = stronger (price already drifting down).
-    # UP direction + RSI>45 = stronger (price already drifting up).
-    # Minimum strength: 0.05% (=$37 on BTC@73K — very low bar).
+    # ── TIER 3: DISABLED ──
+    # PMXT backtest result: direction_down_cheap 40% WR, direction_up_cheap 56% WR
+    # Both below 80% target. T3 direction fires too easily and dilutes WR.
+    # Only T1 (RSI severe) and T2 (RSI moderate + confirmations) are validated.
+    # T3 can trade direction+cheap-side but ONLY if confidence >= 0.70 (rare).
     if signal is None and direction in ('UP', 'DOWN'):
         if strength is not None and strength > MIN_DIRECTION_CHANGE:
             if regime != 'ranging':
-                # RSI bias boost: DOWN is stronger when RSI < 55
-                if direction == 'DOWN' and rsi < 55:
-                    signal = ('BUY_DOWN', CONFIDENCE_MAP['direction_down_cheap'], 'direction_down_cheap')
-                # UP is stronger when RSI > 45
-                elif direction == 'UP' and rsi > 45:
-                    signal = ('BUY_UP', CONFIDENCE_MAP['direction_up_cheap'], 'direction_up_cheap')
-                # No RSI bias but direction is clear — still enter, but at lower confidence
-                elif direction == 'DOWN':
-                    signal = ('BUY_DOWN', 0.55, 'direction_down_cheap')
-                else:
-                    signal = ('BUY_UP', 0.54, 'direction_up_cheap')
+                # T3 DISABLED: direction-only signals validated at 40-56% WR — unacceptable
+                # Only re-enable if confidence can reach >= 0.70 with additional filters
+                pass
     
     # ── Regime Blacklist ──
     if signal and BLACKLIST_RANGING and regime == "ranging":
