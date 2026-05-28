@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""One-shot monitoring pipeline runner."""
 from monitoring import MonitoringPipeline
 
 mon = MonitoringPipeline()
