@@ -377,56 +377,74 @@ def run_scan():
         save_state(state)
         return
     
-    # Pick the nearest market with the matching cheap side
+    # Pick the nearest market with the matching side
+    # Strategy: 
+    # 1. Direct: signal matches cheap side (DOWN signal + Down ≤ 8¢) — momentum entry
+    # 2. Reversion: signal opposite to cheap side (DOWN signal + Up ≤ 8¢) — contrarian entry
+    # 3. Start-of-hour: both sides near 50¢ — directional bet at fair price
     best_market = None
     best_price = None
-    side = sig_dir  # UP → buy Up token, DOWN → buy Down token
+    best_side = None
+    best_entry_type = None
     
     for m in viable:
-        if side == 'UP':
-            price = m['up_price']
-            token_id = m['up_token_id']
-        else:
-            price = m['down_price']
-            token_id = m['down_token_id']
+        up_price = m['up_price']
+        down_price = m['down_price']
         
-        # Check if the side is cheap enough
-        if price <= tier_max_price * 1.2:  # 20% tolerance
-            if best_market is None or m['minutes_left'] < best_market['minutes_left']:
+        # Direct alignment: signal matches the cheap side
+        if sig_dir == 'UP' and up_price <= tier_max_price * 1.5:
+            best_market = m
+            best_price = up_price
+            best_side = 'Up'
+            best_entry_type = 'direct'
+            break
+        elif sig_dir == 'DOWN' and down_price <= tier_max_price * 1.5:
+            best_market = m
+            best_price = down_price
+            best_side = 'Down'
+            best_entry_type = 'direct'
+            break
+        
+        # Start-of-hour entry: both sides near 50¢, directional bet at fair price
+        # This is when the hour just started and the market hasn't moved yet
+        if min(up_price, down_price) >= 0.35 and max(up_price, down_price) <= 0.65:
+            if best_market is None or m['minutes_left'] < best_market.get('minutes_left', 999):
                 best_market = m
-                best_price = price
-    
-    # Also check if the opposite side is cheap (buy cheap side of the other outcome)
-    if best_market is None:
-        for m in viable:
-            cheap = m['cheap_side']
-            cheap_p = m['cheap_price']
-            if cheap_p <= tier_max_price * 1.2:
-                # Buy the cheap side regardless of direction
-                # But we need direction alignment for Win Prob
-                if cheap == 'Up' and side == 'UP':
+                best_price = up_price if sig_dir == 'UP' else down_price
+                best_side = sig_dir.capitalize()
+                best_entry_type = 'fair_price'
+        
+        # Contrarian: signal opposite the cheap side (DOWN signal, Up cheap at ≤15¢)
+        # This is a reversion bet — cheap upside with asymmetric payoff
+        cheap_side_name = m['cheap_side']
+        cheap_p = m['cheap_price']
+        if cheap_p <= 0.15 and cheap_p <= tier_max_price * 2.0:  # More lenient for contrarian
+            if sig_dir == 'DOWN' and cheap_side_name == 'Up' and cheap_p <= 0.08:
+                # DOWN signal + cheap UP = contrarian reversion (PMXT-aligned: buy anti-correlated)
+                if best_market is None or best_entry_type != 'direct':
                     best_market = m
                     best_price = cheap_p
-                    break
-                elif cheap == 'Down' and side == 'DOWN':
+                    best_side = 'Up'  # Buy UP (contrarian to the signal)
+                    best_entry_type = 'contrarian'
+            elif sig_dir == 'UP' and cheap_side_name == 'Down' and cheap_p <= 0.08:
+                if best_market is None or best_entry_type != 'direct':
                     best_market = m
                     best_price = cheap_p
-                    break
+                    best_side = 'Down'
+                    best_entry_type = 'contrarian'
     
     if best_market is None:
-        log(f"  ❌ No market found for BUY_{side} ≤{tier_max_price*100:.0f}¢")
-        for m in viable[:2]:
+        log(f"  ❌ No market found for BUY_{sig_dir} — no viable market side")
+        for m in viable[:3]:
             log(f"     Market: {m['question'][:60]} | Up={m['up_price']*100:.1f}¢ Down={m['down_price']*100:.1f}¢ | {m['minutes_left']:.0f}min left")
         state["last_scan"] = datetime.now(timezone.utc).isoformat()
         save_state(state)
         return
     
     # 9. Determine trade side and price
-    if side == 'UP':
-        entry_price = best_market['up_price'] if best_market.get('up_price') else best_price
+    if best_side == 'Up':
         token_id = best_market['up_token_id']
     else:
-        entry_price = best_market['down_price'] if best_market.get('down_price') else best_price
         token_id = best_market['down_token_id']
     
     entry_price = best_price
@@ -435,7 +453,7 @@ def run_scan():
     minutes_left = best_market['minutes_left']
     
     log(f"  📈 Market: {question}")
-    log(f"     Side: {side} @ {entry_price*100:.1f}¢ | Expires in {minutes_left:.0f}min")
+    log(f"     Side: {best_side} @ {entry_price*100:.1f}¢ ({best_entry_type}) | Expires in {minutes_left:.0f}min")
     log(f"     Volume: ${best_market.get('volume24hr', 0):,.0f}")
     
     # 10. Compute trade
@@ -472,7 +490,7 @@ def run_scan():
         return
     
     # 11. RECORD TRADE (paper)
-    log(f"  📝 TRADE: BUY_{side} @ {entry_price*100:.1f}¢ | Bet: ${bet:.2f} ({tier_size:.0%} tier)")
+    log(f"  📝 TRADE: BUY_{best_side} @ {entry_price*100:.1f}¢ ({best_entry_type}) | Bet: ${bet:.2f} ({tier_size:.0%} tier)")
     log(f"     Win prob: {win_prob:.1%} | Edge: {edge:.3f} | Odds: {odds:.2f}:1")
     log(f"     Strategy: {sig_strategy} (Tier {tier}) | Kelly: ${kelly_bet:.2f}")
     log(f"     Market: {question[:60]}")
@@ -480,13 +498,14 @@ def run_scan():
     trade = {
         "id": f"T5M{len(state.get('trades', []))+1:04d}",
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "action": f"BUY_{side}",
+        "action": f"BUY_{best_side}",
         "strategy": sig_strategy,
         "tier": tier,
         "market_type": "5min_updown",
+        "entry_type": best_entry_type,
         "condition_id": best_market.get('condition_id', ''),
         "token_id": token_id,
-        "side": side,
+        "side": best_side,
         "entry_price": entry_price,
         "bet": round(bet, 2),
         "tier_pct": tier_size,
