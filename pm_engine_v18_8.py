@@ -116,13 +116,14 @@ TIER_SIZE = {
 }
 
 # Max entry price per tier (cheaper = safer)
+# Note: Daily price-above markets may have higher prices; T1 can go up to 50¢
 TIER_MAX_PRICE = {
-    'severe_oversold_down': 0.30,   # severe: allow up to 30¢
-    'severe_overbought_up': 0.30,
-    'oversold_down': 0.15,          # moderate: max 15¢
-    'overbought_up': 0.15,
-    'direction_down_cheap': 0.10,    # direction: only cheapest entries ≤10¢
-    'direction_up_cheap': 0.10,
+    'severe_oversold_down': 0.50,   # severe: allow up to 50¢ (closest strike may be pricey)
+    'severe_overbought_up': 0.50,
+    'oversold_down': 0.20,          # moderate: max 20¢
+    'overbought_up': 0.20,
+    'direction_down_cheap': 0.12,    # direction: only cheapest entries ≤12¢
+    'direction_up_cheap': 0.12,
 }
 
 MIN_CONFIDENCE = 0.50  # V18.7: much lower — don't block signals, size them
@@ -647,20 +648,38 @@ def kelly_size(edge, odds, bankroll, cal_factor, certainty, updates):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# GAMMA API + CLOB MARKET DISCOVERY (from V18.5)
+# GAMMA API + CLOB MARKET DISCOVERY (V18.8: daily price-above markets)
 # ══════════════════════════════════════════════════════════════════════════════
+# Polymarket BTC markets are DAILY price-above binaries:
+#   "Will the price of Bitcoin be above $72,000 on May 28?"
+#   Yes token at ~97¢, No token at ~3¢ (when BTC is well above $72K)
+# 
+# Strategy mapping:
+#   DOWN signal → buy NO token of "BTC > $strike" (strike < current price)
+#   UP signal → buy YES token of "BTC > $strike" (strike > current price)
 
 GAMMA_API = "https://gamma-api.polymarket.com"
 CLOB_API = "https://clob.polymarket.com"
 
+# Market cache (refresh every 5 minutes)
+_market_cache = {"markets": [], "last_fetch": 0}
+_CACHE_TTL = 300
 
-def fetch_btc_updown_markets():
-    """Discover BTC Up/Down 5-min markets from Gamma API."""
+def fetch_btc_price_markets(force_refresh=False):
+    """Discover BTC daily price-above markets from Gamma API.
+    Returns list of dicts with strike, prices, volume, hours_left, etc."""
+    import re as _re
+    from datetime import datetime as _dt
+    
+    now = time.time()
+    if not force_refresh and _market_cache["markets"] and (now - _market_cache["last_fetch"]) < _CACHE_TTL:
+        return _market_cache["markets"]
+    
     markets = []
-    for offset in range(0, 2000, 100):
+    for offset in range(0, 500, 100):
         url = f'{GAMMA_API}/markets?limit=100&active=true&closed=false&order=volume24hr&ascending=false&offset={offset}'
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'FDC-V18.6/1.0', 'Accept': 'application/json'})
+            req = urllib.request.Request(url, headers={'User-Agent': 'FDC-V18.8/1.0', 'Accept': 'application/json'})
             resp = urllib.request.urlopen(req, timeout=15)
             data = json.loads(resp.read())
             if not data:
@@ -669,11 +688,33 @@ def fetch_btc_updown_markets():
             break
         
         for m in data:
-            q = m.get('question', '').lower()
-            if ('bitcoin' not in q and 'btc' not in q) or 'up' not in q or 'down' not in q:
+            q = m.get('question', '')
+            q_lower = q.lower()
+            if 'bitcoin' not in q_lower and 'btc' not in q_lower:
+                continue
+            if 'above' not in q_lower:
                 continue
             
-            # Parse clobTokenIds and outcomes
+            # Parse strike price: "Will the price of Bitcoin be above $72,000 on May 28?"
+            strike_match = _re.search(r'\$(\d[\d,]+)', q)
+            if not strike_match:
+                continue
+            strike = int(strike_match.group(1).replace(',', ''))
+            
+            end_date = m.get('endDate', '')[:10]
+            if not end_date:
+                continue
+            
+            # Only include markets expiring in 1-168 hours (up to 7 days for wider selection)
+            try:
+                end_dt = _dt.strptime(end_date, '%Y-%m-%d')
+                hours_left = (end_dt - _dt.utcnow()).total_seconds() / 3600
+                if hours_left < 1 or hours_left > 168:
+                    continue
+            except:
+                continue
+            
+            # Parse token IDs and outcomes
             clob_ids = m.get('clobTokenIds', '[]')
             outcomes = m.get('outcomes', '[]')
             try:
@@ -681,56 +722,164 @@ def fetch_btc_updown_markets():
                 outcome_list = json.loads(outcomes) if isinstance(outcomes, str) else outcomes
             except:
                 continue
-            
             if len(token_ids) < 2 or len(outcome_list) < 2:
                 continue
             
-            # Map: first token = "Up"/"Yes", second = "Down"/"No"
-            up_token = token_ids[0]
-            down_token = token_ids[1]
-            up_outcome = outcome_list[0].lower()
-            down_outcome = outcome_list[1].lower()
+            # Parse prices
+            prices_raw = m.get('outcomePrices', '[]')
+            try:
+                prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
+            except:
+                prices = [0.5, 0.5]
             
-            # Determine duration
-            slug = m.get('slug', '')
-            duration = 'unknown'
-            if '5m' in slug or '5-min' in slug or '5 min' in q:
-                duration = '5m'
-            elif '15m' in slug or '15-min' in slug or '15 min' in q:
-                duration = '15m'
-            elif '1h' in slug or '1-hour' in slug or '1 hour' in q:
-                duration = '1h'
+            yes_price = prices[0] if len(prices) > 0 else 0.5
+            no_price = prices[1] if len(prices) > 1 else 0.5
+            cheap_side = 'Yes' if yes_price <= no_price else 'No'
+            cheap_price = min(yes_price, no_price)
+            volume = float(m.get('volume', 0) or 0)
             
             markets.append({
-                'condition_id': m.get('conditionId', ''),
-                'question': m.get('question', ''),
-                'slug': slug,
-                'duration': duration,
-                'up_token': up_token,
-                'down_token': down_token,
-                'up_outcome': up_outcome,
-                'down_outcome': down_outcome,
-                'volume': float(m.get('volume', 0) or 0),
-                'end_date': m.get('endDate', m.get('end_date_iso', '')),
+                'question': q,
+                'strike': strike,
+                'end_date': end_date,
+                'yes_token_id': token_ids[0],
+                'no_token_id': token_ids[1],
+                'yes_price': yes_price,
+                'no_price': no_price,
+                'volume': volume,
+                'cheap_side': cheap_side,
+                'cheap_price': cheap_price,
+                'hours_left': hours_left,
                 'raw': m,
             })
     
+    markets.sort(key=lambda x: x['volume'], reverse=True)
+    _market_cache["markets"] = markets
+    _market_cache["last_fetch"] = now
     return markets
 
 
+def find_market_for_signal(signal_direction, btc_price, tier, max_price=0.30):
+    """Find the best BTC price-above market for a signal.
+    
+    DOWN signal → buy NO on "BTC > $strike" (strike below price → No is cheap)
+    UP signal → buy YES on "BTC > $strike" (strike above price → Yes is cheap)
+                 OR buy YES on "BTC > $close_strike" where Yes is 15-50¢ (moderate prob)
+                 OR buy NO on "BTC > $far_below_strike" where No is cheap (contrarian UP)
+    """
+    markets = fetch_btc_price_markets()
+    if not markets:
+        return None
+    
+    candidates = []
+    for m in markets:
+        strike = m['strike']
+        distance_pct = (btc_price - strike) / strike * 100
+        
+        if signal_direction in ('DOWN', 'down'):
+            # DOWN: buy NO on "BTC > $strike" where strike < btc_price
+            # BTC at $73K, strike $72K, No @ 13.7¢ → profits if BTC drops below $72K
+            if strike < btc_price:
+                no_price = m['no_price']
+                if 0.01 <= no_price <= max_price:
+                    # Prefer strikes close to current price (2-8% below)
+                    dist_bonus = max(0, 1 - abs(distance_pct - 4) / 10)
+                    tier_fit = 1.0 if no_price <= max_price else 0.5
+                    score = dist_bonus * tier_fit * (m['volume'] / 100000)
+                    candidates.append((score, m, 'NO', no_price))
+        
+        elif signal_direction in ('UP', 'up'):
+            # UP Approach 1: Buy YES on "BTC > $strike" where strike > btc_price
+            # BTC at $73K, strike $74K, Yes @ 36.5¢ → profits if BTC rises above $74K
+            if strike > btc_price:
+                yes_price = m['yes_price']
+                if 0.01 <= yes_price <= 0.50:  # Allow up to 50¢ for T1/T2
+                    dist_bonus = max(0, 1 - abs(abs(distance_pct) - 4) / 10)
+                    tier_fit = 1.0 if yes_price <= max_price else 0.7
+                    score = dist_bonus * tier_fit * (m['volume'] / 100000)
+                    candidates.append((score, m, 'YES', yes_price))
+            
+            # UP Approach 2: Buy NO on "BTC > $strike" where strike is well below
+            # BTC at $73K, strike $68K, No → "BTC won't stay above $68K" — NOT UP
+            # This is actually a DOWN bet, so DON'T use this for UP signals
+    
+    # Expanded search: relax price constraints
+    if not candidates:
+        for m in markets:
+            strike = m['strike']
+            if signal_direction in ('DOWN', 'down') and strike < btc_price:
+                no_price = m['no_price']
+                if 0.01 <= no_price <= max_price * 2:
+                    candidates.append((m['volume'], m, 'NO', no_price))
+            elif signal_direction in ('UP', 'up') and strike > btc_price:
+                yes_price = m['yes_price']
+                if 0.01 <= yes_price <= 0.50:
+                    candidates.append((m['volume'], m, 'YES', yes_price))
+    
+    if not candidates:
+        return None
+    
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    score, market, side, price = candidates[0]
+    return {
+        'market': market,
+        'side': side,
+        'price': price,
+        'strike': market['strike'],
+        'question': market['question'],
+        'volume': market['volume'],
+        'hours_left': market['hours_left'],
+        'token_id': market['yes_token_id'] if side == 'YES' else market['no_token_id'],
+    }
+
+
+def fetch_btc_updown_markets():
+    """Legacy compatibility — returns BTC price-above markets in old format."""
+    markets = fetch_btc_price_markets()
+    result = []
+    for m in markets:
+        result.append({
+            'condition_id': m.get('raw', {}).get('conditionId', ''),
+            'question': m['question'],
+            'slug': m.get('raw', {}).get('slug', ''),
+            'duration': '1d',
+            'up_token': m['yes_token_id'],
+            'down_token': m['no_token_id'],
+            'up_outcome': 'yes',
+            'down_outcome': 'no',
+            'volume': m['volume'],
+            'end_date': m['end_date'],
+            'strike': m['strike'],
+            'yes_price': m['yes_price'],
+            'no_price': m['no_price'],
+            'cheap_side': m['cheap_side'],
+            'cheap_price': m['cheap_price'],
+            'raw': m.get('raw', {}),
+        })
+    return result
+
+
 def fetch_clob_price(token_id):
-    """Get current price for a CLOB token."""
+    """Get current CLOB price for a token. Falls back to Gamma cache."""
     try:
-        url = f'{CLOB_API}/prices?token_id={token_id}'
-        req = urllib.request.Request(url, headers={'User-Agent': 'FDC-V18.6/1.0'})
+        url = f'{CLOB_API}/price?token_id={token_id}&side=buy'
+        req = urllib.request.Request(url, headers={'User-Agent': 'FDC-V18.8/1.0'})
         resp = urllib.request.urlopen(req, timeout=10)
         data = json.loads(resp.read())
         if isinstance(data, dict) and 'price' in data:
             return float(data['price'])
-        elif isinstance(data, list) and len(data) > 0:
-            return float(data[0].get('price', 0))
         return None
     except:
+        # Fallback: use cached Gamma prices
+        try:
+            markets = fetch_btc_price_markets()
+            for m in markets:
+                if m.get('yes_token_id') == token_id:
+                    return m['yes_price']
+                if m.get('no_token_id') == token_id:
+                    return m['no_price']
+        except:
+            pass
         return None
 
 

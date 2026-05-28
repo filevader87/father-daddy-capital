@@ -2,9 +2,9 @@
 """
 V18.7 Paper Trading Scanner — 3-Tier Entry
 ==============================================
-Tier 1: Severe RSI (80%+ WR) → 10% position, ≤30¢ entry
-Tier 2: Moderate RSI + confirmations (67-72% WR) → 5-6% position, ≤15¢ entry
-Tier 3: Direction + cheap-side (55-58% WR @ ≤10¢) → 3% position, ≤10¢ entry
+Tier 1: Severe RSI (80%+ WR) → 10% position, ≤50¢ entry (daily strikes)
+Tier 2: Moderate RSI + confirmations (67-72% WR) → 5-6% position, ≤20¢ entry
+Tier 3: Direction + cheap-side (55-58% WR @ ≤12¢) → 3% position, ≤12¢ entry
 
 Cheap-side asymmetry: at 5¢, need 6% WR to break even.
 """
@@ -20,6 +20,7 @@ from pm_engine_v18_8 import (
     MAX_OPEN_POSITIONS, MIN_BET,
     compute_rsi, detect_btc_direction, generate_signal_v188,
     fetch_btc_candles, fetch_btc_updown_markets, fetch_clob_price,
+    find_market_for_signal, fetch_btc_price_markets,
     compute_win_probability, kelly_size, TradeJournal,
     get_regime, is_bear_market, is_uptrend, is_downtrend
 )
@@ -145,58 +146,25 @@ def run_scan():
     log(f"  ⭐ SIGNAL: BUY_{sig_dir} | Tier {tier} | Strategy: {sig_strategy} | Conf: {sig_conf:.1%}")
     log(f"     RSI={current_rsi:.1f} Dir={direction} Regime={regime} | Size: {tier_size:.0%} bankroll, max price: {tier_max_price*100:.0f}¢")
     
-    # 7. Market discovery
-    markets = fetch_btc_updown_markets()
-    if not markets:
-        log("  ❌ No markets found")
+    # 7. Market discovery — use BTC price-above markets
+    btc_price = signal['price']
+    market_result = find_market_for_signal(sig_dir, btc_price, tier, tier_max_price)
+    
+    if market_result is None:
+        log(f"  ❌ No suitable {sig_dir} market found (≤{tier_max_price*100:.0f}¢ for BTC@${btc_price:,.0f})")
         state["last_scan"] = datetime.now(timezone.utc).isoformat()
         save_state(state)
         return
     
-    # Find best market with tier-specific price limits
-    best_market = None
-    best_price = None
-    side = 'UP' if sig_dir == 'UP' else 'DOWN'
+    best_market = market_result['market']
+    best_price = market_result['price']
+    side = market_result['side']  # 'YES' or 'NO'
+    strike = market_result['strike']
+    question = market_result['question']
     
-    # Sweet spot: 5-15¢ always preferred
-    for m in markets:
-        if m['duration'] not in ('5m', 'unknown'):
-            continue
-        token_id = m['up_token'] if side == 'UP' else m['down_token']
-        price = fetch_clob_price(token_id)
-        if price is None or price <= 0:
-            continue
-        # Tier-specific max price
-        if price > tier_max_price:
-            continue
-        # Sweet spot: 5-15¢
-        if 0.05 <= price <= 0.15:
-            if best_market is None or price < (best_price or 999):
-                best_market = m
-                best_price = price
-    
-    if best_market is None:
-        log(f"  No sweet-spot {side} market (5-15¢, ≤{tier_max_price*100:.0f}¢), expanding...")
-        # Wider search within tier price limit
-        for m in markets:
-            if m['duration'] not in ('5m', 'unknown'):
-                continue
-            token_id = m['up_token'] if side == 'UP' else m['down_token']
-            price = fetch_clob_price(token_id)
-            if price is None or price <= 0:
-                continue
-            if price > tier_max_price:
-                continue
-            if 0.03 <= price <= tier_max_price:
-                if best_market is None or price < (best_price or 999):
-                    best_market = m
-                    best_price = price
-    
-    if best_market is None:
-        log(f"  ❌ No suitable {side} market found (≤{tier_max_price*100:.0f}¢)")
-        state["last_scan"] = datetime.now(timezone.utc).isoformat()
-        save_state(state)
-        return
+    log(f"  📈 Market: {side} @ {best_price*100:.1f}¢ | Strike=${strike:,}")
+    log(f"     \"{question[:65]}\"")
+    log(f"     Volume: ${market_result['volume']:,.0f} | Expires in {market_result['hours_left']:.0f}h")
     
     # 8. Compute trade — use tier sizing
     win_prob = compute_win_probability(sig_strategy, best_price)
@@ -278,7 +246,7 @@ def main_loop():
     log("=" * 70)
     log("V18.8 PAPER TRADING SCANNER — ALWAYS-ON 3-TIER")
     log(f"Bankroll: ${INITIAL_BANKROLL} | Min Confidence: {MIN_CONFIDENCE}")
-    log(f"T1: RSI<{RSI_OVERSOLD_SEVERE}/>{RSI_OVERBOUGHT_SEVERE} → 10% pos, ≤30¢ | T2: moderate → 5-6%, ≤15¢ | T3: direction+cheap → 3%, ≤10¢")
+    log(f"T1: RSI<{RSI_OVERSOLD_SEVERE}/>{RSI_OVERBOUGHT_SEVERE} → 10% pos, ≤50¢ | T2: moderate → 5-6%, ≤20¢ | T3: direction+cheap → 3%, ≤12¢")
     log("=" * 70)
     
     while True:
