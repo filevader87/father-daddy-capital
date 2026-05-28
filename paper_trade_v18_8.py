@@ -166,6 +166,25 @@ def run_scan():
     log(f"     \"{question[:65]}\"")
     log(f"     Volume: ${market_result['volume']:,.0f} | Expires in {market_result['hours_left']:.0f}h")
     
+    # Check price — upgrade tier if market price exceeds tier max but fits a higher tier
+    if best_price > tier_max_price * 1.5:
+        # Try upgrading to a higher tier with larger max price
+        for upgrade_tier, upgrade_max in [('1', 0.50), ('2', 0.20)]:
+            if best_price <= upgrade_max * 1.5:
+                old_tier = tier
+                old_size = tier_size
+                old_max = tier_max_price
+                tier = int(upgrade_tier)
+                tier_size = {'1': 0.10, '2': 0.055}[upgrade_tier]
+                tier_max_price = upgrade_max
+                log(f"  ⬆️ Tier upgrade: T{old_tier}→T{tier} at {best_price*100:.1f}¢ (max {old_max*100:.0f}¢→{tier_max_price*100:.0f}¢)")
+                break
+        else:
+            log(f"  ❌ Price too high: {best_price*100:.1f}¢ — no tier fits (max T1=50¢×1.5=75¢)")
+            state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            return
+    
     # 8. Compute trade — use tier sizing
     win_prob = compute_win_probability(sig_strategy, best_price)
     edge = win_prob - best_price
@@ -203,7 +222,8 @@ def run_scan():
         return
     
     # 9. RECORD TRADE (paper)
-    token_id = best_market['up_token'] if side == 'UP' else best_market['down_token']
+    # token_id already resolved by find_market_for_signal
+    token_id = market_result.get('token_id', best_market.get('yes_token_id' if side == 'YES' else 'no_token_id', ''))
     
     log(f"  📝 TRADE: BUY_{side} @ {best_price*100:.1f}¢ | Bet: ${bet:.2f} ({tier_size:.0%} tier)")
     log(f"     Win prob: {win_prob:.1%} | Edge: {edge:.3f} | Odds: {odds:.2f}:1")
