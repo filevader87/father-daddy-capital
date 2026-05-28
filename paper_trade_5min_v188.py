@@ -414,24 +414,9 @@ def run_scan():
                 best_side = sig_dir.capitalize()
                 best_entry_type = 'fair_price'
         
-        # Contrarian: signal opposite the cheap side (DOWN signal, Up cheap at ≤15¢)
-        # This is a reversion bet — cheap upside with asymmetric payoff
-        cheap_side_name = m['cheap_side']
-        cheap_p = m['cheap_price']
-        if cheap_p <= 0.15 and cheap_p <= tier_max_price * 2.0:  # More lenient for contrarian
-            if sig_dir == 'DOWN' and cheap_side_name == 'Up' and cheap_p <= 0.08:
-                # DOWN signal + cheap UP = contrarian reversion (PMXT-aligned: buy anti-correlated)
-                if best_market is None or best_entry_type != 'direct':
-                    best_market = m
-                    best_price = cheap_p
-                    best_side = 'Up'  # Buy UP (contrarian to the signal)
-                    best_entry_type = 'contrarian'
-            elif sig_dir == 'UP' and cheap_side_name == 'Down' and cheap_p <= 0.08:
-                if best_market is None or best_entry_type != 'direct':
-                    best_market = m
-                    best_price = cheap_p
-                    best_side = 'Down'
-                    best_entry_type = 'contrarian'
+        # Note: contrarian entries (buying opposite side of signal) are REMOVED
+        # PMXT validation shows direction alignment is key — contrarian flips the edge
+        # Only direct (signal=cheap) and fair-price (both~50¢) entries are valid
     
     if best_market is None:
         log(f"  ❌ No market found for BUY_{sig_dir} — no viable market side")
@@ -478,6 +463,16 @@ def run_scan():
     open_positions = sum(1 for p in state.get('positions', {}).values() if p.get('status') == 'open')
     if open_positions >= MAX_OPEN_POSITIONS:
         log(f"  ⚠️ Max positions: {open_positions}/{MAX_OPEN_POSITIONS}")
+        state["last_scan"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return
+    
+    # Deduplication: don't enter the same market twice
+    market_slug = best_market.get('slug', '')
+    existing_in_market = [p for p in state.get('positions', {}).values()
+                          if p.get('status') == 'open' and p.get('market_slug') == market_slug]
+    if existing_in_market:
+        log(f"  ⚠️ Already have position in {market_slug}, skipping")
         state["last_scan"] = datetime.now(timezone.utc).isoformat()
         save_state(state)
         return
