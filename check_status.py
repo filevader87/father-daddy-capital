@@ -1,46 +1,35 @@
-#!/usr/bin/env python3
-"""Check audit DB schema and data."""
-import sqlite3, json
-from pathlib import Path
+import json
 
-DB = Path("/mnt/c/Users/12035/father_daddy_capital/output/fdc_audit.db")
-print(f"DB size: {DB.stat().st_size} bytes")
+# Check dashboard data
+try:
+    with open('dashboard_data.json') as f:
+        data = json.load(f)
+    print(f'Dashboard data: {len(data)} sections refreshed')
+    for k in data:
+        v = data[k]
+        if isinstance(v, list):
+            print(f'  {k}: {len(v)} items')
+        elif isinstance(v, dict):
+            print(f'  {k}: {len(v)} keys')
+        else:
+            print(f'  {k}: {v}')
+except Exception as e:
+    print(f'Dashboard data: {e}')
 
-conn = sqlite3.connect(str(DB))
-
-# List all tables
-cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
-tables = [r[0] for r in cur.fetchall()]
-print(f"\nTables: {tables}")
-
-for table in tables:
-    cur = conn.execute(f"SELECT COUNT(*) FROM [{table}]")
-    count = cur.fetchone()[0]
-    print(f"  {table}: {count} rows")
-    cur = conn.execute(f"PRAGMA table_info([{table}])")
-    cols = [(r[1], r[2]) for r in cur.fetchall()]
-    print(f"    Columns: {cols}")
-
-# Show last 3 entries from each table
-for table in tables:
-    try:
-        cur = conn.execute(f"SELECT * FROM [{table}] ORDER BY rowid DESC LIMIT 3")
-        rows = cur.fetchall()
-        if rows:
-            print(f"\nLast 3 rows from {table}:")
-            for r in rows:
-                print(f"  {r[:5]}{'...' if len(r) > 5 else ''}")
-    except Exception as e:
-        print(f"  Error reading {table}: {e}")
-
-conn.close()
+# Check audit log
+try:
+    with open('audit_log.json') as f:
+        audit = json.load(f)
+    print(f'Audit log: {len(audit)} events')
+    if audit:
+        print(f'  Latest: {audit[-1].get("event","?")} at {audit[-1].get("timestamp","?")}')
+except Exception as e:
+    print(f'Audit log: {e}')
 
 # Check alerts
-alerts_path = Path("/mnt/c/Users/12035/father_daddy_capital/output/monitoring_alerts.json")
-if alerts_path.exists():
-    alerts = json.loads(alerts_path.read_text())
-    print(f"\n⚠  Active alerts: {len(alerts)}")
-    for a in alerts:
-        print(f"  [{a.get('level','?')}] {a.get('type','?')}: {a.get('message','')[:80]}")
-else:
-    print("\n✅ No alerts file (0 active alerts)")
+try:
+    with open('alerts.json') as f:
+        alerts = json.load(f)
+    print(f'Alerts: {len(alerts)} active')
+except Exception as e:
+    print(f'Alerts: {e}')

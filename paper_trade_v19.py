@@ -72,6 +72,8 @@ TIER_CONFIG = {
     "overbought_up":      {"size": 0.06, "max_price": 0.15},
     "direction_down_cheap": {"size": 0.03, "max_price": 0.08},
     "direction_up_cheap":   {"size": 0.03, "max_price": 0.08},
+    "confluence_down":      {"size": 0.04, "max_price": 0.30},
+    "confluence_up":        {"size": 0.04, "max_price": 0.30},
 }
 
 
@@ -764,12 +766,43 @@ def run_scan():
     # 4. Generate V18.8 signal
     signal = generate_signal_v188(prices, candles, len(candles) - 1)
 
-    if signal['direction'] == 'neutral':
-        reason = signal.get('strategy', 'no_signal')
-        log(f"  ⏸️ No signal — {reason} (conf={signal.get('confidence', 0):.2f})")
-        state["last_scan"] = datetime.now(timezone.utc).isoformat()
-        save_state(state)
-        return
+    # V19 CONFLUENCE OVERRIDE: if V18.8 says neutral/FLAT but confluence
+    # strongly suggests a direction (≥7/10), override the signal direction
+    v18_dir = signal['direction']
+    if v18_dir == 'neutral':
+        # When direction is FLAT, derive from regime + RSI for confluence scoring
+        implied_dir = 'DOWN' if regime in ('trending_down', 'volatile') or current_rsi < 45 else 'UP'
+        if current_rsi > 55 and regime in ('trending_up',):
+            implied_dir = 'UP'
+        
+        # Try to derive direction from confluence analysis
+        best_dir = None
+        best_conf = 0
+        for trial_dir in ['UP', 'DOWN']:
+            conf, _ = compute_confluence(
+                current_rsi, implied_dir, regime, ema21, ema50, vwap, prices[-1],
+                macd_hist, session, (vol_regime, vol_max_price), trial_dir
+            )
+            if conf > best_conf and conf >= 7.0:
+                best_conf = conf
+                best_dir = trial_dir
+        
+        if best_dir and best_conf >= 7.0:
+            # Confluence override: use confluence-derived direction
+            override_strat = f"confluence_{best_dir.lower()}"
+            signal = {
+                'direction': best_dir.lower(),
+                'strategy': override_strat,
+                'confidence': min(0.80, best_conf / 10.0),
+                'rsi': current_rsi,
+            }
+            log(f"  🔄 Confluence override: FLAT→{best_dir} (conf={best_conf:.1f}/10)")
+        else:
+            reason = signal.get('strategy', 'no_signal')
+            log(f"  ⏸️ No signal — {reason} (conf={signal.get('confidence', 0):.2f}, best_confluence={best_conf:.1f}, implied={implied_dir})")
+            state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            return
 
     # 5. V19 CONFLUENCE CHECK
     sig_dir = signal['direction'].upper()
