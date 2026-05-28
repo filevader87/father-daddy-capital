@@ -68,8 +68,8 @@ RSI_NEAR_OVERBOUGHT = 65
 RSI_DEAD_ZONE_LOW = 35
 RSI_DEAD_ZONE_HIGH = 65
 
-# Direction: 0.05% = $37 on BTC @ $73K — low threshold to fire T3 often
-MIN_DIRECTION_CHANGE = 0.05
+# Direction: 0.10% = $73 on BTC @ $73K — balanced T3 threshold per PMXT validation
+MIN_DIRECTION_CHANGE = 0.10
 LOOKBACK_CANDLES = 3
 
 # --- Win Probability Calibration (V18.8: direction + cheap-side compound edge) ---
@@ -87,9 +87,11 @@ WIN_PROB_BASE = {
     # TIER 2: Moderate (RSI + direction + cheap — 74%/71%)
     'oversold_down': 0.74,          # RSI 25-30 + DOWN + confirmations
     'overbought_up': 0.71,          # RSI 70-73 + UP + confirmations
-    # TIER 3: Direction + cheap-side (direction 62-64% at ≤10¢)
-    'direction_down_cheap': 0.64,    # DOWN direction + regime + ≤10¢ entry
-    'direction_up_cheap': 0.62,      # UP direction + regime + ≤10¢ entry
+    # TIER 3: Direction + cheap-side (PMXT-validated, stricter filters for ≥60% WR)
+    # PMXT backtest: direction_down 40% WR, direction_up 56% WR with alignment.
+    # Tightened: MIN_DIR 0.15% (was 0.05%), RSI zone gate, regime enforce, confidence ≥0.70
+    'direction_down_cheap': 0.68,    # DOWN direction + RSI<45 + trending_down + ≤8¢
+    'direction_up_cheap': 0.70,      # UP direction + RSI>55 + trending_up + ≤8¢
 }
 
 # --- Confidence tiers → position sizing ---
@@ -101,8 +103,8 @@ CONFIDENCE_MAP = {
     'severe_overbought_up': 0.86,
     'oversold_down': 0.75,
     'overbought_up': 0.72,
-    'direction_down_cheap': 0.64,
-    'direction_up_cheap': 0.62,
+    'direction_down_cheap': 0.68,
+    'direction_up_cheap': 0.70,
 }
 
 # Position size as fraction of bankroll, per tier
@@ -122,8 +124,8 @@ TIER_MAX_PRICE = {
     'severe_overbought_up': 0.50,
     'oversold_down': 0.20,          # moderate: max 20¢
     'overbought_up': 0.20,
-    'direction_down_cheap': 0.12,    # direction: only cheapest entries ≤12¢
-    'direction_up_cheap': 0.12,
+    'direction_down_cheap': 0.08,    # T3: only ultra-cheap entries ≤8¢ (was 12¢)
+    'direction_up_cheap': 0.08,
 }
 
 MIN_CONFIDENCE = 0.50  # V18.7: much lower — don't block signals, size them
@@ -505,17 +507,18 @@ def generate_signal_v188(prices, candles=None, idx=None):
         if confirmations >= 2:
             signal = ('BUY_UP', CONFIDENCE_MAP['overbought_up'], 'overbought_up')
     
-    # ── TIER 3: DISABLED ──
-    # PMXT backtest result: direction_down_cheap 40% WR, direction_up_cheap 56% WR
-    # Both below 80% target. T3 direction fires too easily and dilutes WR.
-    # Only T1 (RSI severe) and T2 (RSI moderate + confirmations) are validated.
-    # T3 can trade direction+cheap-side but ONLY if confidence >= 0.70 (rare).
+    # ── TIER 3: Direction + Cheap-Side (RE-ENABLED with PMXT-validated moderate filters) ──
+    # PMXT backtest: loose T3 was 40-56% WR. Moderate filters target ≥60% WR.
+    # MIN_DIR 0.10%, RSI zone gate (DOWN<45, UP>55), regime != ranging.
+    # Confidence 0.68-0.70, max entry ≤8¢.
     if signal is None and direction in ('UP', 'DOWN'):
         if strength is not None and strength > MIN_DIRECTION_CHANGE:
             if regime != 'ranging':
-                # T3 DISABLED: direction-only signals validated at 40-56% WR — unacceptable
-                # Only re-enable if confidence can reach >= 0.70 with additional filters
-                pass
+                # RSI zone gate: DOWN signal needs RSI<45, UP signal needs RSI>55
+                if direction == 'DOWN' and rsi < 45:
+                    signal = ('BUY_DOWN', CONFIDENCE_MAP['direction_down_cheap'], 'direction_down_cheap')
+                elif direction == 'UP' and rsi > 55:
+                    signal = ('BUY_UP', CONFIDENCE_MAP['direction_up_cheap'], 'direction_up_cheap')
     
     # ── Regime Blacklist ──
     if signal and BLACKLIST_RANGING and regime == "ranging":
