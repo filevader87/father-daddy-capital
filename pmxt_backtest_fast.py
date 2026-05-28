@@ -107,8 +107,17 @@ def run_backtest(btc_file='btc_may25_2026_1m.json', pmx_dir='pmxt_data/'):
     
     # Convert timestamps to epoch seconds for comparison with BTC data
     if pd.api.types.is_datetime64_any_dtype(all_data['timestamp_received']):
-        # pandas datetime64 → int64 nanoseconds → convert to seconds
-        all_data['ts_sec'] = (all_data['timestamp_received'].astype(np.int64) // 10**9).astype(np.int64)
+        # Get the unit from the dtype (ms, us, or ns)
+        dtype_str = str(all_data['timestamp_received'].dtype)
+        int_vals = all_data['timestamp_received'].astype(np.int64)
+        if 'ns' in dtype_str:
+            all_data['ts_sec'] = (int_vals // 10**9).astype(np.int64)
+        elif 'us' in dtype_str:
+            all_data['ts_sec'] = (int_vals // 10**6).astype(np.int64)
+        elif 'ms' in dtype_str:
+            all_data['ts_sec'] = (int_vals // 10**3).astype(np.int64)
+        else:
+            all_data['ts_sec'] = int_vals.astype(np.int64)
     else:
         all_data['ts_sec'] = all_data['timestamp_received'].astype(np.int64)
     
@@ -250,8 +259,12 @@ def run_backtest(btc_file='btc_may25_2026_1m.json', pmx_dir='pmxt_data/'):
         tier_size = TIER_SIZE[tier_name]
         
         ts_arr, ps_arr = token_arrays[best_token]
-        entry_idx = np.searchsorted(ts_arr, btc_ts)
+        entry_idx = np.searchsorted(ts_arr, btc_ts_sec)
+        if entry_idx >= len(ts_arr) or entry_idx <= 0:
+            continue
         exit_idx = min(entry_idx + HOLD_CANDLES, len(ts_arr) - 1)
+        if exit_idx >= len(ps_arr):
+            exit_idx = len(ps_arr) - 1
         
         entry_price = float(ps_arr[entry_idx])
         exit_price = float(ps_arr[exit_idx])
