@@ -1059,37 +1059,51 @@ def run_scan():
             save_state(state)
             continue
 
-        # V19.1 #6: Time-in-window decay — peak at 7-9min (15m) or 2.5-3.5min (5m), decay at edges
+        # V19.7: Time-in-window — wait for candle structure to form (1-2min),
+        # peak entry at 2-4min elapsed (1-3min left for 5m, 5-13min left for 15m).
+        # Entering at window open (0min elapsed) = worst time, no structure.
         time_decay = 1.0
         for m in viable[:1]:
             mins_left = m.get("minutes_left", 10)
-            window = m.get("window_mins", 15)
+            window = m.get("window_mins", 5)
+            elapsed = window - mins_left  # How far into the current candle
+
             if window >= 15:
-                # 15m markets: enter during mid-window (3-13min left, V19.5 widened)
-                # More time = less decay. Enter early = more time for signal to play out.
-                if 3 <= mins_left <= 13:
-                    # Sweet spot: minimal decay (0.85-1.0)
-                    if 7 <= mins_left <= 9:
-                        time_decay = 1.0  # Perfect entry window
-                    elif mins_left < 7:
-                        time_decay = 0.85 + 0.15 * (mins_left - 3) / 4.0  # 0.85-1.0 (3-7min)
-                    else:  # 9-13 min left
-                        time_decay = 1.0 - 0.15 * (mins_left - 9) / 4.0  # 0.85-1.0 (9-13min)
-                else:
-                    # V19.4: Don't completely kill — floor at 0.6 for high-confluence, 0.5 otherwise
-                    time_decay = 0.85 if confluence >= 8.0 else 0.6 if confluence >= 7.0 else 0.5
-            else:
-                # 5m markets: enter late (1.5-4.5min left, V19.5 widened)
-                if 1.5 <= mins_left <= 4.5:
-                    # V19.4: Softer time decay for all signals in 5m window
-                    if confluence >= 8.0:
-                        time_decay = 0.85  # Strong signals: minimal decay
-                    elif confluence >= 7.0:
-                        time_decay = 0.80  # Moderate: keep above MIN_CONF
-                    else:
-                        time_decay = 0.7 + 0.3 * (mins_left - 2.0) / 2.0  # 0.7-1.0
-                else:
+                # 15m markets: wait 2min for structure, peak at 2-10min in (5-13min left)
+                if elapsed < 1.5:
+                    # Too early — no candle structure yet
                     time_decay = 0.5
+                elif 5 <= mins_left <= 13:
+                    # Sweet spot: structure formed, plenty of resolution time
+                    if 7 <= mins_left <= 9:
+                        time_decay = 1.0  # Perfect window
+                    elif mins_left < 7:
+                        time_decay = 0.90 + 0.10 * (mins_left - 5) / 2.0  # 0.90-1.0
+                    else:  # 9-13min left
+                        time_decay = 1.0 - 0.10 * (mins_left - 9) / 4.0  # 0.90-1.0
+                elif 3 <= mins_left < 5:
+                    # Late entry — acceptable with high confluence
+                    time_decay = 0.85 if confluence >= 8.0 else 0.70
+                else:
+                    # Far too late or other edge
+                    time_decay = 0.85 if confluence >= 8.0 else 0.50
+            else:
+                # 5m markets: wait 1-2min for candle body, enter 2-3.5min in (1.5-3.5min left)
+                if elapsed < 1.0:
+                    # Too early — no candle body yet
+                    time_decay = 0.4
+                elif elapsed < 2.0:
+                    # Structure forming — slight penalty
+                    time_decay = 0.90 if confluence >= 8.0 else 0.80
+                elif 1.5 <= mins_left <= 3.5:
+                    # Sweet spot: good structure + enough resolution time
+                    time_decay = 1.0 if confluence >= 8.0 else 0.90
+                elif 0.5 <= mins_left < 1.5:
+                    # Late but acceptable for strong signals
+                    time_decay = 0.85 if confluence >= 8.0 else 0.65
+                else:
+                    # Far too early or far too late
+                    time_decay = 0.50
 
         if time_decay < 1.0:
             confluence *= time_decay
