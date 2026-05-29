@@ -985,21 +985,30 @@ def run_scan():
             mins_left = m.get("minutes_left", 10)
             window = m.get("window_mins", 15)
             if window >= 15:
-                if 7 <= mins_left <= 9:
-                    time_decay = 1.0
-                elif 5 <= mins_left <= 12:
-                    time_decay = 0.7 + 0.3 * (mins_left - 5) / 2.0 if mins_left < 7 else 1.0 - 0.3 * (mins_left - 9) / 3.0
+                # 15m markets: enter during mid-window (5-12min left)
+                # More time = less decay. Enter early = more time for signal to play out.
+                if 5 <= mins_left <= 12:
+                    # Sweet spot: minimal decay (0.85-1.0)
+                    # Worse at edges: less time for thesis
+                    if 7 <= mins_left <= 9:
+                        time_decay = 1.0  # Perfect entry window
+                    elif mins_left < 7:
+                        time_decay = 0.85 + 0.15 * (mins_left - 5) / 2.0  # 0.85-1.0
+                    else:  # 9-12 min left
+                        time_decay = 1.0 - 0.15 * (mins_left - 9) / 3.0  # 0.85-1.0
                 else:
-                    time_decay = 0.5
+                    # V19.4: Don't completely kill — floor at 0.6 for high-confluence, 0.5 otherwise
+                    time_decay = 0.85 if confluence >= 8.0 else 0.6 if confluence >= 7.0 else 0.5
             else:
-                if 2.5 <= mins_left <= 3.5:
-                    # V19.4: Softer time decay for high-confluence signals
-                    # Raw ≥8: only decay to 0.85 at worst (keep above MIN_CONF)
-                    # Raw 7: moderate decay to 0.70
+                # 5m markets: enter late (2-4min left)
+                if 2.0 <= mins_left <= 4.0:
+                    # V19.4: Softer time decay for all signals in 5m window
                     if confluence >= 8.0:
-                        time_decay = 0.85  # Never kill strong signals with time
-                    elif 2 <= mins_left <= 4:
-                        time_decay = 0.7 + 0.3 * (mins_left - 2) / 0.5 if mins_left < 2.5 else 1.0 - 0.3 * (mins_left - 3.5) / 0.5
+                        time_decay = 0.85  # Strong signals: minimal decay
+                    elif confluence >= 7.0:
+                        time_decay = 0.80  # Moderate: keep above MIN_CONF
+                    else:
+                        time_decay = 0.7 + 0.3 * (mins_left - 2.0) / 2.0  # 0.7-1.0
                 else:
                     time_decay = 0.5
 
