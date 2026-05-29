@@ -1,8 +1,3 @@
-#!/usr/bin/env python3
-"""Run the FDC monitoring pipeline and print results."""
-import sys
-sys.path.insert(0, "/mnt/c/Users/12035/father_daddy_capital")
-
 from monitoring import MonitoringPipeline
 
 mon = MonitoringPipeline()

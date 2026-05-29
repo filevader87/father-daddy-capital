@@ -95,17 +95,17 @@ MID_ZONE_MIN_CONFLUENCE = 8.0
 # V19.2: Multi-asset series config
 SERIES_CONFIG = [
     # BTC
-    {"slug": "btc-up-or-down-15m", "label": "BTC-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "BTC"},
-    {"slug": "btc-up-or-down-5m", "label": "BTC-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "BTC"},
+    {"slug": "btc-up-or-down-15m", "label": "BTC-15m", "window_mins": 15, "min_remaining": 3, "max_remaining": 13, "asset": "BTC"},
+    {"slug": "btc-up-or-down-5m", "label": "BTC-5m", "window_mins": 5, "min_remaining": 1.5, "max_remaining": 4.5, "asset": "BTC"},
     # ETH (slug is "eth" not "ethereum")
-    {"slug": "eth-up-or-down-15m", "label": "ETH-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "ETH"},
-    {"slug": "eth-up-or-down-5m", "label": "ETH-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "ETH"},
+    {"slug": "eth-up-or-down-15m", "label": "ETH-15m", "window_mins": 15, "min_remaining": 3, "max_remaining": 13, "asset": "ETH"},
+    {"slug": "eth-up-or-down-5m", "label": "ETH-5m", "window_mins": 5, "min_remaining": 1.5, "max_remaining": 4.5, "asset": "ETH"},
     # SOL (slug is "sol" not "solana")
-    {"slug": "sol-up-or-down-15m", "label": "SOL-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "SOL"},
-    {"slug": "sol-up-or-down-5m", "label": "SOL-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "SOL"},
+    {"slug": "sol-up-or-down-15m", "label": "SOL-15m", "window_mins": 15, "min_remaining": 3, "max_remaining": 13, "asset": "SOL"},
+    {"slug": "sol-up-or-down-5m", "label": "SOL-5m", "window_mins": 5, "min_remaining": 1.5, "max_remaining": 4.5, "asset": "SOL"},
     # XRP
-    {"slug": "xrp-up-or-down-15m", "label": "XRP-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "XRP"},
-    {"slug": "xrp-up-or-down-5m", "label": "XRP-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "XRP"},
+    {"slug": "xrp-up-or-down-15m", "label": "XRP-15m", "window_mins": 15, "min_remaining": 3, "max_remaining": 13, "asset": "XRP"},
+    {"slug": "xrp-up-or-down-5m", "label": "XRP-5m", "window_mins": 5, "min_remaining": 1.5, "max_remaining": 4.5, "asset": "XRP"},
 ]
 
 # Exit strategies (same as V18.9)
@@ -535,6 +535,7 @@ def fetch_5m_15m_markets():
 
                 cheap_side = "Up" if up_price <= down_price else "Down"
                 cheap_price = min(up_price, down_price)
+                expensive_price = max(up_price, down_price)
 
                 all_markets.append({
                     "question": question,
@@ -547,6 +548,7 @@ def fetch_5m_15m_markets():
                     "down_price": down_price,
                     "cheap_side": cheap_side,
                     "cheap_price": cheap_price,
+                    "expensive_price": expensive_price,
                     "end_date": end_str,
                     "minutes_left": minutes_left,
                     "window_mins": window_mins,
@@ -985,23 +987,22 @@ def run_scan():
             mins_left = m.get("minutes_left", 10)
             window = m.get("window_mins", 15)
             if window >= 15:
-                # 15m markets: enter during mid-window (5-12min left)
+                # 15m markets: enter during mid-window (3-13min left, V19.5 widened)
                 # More time = less decay. Enter early = more time for signal to play out.
-                if 5 <= mins_left <= 12:
+                if 3 <= mins_left <= 13:
                     # Sweet spot: minimal decay (0.85-1.0)
-                    # Worse at edges: less time for thesis
                     if 7 <= mins_left <= 9:
                         time_decay = 1.0  # Perfect entry window
                     elif mins_left < 7:
-                        time_decay = 0.85 + 0.15 * (mins_left - 5) / 2.0  # 0.85-1.0
-                    else:  # 9-12 min left
-                        time_decay = 1.0 - 0.15 * (mins_left - 9) / 3.0  # 0.85-1.0
+                        time_decay = 0.85 + 0.15 * (mins_left - 3) / 4.0  # 0.85-1.0 (3-7min)
+                    else:  # 9-13 min left
+                        time_decay = 1.0 - 0.15 * (mins_left - 9) / 4.0  # 0.85-1.0 (9-13min)
                 else:
                     # V19.4: Don't completely kill — floor at 0.6 for high-confluence, 0.5 otherwise
                     time_decay = 0.85 if confluence >= 8.0 else 0.6 if confluence >= 7.0 else 0.5
             else:
-                # 5m markets: enter late (2-4min left)
-                if 2.0 <= mins_left <= 4.0:
+                # 5m markets: enter late (1.5-4.5min left, V19.5 widened)
+                if 1.5 <= mins_left <= 4.5:
                     # V19.4: Softer time decay for all signals in 5m window
                     if confluence >= 8.0:
                         time_decay = 0.85  # Strong signals: minimal decay
@@ -1029,13 +1030,18 @@ def run_scan():
         best_side = None
         best_entry_type = None
 
+        # V19.5: Buy the CHEAP SIDE regardless of signal direction
+        # The Krajekis insight: at 8¢, breakeven is 8%. Even with 47.7% historical WR,
+        # buying the cheap side at 7¢ has 13:1 odds (breakeven 7%) — overwhelming edge.
+        # Signal direction is secondary to price advantage.
         for m in viable:
             up_price = m["up_price"]
             down_price = m["down_price"]
             cheap = m["cheap_side"]
             cheap_p = m["cheap_price"]
+            expensive_p = m.get("expensive_price", 1.0 - cheap_p)
 
-            # Direct: signal aligns with cheap side AND price ≤ max
+            # Priority 1: Signal-aligned cheap side (best of both worlds)
             if sig_dir == "UP" and cheap == "Up" and cheap_p <= tier_max_price * 1.5:
                 best_market = m
                 best_price = up_price
@@ -1049,18 +1055,33 @@ def run_scan():
                 best_entry_type = "direct"
                 break
 
-        # Fair-price fallback
+            # Priority 2: Cheap side OPPOSITE to signal (V19.5: odds advantage > direction)
+            # Only if cheap side is ≤8¢ (ultra-cheap, breakeven ≤8%)
+            # Or 8-15¢ with confluence ≥8
+            if cheap_p <= 0.08 or (cheap_p <= 0.15 and confluence >= 8.0):
+                if best_market is None or cheap_p < best_price:
+                    best_market = m
+                    best_price = cheap_p
+                    best_side = cheap  # Buy the cheap side regardless of signal
+                    best_entry_type = "cheap_side_flip"
+
+        # Fallback: signal-aligned expensive side (only if really high confluence)
         if best_market is None:
             for m in viable:
                 up_price = m["up_price"]
                 down_price = m["down_price"]
-                if min(up_price, down_price) >= 0.35 and max(up_price, down_price) <= 0.65:
-                    if sig_conf >= MIN_CONFIDENCE_FAIR_PRICE and confluence >= MIN_CONFLUENCE + 1:
-                        if best_market is None or m["minutes_left"] < best_market.get("minutes_left", 999):
-                            best_market = m
-                            best_price = up_price if sig_dir == "UP" else down_price
-                            best_side = sig_dir.capitalize()
-                            best_entry_type = "fair_price"
+                if sig_dir == "UP" and up_price <= tier_max_price * 1.5:
+                    best_market = m
+                    best_price = up_price
+                    best_side = "Up"
+                    best_entry_type = "expensive_aligned"
+                    break
+                elif sig_dir == "DOWN" and down_price <= tier_max_price * 1.5:
+                    best_market = m
+                    best_price = down_price
+                    best_side = "Down"
+                    best_entry_type = "expensive_aligned"
+                    break
 
         if best_market is None:
             log(f"  ❌ No market for BUY_{sig_dir} — no cheap side or fair-price available")
@@ -1075,6 +1096,10 @@ def run_scan():
             token_id = best_market["up_token_id"]
         else:
             token_id = best_market["down_token_id"]
+
+        # V19.5: Log if we flipped to cheap side opposite of signal direction
+        if best_entry_type == "cheap_side_flip":
+            log(f"  🔄 FLIP: Signal says {sig_dir} but buying {best_side} @ {best_price*100:.1f}¢ (cheap side odds advantage)")
 
         entry_price = best_price
         question = best_market["question"]
