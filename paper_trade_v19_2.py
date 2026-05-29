@@ -80,11 +80,12 @@ DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-
 DAILY_LOSS_PCT = 0.07        # Stop if down 7% of bankroll in a day (V19.2 multi-asset)
 COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
 
-# V19.3: Three-zone price gates — mid-zone BLOCKED (MC: 68.8% WR, negative PnL)
-# Ultra-cheap (≤8¢): always allowed — the only profitable zone (80.2% WR, positive PnL)
-# Mid-zone (8-20¢): BLOCKED — was conf≥8 but MC shows negative PnL
-# Dead zone (20-50¢): blocked
-# Fair-price (≥50¢): BLOCKED in V19.3 — 70.3% WR, negative PnL
+# V19.4: Price gates — expanded from V19.3
+# ≤8¢: always allowed (11.5:1 odds, 47.7% WR historical) — the money printer
+# 8-15¢: allowed with confluence ≥8 (breakeven 15%, direction_cheaps at 57% WR)
+# 15-20¢: allowed with confluence ≥9 (breakeven 20%, only strongest signals)
+# 20-50¢: blocked (dead zone)
+# ≥50¢: blocked (70.3% WR, negative PnL)
 DEAD_ZONE_LOW = 0.20
 DEAD_ZONE_HIGH = 0.50
 MID_ZONE_LOW = 0.08
@@ -992,9 +993,13 @@ def run_scan():
                     time_decay = 0.5
             else:
                 if 2.5 <= mins_left <= 3.5:
-                    time_decay = 1.0
-                elif 2 <= mins_left <= 4:
-                    time_decay = 0.7 + 0.3 * (mins_left - 2) / 0.5 if mins_left < 2.5 else 1.0 - 0.3 * (mins_left - 3.5) / 0.5
+                    # V19.4: Softer time decay for high-confluence signals
+                    # Raw ≥8: only decay to 0.85 at worst (keep above MIN_CONF)
+                    # Raw 7: moderate decay to 0.70
+                    if confluence >= 8.0:
+                        time_decay = 0.85  # Never kill strong signals with time
+                    elif 2 <= mins_left <= 4:
+                        time_decay = 0.7 + 0.3 * (mins_left - 2) / 0.5 if mins_left < 2.5 else 1.0 - 0.3 * (mins_left - 3.5) / 0.5
                 else:
                     time_decay = 0.5
 
@@ -1068,11 +1073,12 @@ def run_scan():
         minutes_left = best_market["minutes_left"]
         window_label = best_market["label"]
 
-        # V19.2 #1: Three-zone price filter
+        # V19.4: Four-zone price filter
         # Zone 1: Ultra-cheap (≤8¢) → always allowed
-        # Zone 2: Mid-zone (8-20¢) → requires confluence ≥8/10
-        # Zone 3: Dead zone (20-50¢) → blocked
-        # Zone 4: Fair-price (≥50¢) → always allowed (relaxed from 60¢)
+        # Zone 2: Mid-cheap (8-15¢) → requires confluence ≥8/10
+        # Zone 3: Upper-cheap (15-20¢) → requires confluence ≥9/10
+        # Zone 4: Dead zone (20-50¢) → blocked
+        # Zone 5: Fair-price (≥50¢) → blocked
         if entry_price > DEAD_ZONE_LOW and entry_price < DEAD_ZONE_HIGH:
             # Dead zone — always blocked
             log(f"  ❌ Dead zone: {entry_price*100:.1f}¢ is in {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ dead zone — skipping")
@@ -1080,13 +1086,21 @@ def run_scan():
             save_state(state)
             continue
         elif entry_price > MID_ZONE_LOW and entry_price <= MID_ZONE_HIGH:
-            # V19.3: Mid-zone BLOCKED — MC shows 68.8% WR, negative PnL even with conf≥8
-            log(f"  ❌ Mid-zone blocked: {entry_price*100:.1f}¢ (MC: 68.8% WR, neg PnL)")
-            state["last_scan"] = datetime.now(timezone.utc).isoformat()
-            save_state(state)
-            continue
+            # Mid-cheap zone (8-15¢): requires confluence ≥8
+            if confluence < 8.0:
+                log(f"  ❌ Mid-cheap zone: {entry_price*100:.1f}¢ requires conf≥8, got {confluence:.1f} — skipping")
+                state["last_scan"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                continue
+        elif entry_price > 0.15 and entry_price <= DEAD_ZONE_LOW:
+            # Upper-cheap zone (15-20¢): requires confluence ≥9
+            if confluence < 9.0:
+                log(f"  ❌ Upper-cheap zone: {entry_price*100:.1f}¢ requires conf≥9, got {confluence:.1f} — skipping")
+                state["last_scan"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                continue
         elif entry_price >= DEAD_ZONE_HIGH:
-            # V19.3: Fair-price (>=50¢) BLOCKED — MC shows 70.3% WR, negative PnL
+            # V19.4: Fair-price (>=50¢) BLOCKED — MC shows 70.3% WR, negative PnL
             log(f"  ❌ Fair-price blocked: {entry_price*100:.1f}¢ (MC: 70.3% WR, neg PnL)")
             state["last_scan"] = datetime.now(timezone.utc).isoformat()
             save_state(state)
