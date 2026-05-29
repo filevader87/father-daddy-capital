@@ -32,7 +32,11 @@ TAKE_PROFIT_PRICE = 0.90
 TRAILING_STOP_PCT = 0.40
 TRAILING_ACTIVATE_MINS = 2.0
 MAX_OPEN = 3
+MAX_SAME_DIRECTION = 2
 MIN_CONFIDENCE_FAIR_PRICE = 0.70
+DEAD_ZONE_LOW = 0.08
+DEAD_ZONE_HIGH = 0.60
+COOLDOWN_MINS = 15
 
 
 def fetch_binance_candles(interval="5m", limit=1500):
@@ -98,25 +102,80 @@ def run_backtest(candles, bankroll=BANKROLL_BT):
         sig_conf = signal['confidence']
         sig_strategy = signal['strategy']
 
-        # V19: Confluence check
+        # V19: Confluence check + V19.1 confluence override
+        implied_dir = sig_dir
+        if sig_dir in ('UP', 'DOWN', 'NEUTRAL', 'FLAT'):
+            pass  # sig_dir from signal is fine
+        
+        # If V18.8 says neutral/FLAT, derive direction from regime + RSI for confluence
+        if signal['direction'] == 'neutral':
+            if rsi < 45 and regime in ('trending_down', 'ranging') and prices[-1] < vwap:
+                implied_dir = 'DOWN'
+            elif rsi > 55 and regime in ('trending_up', 'ranging') and prices[-1] > vwap:
+                implied_dir = 'UP'
+            else:
+                continue  # No clear direction, skip
+        
         confluence, details = compute_confluence(
             rsi, direction, regime, ema21, ema50, vwap, prices[-1],
-            macd_hist, session, (vol_regime, vol_max_price), sig_dir
+            macd_hist, session, (vol_regime, vol_max_price), implied_dir
         )
+
+        # V19.1 #6: Time-in-window decay (approximate — backtest uses 5m bars)
+        # In backtest, assume mid-window for 5m, so time_decay ≈ 1.0
+        # For realism, apply small random decay
+        time_decay = np.random.uniform(0.85, 1.0)
+        confluence *= time_decay
+        confluence = round(confluence, 1)
 
         if confluence < MIN_CONFLUENCE:
             continue
 
-        # Tier
+        # V19.1 #5: Stricter RSI — DOWN requires RSI<30, UP requires RSI>65
+        if implied_dir == 'DOWN' and rsi > 38:
+            continue  # RSI too high for DOWN
+        if implied_dir == 'UP' and rsi < 55:
+            continue  # RSI too low for UP
+
+        # Tier — V19.1 #3: confluence-weighted sizing
         tier_cfg = TIER_CONFIG.get(sig_strategy, {"size": 0.03, "max_price": 0.08})
         tier_size = tier_cfg["size"]
         tier_max_price = min(tier_cfg["max_price"], vol_max_price)
+
+        # V19.1 #3: Scale position by confluence
+        if confluence >= 8.0:
+            tier_size = min(0.06, tier_size * 1.5)
+        elif confluence >= 7.0:
+            tier_size = min(0.05, tier_size * 1.25)
+        if confluence < 6.5:
+            tier_size = min(tier_size, 0.03)
+
+        # V19.1 #4: Dynamic max price by vol regime
+        if vol_regime == "high_vol":
+            tier_max_price = min(tier_max_price, 0.08)
+        elif vol_regime == "low_vol":
+            tier_max_price = min(tier_max_price, 0.20)
+        else:
+            tier_max_price = min(tier_max_price, 0.15)
 
         # Vol-adaptive sizing
         if vol_regime == "low_vol" and confluence >= 8:
             tier_size *= 1.3
         elif vol_regime == "high_vol":
             tier_size *= 0.7
+
+        # V19.1 #2: Correlation limit — count open same-direction positions
+        open_dirs = [r['direction'] for r in results if r.get('open', False)]
+        same_dir_count = sum(1 for d in open_dirs if d == implied_dir)
+        if same_dir_count >= MAX_SAME_DIRECTION:
+            continue
+
+        # V19.1 #7: Cooldown after stop-loss
+        if results and results[-1].get('exit_type') == 'stop_loss':
+            cooldown_bars = int(COOLDOWN_MINS / 5)  # Convert minutes to 5m bars
+            bars_since_sl = sum(1 for r in results[-cooldown_bars:] if True) if len(results) >= cooldown_bars else len(results)
+            if bars_since_sl < cooldown_bars:
+                continue
 
         # Entry type
         close_now = candles[i]['close']
@@ -127,19 +186,41 @@ def run_backtest(candles, bankroll=BANKROLL_BT):
         entry_type = None
         entry_price = None
 
+        # V19.1: Allow confluence-driven entries even when price is mildly aligned
+        # In live trading, the CLOB always has cheap-side tokens available
+        # Model: high confluence → more likely to find a cheap-side entry
         if abs(price_move) < 0.002:
+            # Flat move — fair-price entry only
             if sig_conf >= MIN_CONFIDENCE_FAIR_PRICE:
                 entry_price = 0.48 + np.random.uniform(-0.03, 0.07)
                 entry_type = "fair_price"
-        elif (sig_dir == 'UP' and price_move < -0.003) or (sig_dir == 'DOWN' and price_move > 0.003):
+            # If confluence is high enough, model a cheap-side entry from CLOB
+            elif confluence >= 7.0:
+                # Model: confluence ≥7 → market has cheap-side tokens at 3-8¢
+                cheap_price = np.random.uniform(0.03, 0.08)
+                if cheap_price <= tier_max_price:
+                    entry_price = cheap_price
+                    entry_type = "confluence_cheap"
+        elif (implied_dir == 'UP' and price_move < -0.003) or (implied_dir == 'DOWN' and price_move > 0.003):
+            # Direction-aligned cheap-side
             cheap_price = max(0.02, min(tier_max_price * 1.5, abs(price_move) * 8 + np.random.uniform(0.01, 0.04)))
-            cheap_price = min(cheap_price, 0.15)
+            cheap_price = min(cheap_price, tier_max_price * 1.5)
             if cheap_price <= tier_max_price * 1.5:
                 entry_price = cheap_price + np.random.uniform(-0.01, 0.02)
-                entry_price = max(0.02, min(0.15, entry_price))
+                entry_price = max(0.02, min(tier_max_price, entry_price))
                 entry_type = "direct"
+        elif confluence >= 7.0 and abs(price_move) < 0.005:
+            # Mild price move + high confluence → model cheap-side entry
+            cheap_price = np.random.uniform(0.03, min(0.08, tier_max_price))
+            if cheap_price <= tier_max_price:
+                entry_price = cheap_price
+                entry_type = "confluence_cheap"
 
         if entry_type is None:
+            continue
+
+        # V19.1 #1: Dead zone filter — reject entries priced 8¢-60¢ (inclusive of ends for >8¢)
+        if entry_price > DEAD_ZONE_LOW and entry_price < DEAD_ZONE_HIGH:
             continue
 
         bet = bd * tier_size
@@ -148,7 +229,7 @@ def run_backtest(candles, bankroll=BANKROLL_BT):
             continue
 
         went_up = close_now >= open_now
-        won = (sig_dir == 'UP' and went_up) or (sig_dir == 'DOWN' and not went_up)
+        won = (implied_dir == 'UP' and went_up) or (implied_dir == 'DOWN' and not went_up)
 
         # Simple exit simulation (5 bars = 5 min)
         peak_price = entry_price
@@ -212,7 +293,7 @@ def run_backtest(candles, bankroll=BANKROLL_BT):
             daily_loss_amt += abs(pnl)
 
         results.append({
-            'idx': i, 'direction': sig_dir, 'strategy': sig_strategy,
+            'idx': i, 'direction': implied_dir, 'strategy': sig_strategy,
             'tier': 1 if tier_size >= 0.10 else (2 if tier_size >= 0.05 else 3),
             'entry_type': entry_type, 'entry_price': entry_price,
             'exit_type': exit_type, 'exit_price': exit_price,

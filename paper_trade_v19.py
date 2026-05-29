@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-V19 Krajekis-Enhanced 5m/15m BTC Up/Down Paper Trader
-======================================================
-V18.9 + Krajekis playbook integrations:
-- Confluence scoring (0-10): RSI + EMA21/50 alignment + VWAP position + MACD + session + ATR
-- VWAP + EMA21/50 + ATR computation
-- Session logic (Asia/London/NY) weighting signals
-- ATR vol regime → adaptive entry pricing (low vol=expensive, high vol=cheap)
-- Time-window filter: prefer mid-to-late window entries
-- Daily loss limit: stop after 3 losses/day
-- All V18.9 exit strategies preserved (SL/TP/trailing/time-decay/expiry)
+V19.1 Refined 5m/15m BTC Up/Down Paper Trader
+================================================
+V19 + 7 refinements from live trade analysis + Prediction Arena paper:
+1. Price-tier entry gate: reject 8-60¢ dead zone (only allow ≤8¢ or ≥60¢)
+2. Correlation limit: max 2 same-direction, max 3 total positions
+3. Confluence-weighted sizing: 6-7/10→3%, 7-8/10→4%, 8+/10→5-6%
+4. Dynamic max price by vol: high_vol max 8¢, normal max 15¢, low_vol max 20¢
+5. Stricter RSI: DOWN requires RSI<30 (not <45), UP requires RSI>65 (not >55)
+6. Time-in-window decay: peak confluence at 7-9min, decay at edges
+7. Re-entry cooldown: 15min after stop-loss
 """
 
 import json, os, sys, time, traceback, math
@@ -43,12 +43,18 @@ CLOB_API = "https://clob.polymarket.com"
 # ════════════════════════════════════════════════════════════════════════════════
 BANKROLL = 400.0
 MAX_OPEN_POSITIONS = 3
+MAX_SAME_DIRECTION = 2          # Max 2 positions in same direction (correlation limit)
 POSITION_SIZE_PCT = 0.03
 MAX_POSITION_PCT = 0.08
 MIN_CONFIDENCE_FAIR_PRICE = 0.70
 MIN_CONFLUENCE = 6           # Require 6/10 confluence to trade (Krajekis: 7/10, we're more aggressive)
 DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-based losses)
 DAILY_LOSS_PCT = 0.05        # Also stop if down 5% of bankroll in a day
+COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
+
+# V19.1: Price-tier dead zone — reject entries priced 8-60¢ unless fair-price ≥60¢
+DEAD_ZONE_LOW = 0.08
+DEAD_ZONE_HIGH = 0.60
 
 # Time-window filter (Krajekis: avoid early window, prefer mid-to-late)
 SERIES_CONFIG = [
@@ -212,18 +218,24 @@ def compute_confluence(rsi, direction, regime, ema21, ema50, vwap, price, macd_h
     score = 0.0
     details = []
 
-    # 1. RSI extreme or zone (1 point)
-    if signal_dir == "DOWN" and rsi < 30:
+    # 1. RSI extreme or zone (1 point) — V19.1: stricter RSI thresholds
+    if signal_dir == "DOWN" and rsi < 25:
         score += 1.0
+        details.append("RSI<25")
+    elif signal_dir == "DOWN" and rsi < 30:
+        score += 0.8
         details.append("RSI<30")
-    elif signal_dir == "DOWN" and rsi < 45:
-        score += 0.5
-        details.append("RSI<45")
-    elif signal_dir == "UP" and rsi > 70:
+    elif signal_dir == "DOWN" and rsi < 38:
+        score += 0.3
+        details.append("RSI<38")
+    elif signal_dir == "UP" and rsi > 75:
         score += 1.0
-        details.append("RSI>70")
+        details.append("RSI>75")
+    elif signal_dir == "UP" and rsi > 65:
+        score += 0.8
+        details.append("RSI>65")
     elif signal_dir == "UP" and rsi > 55:
-        score += 0.5
+        score += 0.3
         details.append("RSI>55")
     else:
         details.append("RSI_meh")
@@ -347,11 +359,12 @@ def load_state():
         "trades": [],
         "resolutions": [],
         "last_scan": None,
-        "version": "v19",
         "daily_losses": 0,
         "daily_loss_amount": 0.0,
         "daily_reset": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
         "daily_trades": 0,
+        "last_stop_loss_time": None,
+        "version": "v19.1",
     }
 
 
@@ -612,6 +625,9 @@ def evaluate_exits(state):
         if pnl < 0:
             state["daily_losses"] = state.get("daily_losses", 0) + 1
             state["daily_loss_amount"] = state.get("daily_loss_amount", 0) + abs(pnl)
+            # V19.1 #7: Track stop-loss time for cooldown
+            if exit_info["exit_type"] == "stop_loss":
+                state["last_stop_loss_time"] = now.isoformat()
 
         for t in state.get("trades", []):
             if t.get("id") == pos_id:
@@ -823,10 +839,28 @@ def run_scan():
         save_state(state)
         return
 
-    # 6. Tier config
+    # 6. Tier config — V19.1 #3: Confluence-weighted sizing
     tier_cfg = TIER_CONFIG.get(sig_strategy, {"size": 0.03, "max_price": 0.08})
     tier_size = tier_cfg["size"]
     tier_max_price = min(tier_cfg["max_price"], vol_max_price)  # Adapt to volatility
+    
+    # V19.1 #3: Scale position size by confluence
+    if confluence >= 8.0:
+        tier_size = min(0.06, tier_size * 1.5)   # 8+/10: boost to 5-6%
+    elif confluence >= 7.0:
+        tier_size = min(0.05, tier_size * 1.25)  # 7-8/10: boost to 4-5%
+    # 6-7/10: use base tier_size (3-4%)
+    if confluence < 6.5:
+        tier_size = min(tier_size, 0.03)          # Below 6.5: cap at 3%
+    
+    # V19.1 #4: Dynamic max price by vol regime
+    if vol_regime == "high_vol":
+        tier_max_price = min(tier_max_price, 0.08)   # High vol: only cheap entries
+    elif vol_regime == "low_vol":
+        tier_max_price = min(tier_max_price, 0.20)   # Low vol: allow slightly more expensive
+    else:
+        tier_max_price = min(tier_max_price, 0.15)   # Normal: 15¢ max
+
     tier_num = 1 if tier_size >= 0.10 else (2 if tier_size >= 0.05 else 3)
 
     # V19: Vol-adaptive sizing
@@ -834,6 +868,31 @@ def run_scan():
         tier_size *= 1.3  # Boost size in low-vol high-confluence
     elif vol_regime == "high_vol":
         tier_size *= 0.7  # Reduce size in high vol
+
+    # ── V19.1 REFINEMENTS ──
+
+    # #7: Re-entry cooldown after stop-loss
+    last_sl_time = state.get("last_stop_loss_time")
+    if last_sl_time:
+        try:
+            last_sl_dt = datetime.fromisoformat(last_sl_time)
+            cooldown_remaining = (timedelta(minutes=COOLDOWN_MINS) - (datetime.now(timezone.utc) - last_sl_dt)).total_seconds() / 60
+            if cooldown_remaining > 0:
+                log(f"  🧊 Cooldown: {cooldown_remaining:.1f}min after stop-loss — skipping")
+                state["last_scan"] = datetime.now(timezone.utc).isoformat()
+                save_state(state)
+                return
+        except:
+            pass
+
+    # #2: Correlation limit — max 2 same-direction positions
+    open_positions_dict = {k: v for k, v in state.get("positions", {}).items() if v.get("status") == "open"}
+    same_dir_count = sum(1 for p in open_positions_dict.values() if p.get("side", "").upper() == sig_dir)
+    if same_dir_count >= MAX_SAME_DIRECTION:
+        log(f"  ⚠️ Correlation limit: {same_dir_count}/{MAX_SAME_DIRECTION} {sig_dir} positions open — skipping")
+        state["last_scan"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return
 
     log(f"     Tier {tier_num} | Size: {tier_size:.1%} (vol-adjusted) | Max price: {tier_max_price*100:.0f}¢ | Vol: {vol_regime}")
 
@@ -865,6 +924,37 @@ def run_scan():
 
     if not viable:
         log(f"  ❌ No viable markets (found {len(markets)} total, none in time window)")
+        state["last_scan"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return
+
+    # V19.1 #6: Time-in-window decay — peak at 7-9min (15m) or 2.5-3.5min (5m), decay at edges
+    time_decay = 1.0
+    for m in viable[:1]:
+        mins_left = m.get("minutes_left", 10)
+        window = m.get("window_mins", 15)
+        if window >= 15:
+            if 7 <= mins_left <= 9:
+                time_decay = 1.0
+            elif 5 <= mins_left <= 12:
+                time_decay = 0.7 + 0.3 * (mins_left - 5) / 2.0 if mins_left < 7 else 1.0 - 0.3 * (mins_left - 9) / 3.0
+            else:
+                time_decay = 0.5
+        else:
+            if 2.5 <= mins_left <= 3.5:
+                time_decay = 1.0
+            elif 2 <= mins_left <= 4:
+                time_decay = 0.7 + 0.3 * (mins_left - 2) / 0.5 if mins_left < 2.5 else 1.0 - 0.3 * (mins_left - 3.5) / 0.5
+            else:
+                time_decay = 0.5
+
+    if time_decay < 1.0:
+        confluence *= time_decay
+        log(f"     ⏱️ Time decay: ×{time_decay:.2f} (mins_left={mins_left:.1f}) → adjusted confluence: {confluence:.1f}/10")
+
+    # Re-check confluence after time decay
+    if confluence < MIN_CONFLUENCE:
+        log(f"  ❌ Confluence too low after time decay: {confluence:.1f} < {MIN_CONFLUENCE} — skipping")
         state["last_scan"] = datetime.now(timezone.utc).isoformat()
         save_state(state)
         return
@@ -927,6 +1017,19 @@ def run_scan():
     end_date = best_market["end_date"]
     minutes_left = best_market["minutes_left"]
     window_label = best_market["label"]
+
+    # V19.1 #1: Dead zone filter — reject entries priced 8¢-60¢ (£8 to <60¢ is dead zone)
+    if entry_price > DEAD_ZONE_LOW and entry_price < DEAD_ZONE_HIGH and best_entry_type != "fair_price":
+        log(f"  ❌ Dead zone: {entry_price*100:.1f}¢ is in {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ dead zone — skipping")
+        state["last_scan"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return
+    # Also reject fair-price entries in the dead zone
+    if entry_price > DEAD_ZONE_LOW and entry_price < DEAD_ZONE_HIGH:
+        log(f"  ❌ Dead zone: {entry_price*100:.1f}¢ is in {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ dead zone — skipping")
+        state["last_scan"] = datetime.now(timezone.utc).isoformat()
+        save_state(state)
+        return
 
     log(f"  📈 Market: {question[:70]}")
     log(f"     Side: {best_side} @ {entry_price*100:.1f}¢ ({best_entry_type}) | {window_label} window | Expires in {minutes_left:.1f}min")
@@ -1045,9 +1148,11 @@ def run_scan():
 
 def main_loop():
     log("=" * 70)
-    log("V19 KRAJEKIS-ENHANCED 5M/15M BTC UP/DOWN PAPER TRADER")
+    log("V19.1 REFINED 5M/15M BTC UP/DOWN PAPER TRADER")
     log(f"Bankroll: ${BANKROLL} | Min Confidence: {MIN_CONFIDENCE}")
     log(f"Min Confluence: {MIN_CONFLUENCE}/10 | Daily Loss Limit: {DAILY_LOSS_LIMIT}")
+    log(f"Dead Zone: {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ | Correlation: {MAX_SAME_DIRECTION} same-dir max")
+    log(f"Cooldown: {COOLDOWN_MINS}min after stop-loss | Confluence sizing: 6→3%, 7→4%, 8+→5-6%")
     log(f"Exits: SL@{STOP_LOSS_PCT:.0%} | TP@{TAKE_PROFIT_PRICE*100:.0f}¢ | Trail@{TRAILING_STOP_PCT:.0%} after {TRAILING_ACTIVATE_MINS}min")
     log(f"Indicators: RSI + EMA21/50 + VWAP + ATR + MACD + Session + Confluence")
     log(f"Markets: 5m (late 2-4min) + 15m (mid 5-12min)")
