@@ -83,7 +83,7 @@ JOURNAL_DETAILED = True  # Include signal context (RSI, MACD, blacklist results,
 # ══════════════════════════════════════════════════════════════════════════════
 
 SCAN_SECONDS = 120
-INITIAL_BANKROLL = 100.0; PAPER_BANKROLL = 100.0
+INITIAL_BANKROLL = 320.0; PAPER_BANKROLL = 320.0
 
 # BTC-only — proven winner across 20/20 seeds (in sim; live was a disaster due to
 # disabled guards, no exits, and over-positioning — all fixed in V18 + V19.7)
@@ -1396,10 +1396,29 @@ def execute_sell(pos, exit_info, state):
         pnl = exit_info.get("pnl", 0)
         return {"status": "SIMULATED", "exit_value": exit_value, "pnl": pnl}
 
-    # In live mode, would place actual sell order on CLOB
-    # This requires the token_id for the position
-    # For now, return simulated (live sell integration requires token_id lookup)
-    return {"status": "NEEDS_TOKEN_ID", "exit_value": exit_info.get("exit_value", 0)}
+    # Live mode: place actual sell order via CLOB
+    token_id = pos.get("token_id", "")
+    if not token_id:
+        # Try to discover token_id from condition_id
+        try:
+            import urllib.request
+            url = f"https://clob.polymarket.com/markets?condition_id={cid}"
+            req = urllib.request.Request(url, headers={"User-Agent": "fdc/19.7"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                markets = json.loads(r.read())
+            if isinstance(markets, list) and len(markets) > 0:
+                side_idx = 0 if side == "Up" else 1
+                token_id = markets[0].get("tokens", [{}])[side_idx].get("token_id", "")
+        except Exception:
+            pass
+    
+    result = _live_client.place_order(
+        token_id=token_id,
+        side="SELL",
+        price=exit_info.get("cur_price", pos.get("contract_price", 0.5)),
+        size=pos.get("bet", 1),
+    )
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1523,11 +1542,12 @@ def summary(state, entries, settled, exits_info=None):
 def load_state():
     STATE.parent.mkdir(parents=True,exist_ok=True)
     if STATE.exists(): return json.loads(STATE.read_text())
-    return {"bankroll":PAPER_BANKROLL,"total_pnl":0,"wins":0,"losses":0,
+    return {"bankroll":INITIAL_BANKROLL,"total_pnl":0,"wins":0,"losses":0,
             "positions":{},"journal":[],"scans":0,
             "daily_pnl":0,"daily_date":datetime.now().strftime("%Y-%m-%d"),
             "exit_stats":{"stop_loss":0,"time_decay":0,"expiry":0},
-            "bankroll_peak":PAPER_BANKROLL}
+            "bankroll_peak":INITIAL_BANKROLL,"mode":"paper",
+            "version":"V19.7","start_time":datetime.now().isoformat()}
 
 def save_state(state):
     state["scans"]=state.get("scans",0)+1
@@ -1609,7 +1629,23 @@ def run_once(state):
     entries,skip_info=evaluate_entries(sig,contracts,state)
     for e in entries:
         key=f"{e['conditionId'][:16]}_{e['side']}"
-        state["positions"][key]=e
+        # V19.7: Place entry orders — paper or live
+        if _live_client and _live_client.mode == "LIVE":
+            order_result = _live_client.place_order(
+                token_id=e.get("token_id",""),
+                side="BUY",
+                price=e["contract_price"],
+                size=e["bet"],
+            )
+            e["order_result"] = order_result
+            e["mode"] = "LIVE"
+            if order_result.get("status") in ("LIVE","FILLED","SIMULATED"):
+                state["positions"][key] = e
+                state["bankroll"] -= e["bet"]
+        else:
+            e["mode"] = "PAPER"
+            state["positions"][key] = e
+            state["bankroll"] -= e["bet"]
 
     # V18: Sim-live gap — model rejection rate
     if REJECTION_RATE > 0:

@@ -12,7 +12,7 @@ import json, os, time, urllib.request
 from pathlib import Path
 from typing import Optional, Dict, List
 
-PAPER_ONLY = False  # LIVE MODE — Father Daddy authorized
+PAPER_ONLY = True  # TRUE for 48h paper trading — flip to False after validation
 CLOB_URL = "https://clob.polymarket.com"
 GAMMA_URL = "https://gamma-api.polymarket.com"
 CHAIN_ID = 137
