@@ -111,15 +111,19 @@ EV_MIN_GATE = 0.02         # Minimum EV to trade (2¢ edge after slippage)
 EV_SLIPPAGE_EST = 0.01     # Estimated slippage per trade (1¢, conservative)
 # Calibrated P(win) by RSI zone (multi-asset backtest 180d)
 EV_RSI_PROB = {
-    'ultra_oversold': 0.65,  # RSI < 15 (63.7% WR, 80 trades — small sample, 65% conservative)
-    'deep_oversold':  0.63,  # RSI 15-20 (58.9% WR, 185 trades — 63% conservative)
-    'oversold':        0.63,  # RSI 20-25 (63.2% WR — sweet spot)
-    'near_oversold1':  0.62,  # RSI 25-28 (62.7% WR)
-    'near_oversold2':  0.61,  # RSI 28-35 (61.7% WR, highest volume)
-    'near_oversold3':  0.64,  # RSI 35-45 with confirmations (64.4% WR)
+    'ultra_oversold':  0.65,  # RSI < 15 (63.7% WR, 80 trades — small sample, 65% conservative)
+    'deep_oversold':   0.63,  # RSI 15-20 (58.9% WR, 185 trades — 63% conservative)
+    'oversold':         0.63,  # RSI 20-25 (63.2% WR — sweet spot)
+    'near_oversold1':   0.62,  # RSI 25-28 (62.7% WR)
+    'near_oversold2':   0.61,  # RSI 28-35 (61.7% WR, highest volume)
+    'near_oversold3':   0.64,  # RSI 35-45 with confirmations (64.4% WR)
+    # V19.7c: Overbought zones (DOWN cheap-side)
+    'moderate_overbought': 0.60,  # RSI 55-70: DOWN tokens 15-35¢, mean reversion
+    'strong_overbought':    0.65,   # RSI 70-82: DOWN tokens 5-15¢, @bonereaper validated
 }
-# Direction EV modifier: DOWN signals have higher base rate on cheap side
-EV_DOWN_MODIFIER = 0.03     # +3% for DOWN signals on cheap side
+# Direction EV modifier: cheap-side gets boost regardless of direction
+EV_DOWN_MODIFIER = 0.03     # +3% for DOWN signals on cheap side (RSI overbought)
+EV_UP_CHEAP_MODIFIER = 0.02  # +2% for UP signals when cheap (<20¢)
 EV_SESSION_MODIFIER = {
     1: 0.02,   # NY Open: +2% (best session)
     2: 0.01,   # NY Afternoon: +1%
@@ -148,7 +152,7 @@ MAX_CONFIDENCE = 0.95
 MAX_WINDOW_MINUTES = 15
 MIN_VOLUME_USD = 1000
 MIN_CONTRACT_PRICE = 0.08
-MAX_CONTRACT_PRICE = 0.45  # V18: only buy cheap contracts — whale data 8-51¢ strategy
+MAX_CONTRACT_PRICE = 0.55  # V19.7c: Allow UP tokens (50-55¢) + DOWN cheap tokens (8-45¢)
 # V18.3: PMXT-validated sweet spot — 10-15¢ at RSI<28 = 87.8% WR
 # 5-8¢ = 77.8% WR, 1-5¢ = 69.5% WR (longshot drag)
 SWEET_SPOT_MIN = 0.08   # Below 8¢: longshot penalty
@@ -577,8 +581,14 @@ def _rsi_zone(rsi):
         return 'near_oversold2'
     elif rsi < 45:
         return 'near_oversold3'
+    elif rsi < 55:
+        return 'dead_zone'  # Mid-zone, no EV
+    elif rsi < 70:
+        return 'moderate_overbought'  # V19.7c: DOWN cheap-side
+    elif rsi < 82:
+        return 'strong_overbought'   # V19.7c: DOWN cheap-side 5-15¢
     else:
-        return 'dead_zone'  # No EV — should be blocked by signal logic
+        return 'dead_zone'  # Parabolic, no reversal signal
 
 
 def _session_type(hour_utc):
@@ -609,22 +619,24 @@ def calculate_ev(rsi, direction, contract_price, session_type=1, confirmations=2
     
     p_win = EV_RSI_PROB.get(zone, 0.50)
     
-    # Direction modifier: DOWN on cheap side gets a boost
+    # Direction modifier: DOWN cheap-side boost + UP cheap boost
     if direction == 'down' and contract_price <= 0.15:
         p_win += EV_DOWN_MODIFIER
+    elif direction == 'up' and contract_price <= 0.20:
+        p_win += EV_UP_CHEAP_MODIFIER
     
     # Session modifier
     session_mod = EV_SESSION_MODIFIER.get(session_type, -0.05)
     p_win += session_mod
     
-    # Confirmation modifier (for near-oversold zones)
-    if zone in ('near_oversold1', 'near_oversold2', 'near_oversold3'):
+    # Confirmation modifier (for near-oversold and moderate-overbought zones)
+    if zone in ('near_oversold1', 'near_oversold2', 'near_oversold3', 'moderate_overbought'):
         if confirmations >= 2:
             p_win += 0.01  # Multi-confirmation boost
         elif confirmations == 0:
             p_win -= 0.05  # No confirmation penalty
-            if confirmations == 0 and zone == 'near_oversold3':
-                return -0.5, p_win, -0.5  # Near-oversold without confirmation = blocked
+            if confirmations == 0 and zone in ('near_oversold3', 'moderate_overbought'):
+                return -0.5, p_win, -0.5  # Boundary zones without confirmation = blocked
     
     # Clamp probability
     p_win = max(0.10, min(0.90, p_win))
@@ -680,41 +692,58 @@ def btc_signal(prices):
 
     d,c="neutral",0.0
     
-    # ── V19.7: OVERSOLD-ONLY with RSI < 20 BLOCKED ──
-    # Backtest evidence: RSI < 20 on BTC = 44.8% WR (knife-catching)
-    # Multi-asset RSI < 15 = 63.7% WR but only 80 trades — too small to trust
-    # RSI 20-28 = 63%+ WR validated across all assets
+    # ── V19.7c: BIDIRECTIONAL SIGNALS (oversold UP + overbought DOWN) ──
+    # Cheap-side strategy: buy cheap tokens regardless of direction
+    # - RSI oversold → buy UP tokens (contrarian bounce, 63%+ WR)
+    # - RSI overbought → buy DOWN tokens (cheap 8-15¢, mean reversion)
+    # - RSI < 20 BLOCKED (knife-catching 44.8% WR)
+    # - RSI > 82 BLOCKED (parabolic, no reversal signal yet)
     
-    # Count confirmations for near-oversold zones
+    # Count confirmations for near-boundary zones
     confirmations = 0
     if macd > 0: confirmations += 1
     if price_vs_sma > 0.003: confirmations += 1
     if up >= 2: confirmations += 1
     
+    # Contrarian confirmations (for overbought DOWN)
+    contra_confs = 0
+    if macd < 0: contra_confs += 1       # bearish momentum
+    if price_vs_sma < -0.003: contra_confs += 1  # below SMA
+    if up < 2: contra_confs += 1          # recent declines
+    
     if rsi < RSI_OVERSOLD_MIN:
-        # V19.7: RSI < 20 BLOCKED — knife-catching zone
+        # RSI < 20 BLOCKED — knife-catching zone
         d,c = "neutral", 0.0
     elif rsi < 28:
         # Oversold → contrarian UP (validated 63%+ multi-asset WR)
         d,c = "up", min(MAX_CONFIDENCE, 0.85 + (28-rsi)/100 + (0.05 if confirmations >= 2 else 0))
     elif rsi < RSI_NEAR_OVERSOLD:
         # Near-oversold → UP with multi-confirmation
-        # V19.7: Tightened near-oversold to RSI 28-35 only
         if confirmations >= 2:
             d,c = "up", min(MAX_CONFIDENCE, 0.85 + (35-rsi)/70)
         elif confirmations == 1:
             d,c = "up", min(0.85, 0.82 + (35-rsi)/100)
         else:
             d,c = "neutral", 0.0
-    else:
-        # RSI 35+ = DEAD ZONE (V18.3b: 33% WR on mid-zone)
+    elif rsi < 55:
+        # RSI 35-55 = DEAD ZONE (V18.3b: 33% WR on mid-zone)
         d,c = "neutral", 0.0
-    
-    # ── V18.3: OVERBOUGHT ZONE KILLED ──
-    # RSI > 35 → NO SIGNALS (V18.3b: dead zone extended from 45 to 35)
-    # PMXT backtest: overbought cheap-side = 12% WR = fatal
-    # Even moderate RSI 55-72 → DOWN on cheap side = 7.5% WR
-    # ALL signals from RSI > 45 are blacklisted
+    elif rsi < 70:
+        # RSI 55-70: Moderate overbought → DOWN with confirmations
+        # Cheap DOWN tokens (15-35¢), mean reversion play
+        if contra_confs >= 2:
+            d,c = "down", min(MAX_CONFIDENCE, 0.85 + (rsi-55)/150 + (0.05 if rsi >= 65 else 0))
+        elif contra_confs == 1:
+            d,c = "down", min(0.85, 0.82 + (rsi-55)/200)
+        else:
+            d,c = "neutral", 0.0
+    elif rsi < 82:
+        # RSI 70-82: Strong overbought → DOWN (cheap side 5-15¢)
+        # @bonereaper: Down tokens at 8-15¢ = 488% ROI when RSI overbought
+        d,c = "down", min(MAX_CONFIDENCE, 0.88 + (rsi-70)/80 + (0.03 if contra_confs >= 2 else 0))
+    else:
+        # RSI > 82: Parabolic — BLOCKED (no reversal signal yet)
+        d,c = "neutral", 0.0
 
     return {"direction":d,"confidence":min(MAX_CONFIDENCE,max(0,c)),"rsi":round(rsi,1),
             "macd":round(macd,2),"momentum":up,"price":prices[-1],
@@ -1547,7 +1576,7 @@ def load_state():
             "daily_pnl":0,"daily_date":datetime.now().strftime("%Y-%m-%d"),
             "exit_stats":{"stop_loss":0,"time_decay":0,"expiry":0},
             "bankroll_peak":INITIAL_BANKROLL,"mode":"paper",
-            "version":"V19.7","start_time":datetime.now().isoformat()}
+            "version":"V19.7c","start_time":datetime.now().isoformat()}
 
 def save_state(state):
     state["scans"]=state.get("scans",0)+1
