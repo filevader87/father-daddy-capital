@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FDC V19.7 Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e17;--card:#1a1f2e;--border:#2a2f3e;--accent:#00d4aa;--red:#ff4757;--yellow:#ffa502;--muted:#747d8c;--text:#e8e8e8;--dim:#4a5568}
+body{background:var(--bg);color:var(--text);font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:14px;padding:12px}
+.grid{display:grid;gap:12px;max-width:1400px;margin:0 auto}
+.top-bar{display:flex;justify-content:space-between;align-items:center;padding:8px 0}
+.logo{font-size:22px;font-weight:700;letter-spacing:2px}
+.logo span{color:var(--accent)}
+.badge{padding:4px 12px;border-radius:4px;font-size:11px;font-weight:700;letter-spacing:1px}
+.badge-paper{background:#1a3a2e;color:var(--accent);border:1px solid var(--accent)}
+.badge-live{background:#3a1a1e;color:var(--red);border:1px solid var(--red)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:16px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.card-green::before{background:var(--accent)}
+.card-red::before{background:var(--red)}
+.card-yellow::before{background:var(--yellow)}
+.card-neutral::before{background:var(--border)}
+.card-title{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:8px}
+.card-value{font-size:28px;font-weight:700}
+.card-sub{font-size:12px;color:var(--muted);margin-top:4px}
+.stats-row{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));display:grid;gap:12px}
+.main-grid{grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:768px){.main-grid{grid-template-columns:1fr}}
+.pos-list,.trade-list{max-height:300px;overflow-y:auto}
+.pos-item,.trade-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+.pos-item:last-child,.trade-item:last-child{border:none}
+.side-down{color:var(--accent)}
+.side-up{color:var(--yellow)}
+.pnl-pos{color:var(--accent)}
+.pnl-neg{color:var(--red)}
+.dd-bar{height:6px;border-radius:3px;background:var(--border);margin-top:8px;overflow:hidden}
+.dd-fill{height:100%;border-radius:3px;transition:width 0.5s}
+.risk-tier{display:flex;gap:4px}
+.tier{padding:4px 10px;border-radius:3px;font-size:11px;border:1px solid var(--border);color:var(--muted)}
+.tier-active{background:var(--accent);color:var(--bg);border-color:var(--accent);font-weight:700}
+.uptime{font-size:12px;color:var(--muted)}
+.config-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px}
+.config-key{color:var(--muted)}
+.config-val{color:var(--text);text-align:right}
+.signal-log{max-height:200px;overflow-y:auto}
+.signal-item{padding:4px 0;border-bottom:1px solid #1a1f2e5f;font-size:12px}
+.signal-dir-down{color:var(--accent)}
+.signal-dir-up{color:var(--yellow)}
+.signal-dir-neutral{color:var(--muted)}
+#bankroll-chart{max-height:200px}
+.empty-state{text-align:center;padding:24px;color:var(--dim);font-size:13px}
+.refresh-indicator{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.last-update{font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="grid">
+  <!-- Top Bar -->
+  <div class="top-bar">
+    <div><div class="logo">FDC <span>V19.7</span></div><div class="last-update" id="last-update">Loading...</div></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="refresh-indicator" id="refresh-dot"></div>
+      <span class="badge badge-paper" id="mode-badge">PAPER</span>
+    </div>
+  </div>
+
+  <!-- Stats Row -->
+  <div class="stats-row" id="stats-row">
+    <div class="card card-green">
+      <div class="card-title">Bankroll</div>
+      <div class="card-value" id="bankroll">$320.00</div>
+      <div class="card-sub" id="bankroll-sub">Peak: $320.00</div>
+    </div>
+    <div class="card card-green" id="pnl-card">
+      <div class="card-title">P&L</div>
+      <div class="card-value" id="pnl">$0.00</div>
+      <div class="card-sub" id="pnl-sub">Daily: $0.00 | ROI: 0%</div>
+    </div>
+    <div class="card card-neutral">
+      <div class="card-title">Win Rate</div>
+      <div class="card-value" id="wr">0%</div>
+      <div class="card-sub" id="wr-sub">0W / 0L</div>
+    </div>
+    <div class="card card-neutral" id="dd-card">
+      <div class="card-title">Drawdown</div>
+      <div class="card-value" id="dd-pct">0%</div>
+      <div class="card-sub" id="dd-sub">Mult: 1.00 | Entries: ALLOWED</div>
+      <div class="dd-bar"><div class="dd-fill" id="dd-bar" style="width:0%;background:var(--accent)"></div></div>
+    </div>
+  </div>
+
+  <!-- Main Grid -->
+  <div class="main-grid">
+    <!-- Left: Chart + Positions -->
+    <div class="grid" style="gap:12px">
+      <div class="card card-neutral">
+        <div class="card-title">Bankroll History</div>
+        <canvas id="bankroll-chart"></canvas>
+      </div>
+      <div class="card card-neutral">
+        <div class="card-title">Open Positions</div>
+        <div class="pos-list" id="positions">
+          <div class="empty-state">No open positions</div>
+        </div>
+      </div>
+    </div>
+    <!-- Right: Trades + Config -->
+    <div class="grid" style="gap:12px">
+      <div class="card card-neutral">
+        <div class="card-title">Trade History</div>
+        <div class="trade-list" id="trades">
+          <div class="empty-state">No trades yet</div>
+        </div>
+      </div>
+      <div class="card card-neutral">
+        <div class="card-title">Risk Configuration</div>
+        <div class="risk-tier" id="risk-tier">
+          <div class="tier tier-active" id="tier-cold">COLD 1%</div>
+          <div class="tier" id="tier-warm">WARM 2%</div>
+          <div class="tier" id="tier-proven">PROVEN 3%</div>
+        </div>
+        <div style="margin-top:12px">
+          <div class="config-grid">
+            <span class="config-key">Bet Cap</span><span class="config-val" id="cfg-cap">$10.00</span>
+            <span class="config-key">EV Gate</span><span class="config-val" id="cfg-ev">0.02</span>
+            <span class="config-key">DD 1</span><span class="config-val" id="cfg-dd1">10% → ½ risk</span>
+            <span class="config-key">DD 2</span><span class="config-val" id="cfg-dd2">15% → ¼ + halt</span>
+            <span class="config-key">DD 3</span><span class="config-val" id="cfg-dd3">25% → hard stop</span>
+            <span class="config-key">Max Pos</span><span class="config-val" id="cfg-pos">2</span>
+            <span class="config-key">Min Bet</span><span class="config-val" id="cfg-min">$1.00</span>
+            <span class="config-key">Scans</span><span class="config-val" id="cfg-scans">0</span>
+          </div>
+        </div>
+      </div>
+      <div class="card card-neutral">
+        <div class="card-title">Signal Log</div>
+        <div class="signal-log" id="signals">
+          <div class="empty-state">Waiting for signals...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = window.location.port === '8197' ? '/api/state' : 'http://localhost:8197/api/state';
+let chart = null;
+let bankrollHistory = [];
+
+function initChart() {
+  const ctx = document.getElementById('bankroll-chart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Bankroll',
+      data: [],
+      borderColor: '#00d4aa',
+      backgroundColor: 'rgba(0,212,170,0.1)',
+      fill: true,
+      tension: 0.3,
+      pointRadius: 0,
+      borderWidth: 2
+    }]},
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          grid: { color: '#2a2f3e' },
+          ticks: { color: '#747d8c', callback: v => '$' + v.toFixed(0) }
+        }
+      }
+    }
+  });
+}
+
+function calcDD(journal) {
+  const settled = journal.filter(j => ['settle','exit_stop_loss','exit_time_decay','exit_expiry'].includes(j.type));
+  const recent = settled.slice(-50);
+  if (!recent.length) return { dd: 0, mult: 1.0, allowed: true };
+  let cum = 0, peak = 0, maxDD = 0;
+  for (const j of recent) {
+    cum += j.pnl || 0;
+    if (cum > peak) peak = cum;
+    if (peak > 0) maxDD = Math.max(maxDD, (peak - cum) / peak);
+  }
+  if (maxDD >= 0.25) return { dd: maxDD, mult: 0, allowed: false };
+  if (maxDD >= 0.15) return { dd: maxDD, mult: 0.25, allowed: false };
+  if (maxDD >= 0.10) return { dd: maxDD, mult: 0.5, allowed: true };
+  return { dd: maxDD, mult: 1.0, allowed: true };
+}
+
+function formatTime(iso) {
+  if (!iso) return 'N/A';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch { return iso.slice(11, 16); }
+}
+
+function uptime(startIso) {
+  if (!startIso) return 'N/A';
+  const ms = Date.now() - new Date(startIso).getTime();
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  return `${h}h ${m}m`;
+}
+
+function refresh() {
+  fetch(API).then(r => r.json()).then(data => {
+    const s = data;
+    const br = s.bankroll || 0;
+    const pnl = s.total_pnl || 0;
+    const w = s.wins || 0;
+    const l = s.losses || 0;
+    const total = w + l;
+    const dd = calcDD(s.journal || []);
+    const positions = Object.values(s.positions || {}).filter(p => p.status === 'open');
+    const journal = (s.journal || []).slice(-20).reverse();
+
+    // Mode badge
+    const mode = (s.mode || 'paper').toUpperCase();
+    const badge = document.getElementById('mode-badge');
+    badge.textContent = mode;
+    badge.className = mode === 'LIVE' ? 'badge badge-live' : 'badge badge-paper';
+
+    // Bankroll
+    document.getElementById('bankroll').textContent = '$' + br.toFixed(2);
+    document.getElementById('bankroll-sub').textContent = 'Peak: $' + (s.bankroll_peak || br).toFixed(2);
+
+    // P&L
+    document.getElementById('pnl').textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+    document.getElementById('pnl').textContent = (pnl >= 0 ? '+' : '$') + pnl.toFixed(2).replace('$','');
+    document.getElementById('pnl').textContent = '$' + (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+    const daily = s.daily_pnl || 0;
+    const roi = br > 0 ? (pnl / 320 * 100) : 0;
+    document.getElementById('pnl-sub').textContent = 'Daily: $' + daily.toFixed(2) + ' | ROI: ' + roi.toFixed(1) + '%';
+    document.getElementById('pnl').className = 'card-value ' + (pnl >= 0 ? 'pnl-pos' : 'pnl-neg');
+
+    // WR
+    const wr = total > 0 ? (w / total * 100) : 0;
+    document.getElementById('wr').textContent = wr.toFixed(1) + '%';
+    document.getElementById('wr-sub').textContent = w + 'W / ' + l + 'L';
+
+    // DD
+    const ddPct = dd.dd * 100;
+    document.getElementById('dd-pct').textContent = ddPct.toFixed(1) + '%';
+    document.getElementById('dd-sub').textContent = 'Mult: ' + dd.mult.toFixed(2) + ' | Entries: ' + (dd.allowed ? 'ALLOWED' : 'BLOCKED');
+    const ddBar = document.getElementById('dd-bar');
+    ddBar.style.width = Math.min(ddPct / 25 * 100, 100) + '%';
+    ddBar.style.background = ddPct >= 25 ? 'var(--red)' : ddPct >= 15 ? 'var(--yellow)' : ddPct >= 10 ? 'var(--yellow)' : 'var(--accent)';
+    document.getElementById('dd-card').className = 'card ' + (ddPct >= 25 ? 'card-red' : ddPct >= 15 ? 'card-yellow' : 'card-neutral');
+
+    // Positions
+    const posEl = document.getElementById('positions');
+    if (positions.length === 0) {
+      posEl.innerHTML = '<div class="empty-state">No open positions</div>';
+    } else {
+      posEl.innerHTML = positions.map(p => {
+        const side = p.side || '?';
+        const sideClass = side === 'Down' ? 'side-down' : 'side-up';
+        const q = (p.question || '').substring(0, 45);
+        const bet = (p.bet || 0).toFixed(2);
+        const cp = (p.contract_price || 0).toFixed(3);
+        const rsi = (p.signal_rsi || 0).toFixed(1);
+        const ev = (p.ev_net || 0).toFixed(4);
+        const age = p.entry_time ? formatTime(p.entry_time) : '?';
+        return `<div class="pos-item">
+          <div><span class="${sideClass}">${side}</span> <span style="color:var(--muted);font-size:11px">${q}</span></div>
+          <div style="text-align:right">
+            <div style="font-size:13px">$${bet} @ ${cp}</div>
+            <div style="font-size:10px;color:var(--muted)">RSI ${rsi} | EV ${ev} | ${age}</div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Trades
+    const tradeEl = document.getElementById('trades');
+    const trades = journal.filter(j => j.type && j.pnl !== undefined);
+    if (trades.length === 0) {
+      tradeEl.innerHTML = '<div class="empty-state">No trades yet</div>';
+    } else {
+      tradeEl.innerHTML = trades.slice(0, 20).map(t => {
+        const pnl = t.pnl || 0;
+        const pnlClass = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+        const type = t.type.replace('exit_', '').replace('settle', 'SETTLE');
+        const q = (t.question || '').substring(0, 30);
+        return `<div class="trade-item">
+          <div><span style="font-size:11px;color:var(--muted)">${formatTime(t.ts)}</span> <span style="font-size:11px">${type}</span></div>
+          <div><span class="${pnlClass}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)}</span> <span style="font-size:10px;color:var(--muted)">${q}</span></div>
+        </div>`;
+      }).join('');
+    }
+
+    // Risk tier
+    const trades_count = total;
+    const tierCold = document.getElementById('tier-cold');
+    const tierWarm = document.getElementById('tier-warm');
+    const tierProven = document.getElementById('tier-proven');
+    [tierCold, tierWarm, tierProven].forEach(t => t.className = 'tier');
+    if (trades_count < 50) tierCold.className = 'tier tier-active';
+    else if (trades_count < 500) tierWarm.className = 'tier tier-active';
+    else tierProven.className = 'tier tier-active';
+
+    // Config
+    document.getElementById('cfg-scans').textContent = s.scans || 0;
+    document.getElementById('cfg-pos').textContent = positions.length;
+
+    // Uptime
+    document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString() + ' | Uptime: ' + uptime(s.start_time);
+
+    // Bankroll chart
+    bankrollHistory.push({ t: new Date(), v: br });
+    if (bankrollHistory.length > 100) bankrollHistory = bankrollHistory.slice(-100);
+    chart.data.labels = bankrollHistory.map((_, i) => i);
+    chart.data.datasets[0].data = bankrollHistory.map(h => h.v);
+    chart.update('none');
+
+  }).catch(err => {
+    document.getElementById('last-update').textContent = 'Error: ' + err.message;
+  });
+}
+
+initChart();
+refresh();
+setInterval(refresh, 30000);
+</script>
+</body>
+</html>
