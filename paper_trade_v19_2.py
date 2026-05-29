@@ -77,7 +77,7 @@ MAX_POSITION_PCT = 0.08
 MIN_CONFIDENCE_FAIR_PRICE = 0.70
 MIN_CONFLUENCE = 6           # Require 6/10 confluence to trade (Krajekis: 7/10, we're more aggressive)
 DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-based losses)
-DAILY_LOSS_PCT = 0.05        # Also stop if down 5% of bankroll in a day
+DAILY_LOSS_PCT = 0.07        # Stop if down 7% of bankroll in a day (V19.2 multi-asset)
 COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
 
 # V19.2: Three-zone price gates
