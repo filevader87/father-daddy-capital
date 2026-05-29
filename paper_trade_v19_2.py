@@ -71,13 +71,13 @@ def fetch_candles_multi(asset: str, interval: str = '5m', limit: int = 100):
 # ═══════════════════════════════════════════════════════════════════════════════
 # V19 CONFIGURATION
 # ════════════════════════════════════════════════════════════════════════════════
-BANKROLL = 400.0
+BANKROLL = 320.0
 MAX_OPEN_POSITIONS = 3
 MAX_SAME_DIRECTION = 2          # Max 2 positions in same direction (correlation limit)
 POSITION_SIZE_PCT = 0.03
 MAX_POSITION_PCT = 0.08
 MIN_CONFIDENCE_FAIR_PRICE = 0.70
-MIN_CONFLUENCE = 7           # V19.3: raised from 6→7 (MC shows 6-7 conf = 75.7% WR, 7+ = 80.1%)
+MIN_CONFLUENCE = 8           # V19.7: raised from 7→8 (backtest: conf≥8 = 58.7% WR vs conf≥7 = 55.5%)
 DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-based losses)
 DAILY_LOSS_PCT = 0.07        # Stop if down 7% of bankroll in a day (V19.2 multi-asset)
 COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
@@ -887,10 +887,11 @@ def run_scan():
 
         log(f"  ⭐ SIGNAL: BUY_{sig_dir} | {sig_strategy} | Conf: {sig_conf:.1%} | Confluence: {confluence:.1f}/10 | {' '.join(details[:5])}")
 
-        # V19.6: Block London + off-hours sessions (51.3% and 42.9% WR in backtest)
+        # V19.7: Block London, off-hours, and Asia sessions (50-51% WR in backtest)
+        # NY only: 59.6% WR, NY afternoon: 54.9% WR
         session_name = session[0]
-        if session_name in ('london_open', 'london_close', 'off_hours'):
-            log(f"  ❌ V19.6: Blocked {session_name} session (≤51.3% WR) — skipping")
+        if session_name in ('london_open', 'london_close', 'off_hours', 'asia'):
+            log(f"  ❌ V19.7: Blocked {session_name} session (≤54% WR) — skipping")
             state["last_scan"] = datetime.now(timezone.utc).isoformat()
             save_state(state)
             continue
