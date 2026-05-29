@@ -815,7 +815,7 @@ if __name__ == '__main__':
         'by_price': {k: dict(v) for k, v in by_price.items()},
         'by_session': {k: dict(v) for k, v in by_session.items()},
         'by_multi_tf': {k: dict(v) for k, v in by_multi_tf.items()},
-        'trades': closed[:50],
+        'trades': closed,
     }
     
     with open(OUTPUT / 'backtest_v19_7_results.json', 'w') as f:
