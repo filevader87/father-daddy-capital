@@ -78,7 +78,12 @@ def main():
     print(f"  Open: {signals['open_positions']} | Trades: {signals['total_trades']} | WR: {signals['win_rate']}%")
     print(f"  Daily losses: {signals['daily_losses']} (${signals['daily_loss_amount']:.2f})")
     if signals["recent_trades"]:
-        print(f"  Last trade: {signals['recent_trades'][-1]['action']} @ {signals['recent_trades'][-1]['entry_price']*100:.0f}¢ | PnL: ${signals['recent_trades'][-1].get('pnl',0):.2f}")
+        lt = signals['recent_trades'][-1]
+        ep = lt['entry_price']
+        pnl = lt.get('pnl')
+        ep_str = f"{ep*100:.0f}¢" if ep is not None else "N/A"
+        pnl_str = f"${pnl:+.2f}" if pnl is not None else "pending"
+        print(f"  Last trade: {lt['action']} @ {ep_str} | PnL: {pnl_str}")
 
 if __name__ == "__main__":
     main()

@@ -35,9 +35,9 @@ PARTIAL_FILL_RATE = 0.10
 MARKOV_DRIFT_RATE = 0.06
 
 # Simulation params
-BANKROLL_MC = 100.0
-N_SEEDS = 30
-N_CYCLES = 5000
+BANKROLL_MC = 400.0
+N_SEEDS = 50
+N_CYCLES = 10000
 INITIAL_BANKROLL = 100.0
 
 
@@ -135,12 +135,10 @@ def simulate_cycle(bd, prices, rng):
     else:  # 15% no entry available
         return bd, None
     
-    # V19.2: Three-zone price filter
-    if entry_price > DEAD_ZONE_LOW and entry_price < DEAD_ZONE_HIGH:
-        return bd, None  # Dead zone 20-50¢
-    elif entry_price > MID_ZONE_LOW and entry_price <= MID_ZONE_HIGH:
-        if confluence < MID_ZONE_MIN_CONFLUENCE:
-            return bd, None  # Mid-zone requires conf≥8
+    # V19.3: Four-zone price filter — only ultra-cheap allowed
+    # MC data: cheap (≤8¢) = 80.2% WR, positive PnL; everything else = negative PnL
+    if entry_price > MID_ZONE_LOW:
+        return bd, None  # V19.3: Block everything above 8¢ (mid-zone, dead zone, fair-price all negative PnL)
     
     # Latency miss
     if rng.random() < LATENCY_MISS_RATE:
@@ -314,7 +312,7 @@ def main():
     print("V19.1 MONTE CARLO — Hard Mode (Slippage, Latency, Partial Fills, Markov Drift)")
     print("=" * 70)
     print(f"  Seeds: {N_SEEDS} | Cycles: {N_CYCLES} | Bankroll: ${BANKROLL_MC}")
-    print(f"  Dead Zone: {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ | Mid Zone: {MID_ZONE_LOW*100:.0f}-{MID_ZONE_HIGH*100:.0f}¢ (conf≥{MID_ZONE_MIN_CONFLUENCE:.0f}) | Correlation: {MAX_SAME_DIRECTION} same-dir max")
+    print(f"  Dead Zone: {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ | Mid Zone: {MID_ZONE_LOW*100:.0f}-{MID_ZONE_HIGH*100:.0f}¢ BLOCKED | Correlation: {MAX_SAME_DIRECTION} same-dir max")
     print(f"  Cooldown: {COOLDOWN_MINS}min after SL | Confluence sizing: 6→3%, 7→4%, 8+→5-6%")
     print(f"  RSI: DOWN requires RSI<38, UP requires RSI>55")
     print("=" * 70)

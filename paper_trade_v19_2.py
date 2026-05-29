@@ -75,16 +75,16 @@ MAX_SAME_DIRECTION = 2          # Max 2 positions in same direction (correlation
 POSITION_SIZE_PCT = 0.03
 MAX_POSITION_PCT = 0.08
 MIN_CONFIDENCE_FAIR_PRICE = 0.70
-MIN_CONFLUENCE = 6           # Require 6/10 confluence to trade (Krajekis: 7/10, we're more aggressive)
+MIN_CONFLUENCE = 7           # V19.3: raised from 6→7 (MC shows 6-7 conf = 75.7% WR, 7+ = 80.1%)
 DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-based losses)
 DAILY_LOSS_PCT = 0.07        # Stop if down 7% of bankroll in a day (V19.2 multi-asset)
 COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
 
-# V19.2: Three-zone price gates
-# Ultra-cheap (≤8¢): always allowed
-# Mid-zone (8-20¢): requires confluence ≥8/10
+# V19.3: Three-zone price gates — mid-zone BLOCKED (MC: 68.8% WR, negative PnL)
+# Ultra-cheap (≤8¢): always allowed — the only profitable zone (80.2% WR, positive PnL)
+# Mid-zone (8-20¢): BLOCKED — was conf≥8 but MC shows negative PnL
 # Dead zone (20-50¢): blocked
-# Fair-price (≥50¢): always allowed (relaxed from 60¢)
+# Fair-price (≥50¢): BLOCKED in V19.3 — 70.3% WR, negative PnL
 DEAD_ZONE_LOW = 0.20
 DEAD_ZONE_HIGH = 0.50
 MID_ZONE_LOW = 0.08
@@ -767,8 +767,8 @@ def run_scan():
     if state.get("daily_losses", 0) >= DAILY_LOSS_LIMIT:
         log(f"  🛑 Daily loss limit reached: {state['daily_losses']}/{DAILY_LOSS_LIMIT} losses")
         return
-    if state.get("daily_loss_amount", 0) >= BANKROLL * DAILY_LOSS_PCT:
-        log(f"  🛑 Daily loss amount limit: ${state['daily_loss_amount']:.2f} >= {BANKROLL * DAILY_LOSS_PCT:.2f}")
+    if state.get("daily_loss_amount", 0) >= state.get("bankroll", BANKROLL) * DAILY_LOSS_PCT:
+        log(f"  🛑 Daily loss amount limit: ${state['daily_loss_amount']:.2f} >= ${state.get('bankroll', BANKROLL) * DAILY_LOSS_PCT:.2f}")
         return
 
     resolved = len([t for t in state.get("trades", []) if t.get("status") in ("resolved", "closed")])
@@ -1080,14 +1080,17 @@ def run_scan():
             save_state(state)
             continue
         elif entry_price > MID_ZONE_LOW and entry_price <= MID_ZONE_HIGH:
-            # Mid-zone — requires high confluence
-            if confluence < MID_ZONE_MIN_CONFLUENCE:
-                log(f"  ❌ Mid-zone rejected: {entry_price*100:.1f}¢ requires confluence ≥{MID_ZONE_MIN_CONFLUENCE:.0f}/10 (have {confluence:.1f})")
-                state["last_scan"] = datetime.now(timezone.utc).isoformat()
-                save_state(state)
-                continue
-            else:
-                log(f"  ✅ Mid-zone allowed: {entry_price*100:.1f}¢ with confluence {confluence:.1f}/10 ≥ {MID_ZONE_MIN_CONFLUENCE:.0f}")
+            # V19.3: Mid-zone BLOCKED — MC shows 68.8% WR, negative PnL even with conf≥8
+            log(f"  ❌ Mid-zone blocked: {entry_price*100:.1f}¢ (MC: 68.8% WR, neg PnL)")
+            state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            continue
+        elif entry_price >= DEAD_ZONE_HIGH:
+            # V19.3: Fair-price (>=50¢) BLOCKED — MC shows 70.3% WR, negative PnL
+            log(f"  ❌ Fair-price blocked: {entry_price*100:.1f}¢ (MC: 70.3% WR, neg PnL)")
+            state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            continue
 
         # V19.2 #3: Straddle filter — don't hold opposite sides of same base market
         market_slug_base = best_market.get("slug", "").replace("-15m", "").replace("-5m", "")
