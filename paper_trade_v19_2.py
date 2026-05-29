@@ -96,12 +96,12 @@ SERIES_CONFIG = [
     # BTC
     {"slug": "btc-up-or-down-15m", "label": "BTC-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "BTC"},
     {"slug": "btc-up-or-down-5m", "label": "BTC-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "BTC"},
-    # ETH
-    {"slug": "ethereum-up-or-down-15m", "label": "ETH-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "ETH"},
-    {"slug": "ethereum-up-or-down-5m", "label": "ETH-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "ETH"},
-    # SOL
-    {"slug": "solana-up-or-down-15m", "label": "SOL-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "SOL"},
-    {"slug": "solana-up-or-down-5m", "label": "SOL-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "SOL"},
+    # ETH (slug is "eth" not "ethereum")
+    {"slug": "eth-up-or-down-15m", "label": "ETH-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "ETH"},
+    {"slug": "eth-up-or-down-5m", "label": "ETH-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "ETH"},
+    # SOL (slug is "sol" not "solana")
+    {"slug": "sol-up-or-down-15m", "label": "SOL-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "SOL"},
+    {"slug": "sol-up-or-down-5m", "label": "SOL-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "SOL"},
     # XRP
     {"slug": "xrp-up-or-down-15m", "label": "XRP-15m", "window_mins": 15, "min_remaining": 5, "max_remaining": 12, "asset": "XRP"},
     {"slug": "xrp-up-or-down-5m", "label": "XRP-5m", "window_mins": 5, "min_remaining": 2, "max_remaining": 4, "asset": "XRP"},
@@ -470,7 +470,10 @@ def fetch_5m_15m_markets():
                     continue
 
                 question = m.get("question", "")
-                if "bitcoin" not in question.lower() and "btc" not in question.lower():
+                # V19.2: Multi-asset — accept all crypto Up/Down markets
+                q_lower = question.lower()
+                asset_keywords = ["bitcoin", "btc", "ethereum", "eth", "solana", "sol", "xrp", "ripple"]
+                if not any(kw in q_lower for kw in asset_keywords):
                     continue
 
                 clob_str = m.get("clobTokenIds", "[]")
