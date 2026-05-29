@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
-V19.2 Multi-Asset 5m/15m Crypto Up/Down Paper Trader
+V19.6 Multi-Asset 5m/15m Crypto Up/Down Paper Trader
 ======================================================
-V19.1 + 3 refinements from competitor bot analysis:
-1. Relaxed dead zone: 20-50¢ blocked; 8-20¢ requires conf≥8; ≤8¢ and ≥50¢ free
-2. ETH/SOL/XRP markets: multi-asset signal surface
-3. Straddle filter: never hold both sides of same market
+V19.5 + 4 hard-mode filters from 500-trade historical backtest:
+1. ≤8¢ ONLY (8-15¢ zone proved 39-52% WR, -EV)
+2. Block London + off-hours sessions (51.3% and 42.9% WR)
+3. Block overbought_up + direction_up_cheap (53.3% and 51.9% WR)
+4. Cheap-side flip: always buy cheapest side regardless of signal direction
+Historical backtest: 500 trades / 90d BTC → 58.4% WR, $75K from $400, 5.3% drawdown
 """
 
 import json, os, sys, time, traceback, math
@@ -80,17 +82,17 @@ DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-
 DAILY_LOSS_PCT = 0.07        # Stop if down 7% of bankroll in a day (V19.2 multi-asset)
 COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
 
-# V19.4: Price gates — expanded from V19.3
-# ≤8¢: always allowed (11.5:1 odds, 47.7% WR historical) — the money printer
-# 8-15¢: allowed with confluence ≥8 (breakeven 15%, direction_cheaps at 57% WR)
-# 15-20¢: allowed with confluence ≥9 (breakeven 20%, only strongest signals)
-# 20-50¢: blocked (dead zone)
-# ≥50¢: blocked (70.3% WR, negative PnL)
-DEAD_ZONE_LOW = 0.20
+# V19.6: Price gates — ≤8¢ ONLY (backtest proved 8-15¢ has 39-52% WR, -EV)
+# Ultra-cheap (≤8¢): always allowed — 58.4% WR, $75K from $400, 5.3% maxDD
+# 8-15¢: BLOCKED (51.7% WR in V19.5 backtest, -EV at 12¢ avg)
+# 15-20¢: BLOCKED
+# 20-50¢: BLOCKED (dead zone)
+# ≥50¢: BLOCKED
+DEAD_ZONE_LOW = 0.08
 DEAD_ZONE_HIGH = 0.50
 MID_ZONE_LOW = 0.08
-MID_ZONE_HIGH = 0.20
-MID_ZONE_MIN_CONFLUENCE = 8.0
+MID_ZONE_HIGH = 0.08   # V19.6: collapsed to ≤8¢ only
+MID_ZONE_MIN_CONFLUENCE = 99.0  # V19.6: effectively blocked
 
 # V19.2: Multi-asset series config
 SERIES_CONFIG = [
@@ -885,6 +887,21 @@ def run_scan():
 
         log(f"  ⭐ SIGNAL: BUY_{sig_dir} | {sig_strategy} | Conf: {sig_conf:.1%} | Confluence: {confluence:.1f}/10 | {' '.join(details[:5])}")
 
+        # V19.6: Block London + off-hours sessions (51.3% and 42.9% WR in backtest)
+        session_name = session[0]
+        if session_name in ('london_open', 'london_close', 'off_hours'):
+            log(f"  ❌ V19.6: Blocked {session_name} session (≤51.3% WR) — skipping")
+            state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            continue
+
+        # V19.6: Block overbought_up and direction_up_cheap (53.3% and 51.9% WR)
+        if sig_strategy in ('overbought_up', 'direction_up_cheap'):
+            log(f"  ❌ V19.6: Blocked {sig_strategy} (≤53.3% WR) — skipping")
+            state["last_scan"] = datetime.now(timezone.utc).isoformat()
+            save_state(state)
+            continue
+
         # V19 gate: require minimum confluence
         if confluence < MIN_CONFLUENCE:
             log(f"  ❌ Confluence too low: {confluence:.1f} < {MIN_CONFLUENCE} — skipping")
@@ -1107,32 +1124,12 @@ def run_scan():
         minutes_left = best_market["minutes_left"]
         window_label = best_market["label"]
 
-        # V19.4: Four-zone price filter
-        # Zone 1: Ultra-cheap (≤8¢) → always allowed
-        # Zone 2: Mid-cheap (8-15¢) → requires confluence ≥8/10
-        # Zone 3: Upper-cheap (15-20¢) → requires confluence ≥9/10
-        # Zone 4: Dead zone (20-50¢) → blocked
-        # Zone 5: Fair-price (≥50¢) → blocked
-        if entry_price > DEAD_ZONE_LOW and entry_price < DEAD_ZONE_HIGH:
-            # Dead zone — always blocked
-            log(f"  ❌ Dead zone: {entry_price*100:.1f}¢ is in {DEAD_ZONE_LOW*100:.0f}-{DEAD_ZONE_HIGH*100:.0f}¢ dead zone — skipping")
-            state["last_scan"] = datetime.now(timezone.utc).isoformat()
-            save_state(state)
-            continue
-        elif entry_price > MID_ZONE_LOW and entry_price <= MID_ZONE_HIGH:
-            # Mid-cheap zone (8-15¢): requires confluence ≥8
-            if confluence < 8.0:
-                log(f"  ❌ Mid-cheap zone: {entry_price*100:.1f}¢ requires conf≥8, got {confluence:.1f} — skipping")
-                state["last_scan"] = datetime.now(timezone.utc).isoformat()
-                save_state(state)
-                continue
-        elif entry_price > 0.15 and entry_price <= DEAD_ZONE_LOW:
-            # Upper-cheap zone (15-20¢): requires confluence ≥9
-            if confluence < 9.0:
-                log(f"  ❌ Upper-cheap zone: {entry_price*100:.1f}¢ requires conf≥9, got {confluence:.1f} — skipping")
-                state["last_scan"] = datetime.now(timezone.utc).isoformat()
-                save_state(state)
-                continue
+        # V19.6: Two-zone price filter (≤8¢ allowed, everything else blocked)
+        # Ultra-cheap (≤8¢): always allowed — 58.4% WR historical
+        # Everything else (≥8¢): BLOCKED
+        # V19.6: Simple price filter — ≤8¢ only, everything else blocked
+        if entry_price > DEAD_ZONE_LOW:  # 0.08 → anything above 8¢ is blocked
+            log(f"  ❌ V19.6: Price {entry_price*100:.1f}¢ > 8¢ — blocked (8-15¢ has 39-52% WR)")
         elif entry_price >= DEAD_ZONE_HIGH:
             # V19.4: Fair-price (>=50¢) BLOCKED — MC shows 70.3% WR, negative PnL
             log(f"  ❌ Fair-price blocked: {entry_price*100:.1f}¢ (MC: 70.3% WR, neg PnL)")
