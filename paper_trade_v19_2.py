@@ -74,11 +74,12 @@ def fetch_candles_multi(asset: str, interval: str = '5m', limit: int = 100):
 BANKROLL = 320.0
 MAX_OPEN_POSITIONS = 3
 MAX_SAME_DIRECTION = 2          # Max 2 positions in same direction (correlation limit)
-POSITION_SIZE_PCT = 0.03
-MAX_POSITION_PCT = 0.08
+POSITION_SIZE_PCT = 0.03        # 3% base = $9.60/bet at $320
+MAX_POSITION_PCT = 0.06         # 6% max = $19.20 at $320 (conservative start)
+MIN_BET = 1.0                   # $1 minimum (was $0.50)
 MIN_CONFIDENCE_FAIR_PRICE = 0.70
-MIN_CONFLUENCE = 8           # V19.7: raised from 7→8 (backtest: conf≥8 = 58.7% WR vs conf≥7 = 55.5%)
-DAILY_LOSS_LIMIT = 3         # Stop after 3 losses in a day (Krajekis: 2-4 rule-based losses)
+MIN_CONFLUENCE = 8              # V19.7: raised from 7→8 (backtest: conf≥8 = 58.7% WR vs conf≥7 = 55.5%)
+DAILY_LOSS_LIMIT = 3            # Stop after 3 losses in a day
 DAILY_LOSS_PCT = 0.07        # Stop if down 7% of bankroll in a day (V19.2 multi-asset)
 COOLDOWN_MINS = 15           # Re-entry cooldown after stop-loss (minutes)
 
@@ -118,16 +119,17 @@ TRAILING_ACTIVATE_MINS = 2.0
 TIME_DECAY_SELL_MINS = 1.0
 TIME_DECAY_MIN_PRICE = 0.03
 
-# Tiers
+# Tiers — V19.7: ALL entries ≤8¢. Cheap-side flip only.
+# Backtest proves: >8¢ has 43.5% WR (unprofitable). ≤8¢ has 66% WR (profitable).
 TIER_CONFIG = {
-    "severe_oversold":    {"size": 0.10, "max_price": 0.30},
-    "severe_overbought":  {"size": 0.10, "max_price": 0.30},
-    "oversold_down":      {"size": 0.06, "max_price": 0.15},
-    "overbought_up":      {"size": 0.06, "max_price": 0.15},
-    "direction_down_cheap": {"size": 0.03, "max_price": 0.08},
-    "direction_up_cheap":   {"size": 0.03, "max_price": 0.08},
-    "confluence_down":      {"size": 0.04, "max_price": 0.30},
-    "confluence_up":        {"size": 0.04, "max_price": 0.30},
+    "severe_oversold":    {"size": 0.10, "max_price": 0.08},   # ≤8¢ only
+    "severe_overbought":  {"size": 0.10, "max_price": 0.08},   # ≤8¢ only
+    "oversold_down":      {"size": 0.06, "max_price": 0.08},    # ≤8¢ only
+    "overbought_up":      {"size": 0.06, "max_price": 0.08},    # ≤8¢ only
+    "direction_down_cheap": {"size": 0.04, "max_price": 0.08},   # ≤8¢ only
+    "direction_up_cheap":   {"size": 0.04, "max_price": 0.08},   # ≤8¢ only
+    "confluence_down":      {"size": 0.04, "max_price": 0.08},   # ≤8¢ only
+    "confluence_up":        {"size": 0.04, "max_price": 0.08},   # ≤8¢ only
 }
 
 
@@ -248,7 +250,8 @@ def classify_volatility(atr, price):
         return "high_vol", 0.20
 
 
-def compute_confluence(rsi, direction, regime, ema21, ema50, vwap, price, macd_hist, session, atr_vol, signal_dir):
+def compute_confluence(rsi, direction, regime, ema21, ema50, vwap, price, macd_hist, session, atr_vol, signal_dir,
+                      rsi_15m=None, rsi_1h=None, candle_body_bullish=False):
     """
     Krajekis confluence scoring (0-10).
     Each factor contributes 0-1 points:
@@ -260,13 +263,13 @@ def compute_confluence(rsi, direction, regime, ema21, ema50, vwap, price, macd_h
     6. Session quality: NY=1.0, London=0.8, Asia=0.7, off=0.5
     7. ATR vol regime: appropriate entry price for vol level
     8. Trend consistency: regime matches signal direction
-    9. RSI divergence: momentum divergence with signal
-    10. Price structure: trading above/below key levels
+    9. RSI divergence / multi-TF alignment (replaces divergence)
+    10. Price structure + candle body: trading above/below key levels + candle confirmation
     """
     score = 0.0
     details = []
 
-    # 1. RSI extreme or zone (1 point) — V19.1: stricter RSI thresholds
+    # 1. RSI extreme or zone (1 point) — V19.7: sweet spots for oversold
     if signal_dir == "DOWN" and rsi < 25:
         score += 1.0
         details.append("RSI<25")
@@ -366,22 +369,50 @@ def compute_confluence(rsi, direction, regime, ema21, ema50, vwap, price, macd_h
     else:
         details.append("Trend_against")
 
-    # 9. RSI divergence (1 point - simplified)
-    # Price making new low but RSI not = bullish divergence (good for UP signal)
-    # Price making new high but RSI not = bearish divergence (good for DOWN signal)
-    score += 0.5  # Neutral default (divergence calculation needs more history)
-    details.append("NoDiv")
+    # 9. V19.7: Multi-TF RSI alignment (replaces generic divergence)
+    mtf_score = 0.0
+    if rsi_15m is not None:
+        if signal_dir == "DOWN" and rsi_15m < 40:
+            mtf_score += 0.5
+            details.append("RSI15m_align")
+        elif signal_dir == "UP" and rsi_15m > 60:
+            mtf_score += 0.5
+            details.append("RSI15m_align")
+        if rsi_1h is not None:
+            if signal_dir == "DOWN" and rsi_1h < 45:
+                mtf_score += 0.5
+                details.append("RSI1h_align")
+            elif signal_dir == "UP" and rsi_1h > 55:
+                mtf_score += 0.5
+                details.append("RSI1h_align")
+    if mtf_score == 0:
+        mtf_score = 0.3  # Neutral if no multi-TF data
+        details.append("NoMTF")
+    score += mtf_score
 
-    # 10. Price structure (1 point)
+    # 10. V19.7: Price structure + candle body confirmation
+    structure_score = 0.0
     if signal_dir == "UP" and price > ema21:
-        score += 1.0
+        structure_score += 0.7
         details.append("Above_EMA21")
     elif signal_dir == "DOWN" and price < ema21:
-        score += 1.0
+        structure_score += 0.7
         details.append("Below_EMA21")
     else:
-        score += 0.3
+        structure_score += 0.3
         details.append("Price_mixed")
+
+    # V19.7: Candle-body confirmation (for cheap-side direction)
+    # When we buy the CHEAP SIDE, we buy the OPPOSITE of signal direction.
+    # If signal = DOWN, we buy cheap UP. Bullish candlebody supports UP = good.
+    # If signal = UP, we buy cheap DOWN. Bearish candlebody supports DOWN = good.
+    if candle_body_bullish:
+        structure_score += 0.3
+        details.append("Candle_conf")
+    else:
+        details.append("NoCandle_conf")
+
+    score += min(1.0, structure_score)
 
     return min(10.0, score), details
 
@@ -814,6 +845,32 @@ def run_scan():
         session = get_session(datetime.now(timezone.utc).hour)
         vol_regime, vol_max_price = classify_volatility(atr, prices[-1])
 
+        # V19.7: Multi-TF RSI (15m and 1h alignment)
+        rsi_15m = None
+        rsi_1h = None
+        try:
+            # 15m RSI: use every 3rd candle (5m * 3 = 15m)
+            prices_15m = prices[::3]
+            if len(prices_15m) >= 15:
+                rsi_15m = compute_rsi(prices_15m[-15:])
+            # 1h RSI: use every 12th candle (5m * 12 = 60m)
+            prices_1h = prices[::12]
+            if len(prices_1h) >= 15:
+                rsi_1h = compute_rsi(prices_1h[-15:])
+        except Exception:
+            pass
+
+        # V19.7: Candle-body confirmation
+        # Last candle: bullish if close > open (supports UP side)
+        candle_body_bullish = False
+        if len(candles) >= 2:
+            last_candle = candles[-1]
+            c_open = last_candle.get('open', last_candle['close'])
+            c_close = last_candle['close']
+            body_pct = abs(c_close - c_open) / c_open if c_open > 0 else 0
+            if body_pct > 0.001:  # Minimum 0.1% body to count
+                candle_body_bullish = c_close > c_open
+
         # RSI zone label
         if current_rsi < 25:
             zone = "SEVERE_OVERSOLD"
@@ -852,7 +909,8 @@ def run_scan():
             for trial_dir in ['UP', 'DOWN']:
                 conf, _ = compute_confluence(
                     current_rsi, implied_dir, regime, ema21, ema50, vwap, prices[-1],
-                    macd_hist, session, (vol_regime, vol_max_price), trial_dir
+                    macd_hist, session, (vol_regime, vol_max_price), trial_dir,
+                    rsi_15m=rsi_15m, rsi_1h=rsi_1h, candle_body_bullish=candle_body_bullish
                 )
                 if conf > best_conf and conf >= 7.0:
                     best_conf = conf
@@ -882,7 +940,8 @@ def run_scan():
 
         confluence, details = compute_confluence(
             current_rsi, direction, regime, ema21, ema50, vwap, prices[-1],
-            macd_hist, session, (vol_regime, vol_max_price), sig_dir
+            macd_hist, session, (vol_regime, vol_max_price), sig_dir,
+            rsi_15m=rsi_15m, rsi_1h=rsi_1h, candle_body_bullish=candle_body_bullish
         )
 
         log(f"  ⭐ SIGNAL: BUY_{sig_dir} | {sig_strategy} | Conf: {sig_conf:.1%} | Confluence: {confluence:.1f}/10 | {' '.join(details[:5])}")
@@ -890,15 +949,16 @@ def run_scan():
         # V19.7: Block London, off-hours, and Asia sessions (50-51% WR in backtest)
         # NY only: 59.6% WR, NY afternoon: 54.9% WR
         session_name = session[0]
-        if session_name in ('london_open', 'london_close', 'off_hours', 'asia'):
-            log(f"  ❌ V19.7: Blocked {session_name} session (≤54% WR) — skipping")
+        if session_name in ('london_open', 'london_close', 'off_hours', 'asia', 'london'):
+            log(f"  ❌ V19.7: Blocked {session_name} session — skipping")
             state["last_scan"] = datetime.now(timezone.utc).isoformat()
             save_state(state)
             continue
 
-        # V19.6: Block overbought_up and direction_up_cheap (53.3% and 51.9% WR)
-        if sig_strategy in ('overbought_up', 'direction_up_cheap'):
-            log(f"  ❌ V19.6: Blocked {sig_strategy} (≤53.3% WR) — skipping")
+        # V19.7: Block direction_up_cheap only (51.9% WR)
+        # overbought_up allowed at ≤8¢ (56.4% WR, profitable at 14:1 odds)
+        if sig_strategy == 'direction_up_cheap':
+            log(f"  ❌ V19.7: Blocked {sig_strategy} (51.9% WR) — skipping")
             state["last_scan"] = datetime.now(timezone.utc).isoformat()
             save_state(state)
             continue
