@@ -852,11 +852,13 @@ def run_scan():
             # 15m RSI: use every 3rd candle (5m * 3 = 15m)
             prices_15m = prices[::3]
             if len(prices_15m) >= 15:
-                rsi_15m = compute_rsi(prices_15m[-15:])
+                rsi_15m_arr = compute_rsi(prices_15m[-15:])
+                rsi_15m = float(rsi_15m_arr[-1]) if hasattr(rsi_15m_arr, '__len__') else float(rsi_15m_arr)
             # 1h RSI: use every 12th candle (5m * 12 = 60m)
             prices_1h = prices[::12]
             if len(prices_1h) >= 15:
-                rsi_1h = compute_rsi(prices_1h[-15:])
+                rsi_1h_arr = compute_rsi(prices_1h[-15:])
+                rsi_1h = float(rsi_1h_arr[-1]) if hasattr(rsi_1h_arr, '__len__') else float(rsi_1h_arr)
         except Exception:
             pass
 
@@ -865,8 +867,8 @@ def run_scan():
         candle_body_bullish = False
         if len(candles) >= 2:
             last_candle = candles[-1]
-            c_open = last_candle.get('open', last_candle['close'])
-            c_close = last_candle['close']
+            c_open = float(last_candle.get('open', last_candle['close']))
+            c_close = float(last_candle['close'])
             body_pct = abs(c_close - c_open) / c_open if c_open > 0 else 0
             if body_pct > 0.001:  # Minimum 0.1% body to count
                 candle_body_bullish = c_close > c_open
@@ -1358,7 +1360,9 @@ def main_loop():
             run_scan()
         except Exception as e:
             log(f"❌ Error: {e}")
-            traceback.print_exc(file=sys.stderr)
+            import traceback as tb
+            tb_str = tb.format_exc()
+            log(f"   Traceback: {tb_str[:300]}")
 
         time.sleep(SCAN_SECONDS)
 
