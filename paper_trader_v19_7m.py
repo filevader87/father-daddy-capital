@@ -499,6 +499,7 @@ def init_profile_state(profile_key):
         # ── Book metrics (V19.7m expanded) ──
         "book_checks_attempted": 0,
         "book_checks_successful": 0,
+        "book_checks_executable": 0,
         "book_missing": 0,
         "book_stale": 0,
         "book_dormant": 0,
@@ -559,6 +560,27 @@ def check_signal_allowed(zone, direction, profile_cfg):
     return zone in allowed_zones
 
 
+def extract_price(p):
+    """V19.7m: Central price normalization.
+    
+    Handles float, int, and dict price objects from different data feeds.
+    Returns float. Raises TypeError/ValueError for invalid inputs.
+    """
+    if isinstance(p, (int, float)):
+        return float(p)
+    if isinstance(p, dict):
+        val = p.get("close") or p.get("price") or p.get("value")
+        if val is None:
+            raise ValueError(f"Missing price field in dict: {list(p.keys())}")
+        return float(val)
+    raise TypeError(f"Unsupported price object: {type(p)}")
+
+
+def normalize_prices(prices):
+    """Normalize a list of price objects to floats using extract_price()."""
+    return [extract_price(p) for p in prices]
+
+
 def validate_pnl(pos, resolved_winner):
     """Validate PnL calculation against resolution. Returns (pnl, is_valid, error_msg)."""
     entry_price = pos.get("entry_price", 0)
@@ -615,10 +637,10 @@ def run_paper_cycle():
         if all_prices[ak] and len(all_prices[ak]) >= 20:
             sig = eng.btc_signal(all_prices[ak])
             # V19.7m: Enrich signal with PBot research fields
-            # RSI slope: compare current RSI to 3-candles-ago RSI
-            prices_list = all_prices[ak]
-            if len(prices_list) >= 26:
-                # Inline RSI computation (matches engine's _rsi_fast)
+            # Normalize price list (handles float and dict feeds)
+            closes_now = normalize_prices(all_prices[ak])
+            if len(closes_now) >= 26:
+                # Inline RSI computation for slope
                 def _compute_rsi(closes, period=14):
                     gains = losses = 0
                     for i in range(1, min(period+1, len(closes))):
@@ -630,7 +652,6 @@ def run_paper_cycle():
                     rs = avg_gain / avg_loss
                     return 100 - (100 / (1 + rs))
                 
-                closes_now = [p.get("close", p.get("price", 0)) for p in prices_list]
                 closes_prev = closes_now[:-3] if len(closes_now) > 26 else closes_now
                 rsi_now = sig.get("rsi", 50)
                 try:
@@ -638,16 +659,15 @@ def run_paper_cycle():
                 except:
                     rsi_prev = rsi_now
                 sig["rsi_slope"] = rsi_now - rsi_prev
-                # VWAP distance: simple moving average approximation
+                # SMA20 distance (not VWAP — no volume data available)
                 recent = closes_now[-20:]
-                vwap = sum(recent) / len(recent) if recent else 0
+                sma20 = sum(recent) / len(recent) if recent else 0
                 current_price = recent[-1] if recent else 0
-                sig["vwap_distance"] = (current_price - vwap) / vwap if vwap else 0
-                # Volume spike: compare last volume to 10-period avg
-                vols = [p.get("volume", 0) for p in prices_list[-10:]]
-                vol_now = vols[-1] if vols else 0
-                vol_avg = sum(vols) / len(vols) if vols else 1
-                sig["volume_spike"] = vol_now > vol_avg * 2 if vol_avg > 0 else False
+                sig["sma20_distance"] = (current_price - sma20) / sma20 if sma20 else 0
+                sig.pop("vwap_distance", None)  # Remove old field
+                # Volume: explicitly unavailable from float feeds
+                sig["volume_available"] = False
+                sig["volume_spike"] = None  # Not False — None means unavailable
                 # Candle velocity: price change over last 3 candles
                 if len(recent) >= 4:
                     sig["candle_velocity"] = recent[-1] - recent[-4]
@@ -738,13 +758,13 @@ def run_paper_cycle():
                         cycle_blocked["pbot_no_exhaustion"] += 1
                         state["signal_gate_reject"] += 1
                         continue
-                # PBOT_VWAP_REVERSION: require price stretched from VWAP
+                # PBOT_VWAP_REVERSION: require price stretched from SMA20
                 elif profile_key == "PBOT_VWAP_REVERSION":
-                    vwap_dist = sig.get("vwap_distance", 0)
-                    if abs(vwap_dist) < 0.005:
-                        # Price near VWAP = no reversion opportunity
+                    sma20_dist = sig.get("sma20_distance", 0)
+                    if abs(sma20_dist) < 0.005:
+                        # Price near SMA20 = no reversion opportunity
                         is_valid_signal = False
-                        cycle_blocked["pbot_no_vwap_stretch"] += 1
+                        cycle_blocked["pbot_no_sma20_stretch"] += 1
                         state["signal_gate_reject"] += 1
                         continue
                 # PBOT_LATE_WINDOW: require market near expiry (<3 min)
@@ -759,8 +779,14 @@ def run_paper_cycle():
                         cycle_blocked["pbot_not_late_window"] += 1
                         state["signal_gate_reject"] += 1
                         continue
-                # PBOT_PARABOLIC_UP: require volume spike
+                # PBOT_PARABOLIC_UP: require volume spike, explicitly handle unavailable volume
                 elif profile_key == "PBOT_PARABOLIC_UP" and direction == "up":
+                    if not sig.get("volume_available", False):
+                        # No volume data — cannot confirm, block with explicit reason
+                        is_valid_signal = False
+                        cycle_blocked["pbot_missing_volume_confirmation"] += 1
+                        state["signal_gate_reject"] += 1
+                        continue
                     vol_spike = sig.get("volume_spike", False)
                     if not vol_spike:
                         is_valid_signal = False
@@ -894,6 +920,8 @@ def run_paper_cycle():
                     fill_price = book["best_ask"]
                     book_available = True
                     estimated_slippage = book.get("spread", 0)
+                    # V19.7m: Count as executable if it also passes spread/depth/price/EV gates downstream
+                    # We'll count actual executable after all gates pass, but mark successful here
                 else:
                     fill_price = token_price
                     book_available = False
@@ -983,6 +1011,7 @@ def run_paper_cycle():
                 cycle_entries.append({k: v for k, v in pos.items() if k != "status" or True})
                 state["valid_opportunities"] += 1
                 state["executable_opportunities"] += 1
+                state["book_checks_executable"] += 1
                 state["paper_trades_opened"] += 1
                 state["entry_prices"].append(fill_price)
                 if spread:
@@ -1000,9 +1029,9 @@ def run_paper_cycle():
                             "direction": direction,
                             "rsi": rsi,
                             "rsi_slope": sig.get("rsi_slope", 0),
-                            "vwap_distance": sig.get("vwap_distance", 0),
+                            "sma20_distance": sig.get("sma20_distance", 0),
                             "candle_velocity": sig.get("candle_velocity", 0),
-                            "volume_spike": sig.get("volume_spike", False),
+                            "volume_spike": sig.get("volume_spike"),  # None=unavailable, False=no spike, True=spike
                             "token_side": token_side,
                             "bid": book.get("best_bid", 0) if book else 0,
                             "ask": book.get("best_ask", 0) if book else 0,
@@ -1233,10 +1262,14 @@ def run_paper_cycle():
 
     # ── Book metrics ──
     print(f"\n  ── BOOK METRICS (CORE_UP) ──")
-    print(f"  Attempted: {core.get('book_checks_attempted',0)} | Successful: {core.get('book_checks_successful',0)} | Missing: {core.get('book_checks_missing',0)} | Stale: {core.get('book_checks_stale',0)}")
+    print(f"  Book: attempted={core.get('book_checks_attempted',0)} successful={core.get('book_checks_successful',0)} executable={core.get('book_checks_executable',0)} missing={core.get('book_missing',0)} stale={core.get('book_stale',0)} dormant={core.get('book_dormant',0)}")
+    print(f"  Gates: price_reject={core.get('price_gate_reject',0)} spread_reject={core.get('spread_reject',0)} EV_reject={core.get('EV_gate_reject',0)} signal_reject={core.get('signal_gate_reject',0)}")
     print(f"  Skipped (no signal): {core.get('book_checks_skipped_no_signal',0)} | Skipped (no market): {core.get('book_checks_skipped_no_market',0)}")
-    missing_rate = core.get('book_checks_missing', 0) / max(core.get('book_checks_attempted', 1), 1) * 100
-    stale_rate = core.get('book_checks_stale', 0) / max(core.get('book_checks_attempted', 1), 1) * 100
+    missing_rate = core.get('book_missing', 0) / max(core.get('book_checks_attempted', 1), 1) * 100
+    stale_rate = core.get('book_stale', 0) / max(core.get('book_checks_attempted', 1), 1) * 100
+    dormant_rate = core.get('book_dormant', 0) / max(core.get('book_checks_attempted', 1), 1) * 100
+    exec_rate = core.get('book_checks_executable', 0) / max(core.get('book_checks_attempted', 1), 1) * 100
+    print(f"  Rates: missing={missing_rate:.1f}% stale={stale_rate:.1f}% dormant={dormant_rate:.1f}% executable={exec_rate:.1f}%")
     print(f"  Missing rate: {missing_rate:.1f}% | Stale rate: {stale_rate:.1f}%")
 
     # ── Streaks ──
