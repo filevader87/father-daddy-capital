@@ -167,8 +167,11 @@ SWEET_SPOT_MAX = 0.15   # Above 15¢: not cheap-side
 MIN_EDGE = 0.05
 MAX_OPEN_POSITIONS = 2  # V19.7: HARD LIMIT — 2 concurrent (was 3, reduced for correlation risk)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# GUARDS — V18 Tuned (were 100% disabled in V3, now partially enabled)
+# V19.7e: Signal shadow mode — quarantine weak zones until live/backtest validated
+# RSI 55-70 DOWN: shadow mode only (MC 51% WR — not validated)
+# RSI 70-82 DOWN: enabled but requires stronger confirmation (MC 52% — borderline)
+DOWN_SHADOW_MODE = True  # When True, RSI 55-70 DOWN signals are logged but NOT traded
+DOWN_STRONG_CONFIRM = True  # When True, RSI 70-82 DOWN requires 2+ contra confirmations
 # ══════════════════════════════════════════════════════════════════════════════
 # V3 problem: BEAR_SKIP=False, TREND_GUARD=False → entered every bad trade
 # V18 fix: Enable guards BUT reduce overlap to avoid blocking all entries
@@ -747,21 +750,37 @@ def btc_signal(prices):
         else:
             d,c = "neutral", 0.0
     elif rsi < 55:
-        # RSI 35-55 = DEAD ZONE (V18.3b: 33% WR on mid-zone)
+        # RSI 35-55: DEAD ZONE (V18.3b: 33% WR on mid-zone)
         d,c = "neutral", 0.0
     elif rsi < 70:
         # RSI 55-70: Moderate overbought → DOWN with confirmations
-        # Cheap DOWN tokens (15-35¢), mean reversion play
+        # V19.7e: SHADOW MODE — quarantine until live/backtest validated
+        # MC shows 51% WR, not enough edge to trade live
         if contra_confs >= 2:
-            d,c = "down", min(MAX_CONFIDENCE, 0.85 + (rsi-55)/150 + (0.05 if rsi >= 65 else 0))
+            d = "down"
+            conf = min(MAX_CONFIDENCE, 0.85 + (rsi-55)/150)
+            if DOWN_SHADOW_MODE:
+                # Shadow: log but don't trade (confidence below MIN_CONFIDENCE)
+                conf = min(conf, MIN_CONFIDENCE - 0.01)  # Just below threshold
         elif contra_confs == 1:
-            d,c = "down", min(0.85, 0.82 + (rsi-55)/200)
+            d = "down"
+            conf = min(0.85, 0.82 + (rsi-55)/200)
+            if DOWN_SHADOW_MODE:
+                conf = min(conf, MIN_CONFIDENCE - 0.01)
         else:
             d,c = "neutral", 0.0
     elif rsi < 82:
-        # RSI 70-82: Strong overbought → DOWN (cheap side 5-15¢)
+        # RSI 70-82: Strong overbought → DOWN (cheap 5-15¢ tokens)
         # @bonereaper: Down tokens at 8-15¢ = 488% ROI when RSI overbought
-        d,c = "down", min(MAX_CONFIDENCE, 0.88 + (rsi-70)/80 + (0.03 if contra_confs >= 2 else 0))
+        # V19.7e: Requires 2+ contra confirmations when DOWN_STRONG_CONFIRM is on
+        base_conf = min(MAX_CONFIDENCE, 0.88 + (rsi-70)/80 + (0.03 if contra_confs >= 2 else 0))
+        if DOWN_STRONG_CONFIRM and contra_confs < 2:
+            # Not enough confirmation → shadow mode
+            d = "down"
+            conf = min(base_conf, MIN_CONFIDENCE - 0.01)
+        else:
+            d = "down"
+            conf = base_conf
     else:
         # RSI > 82: Parabolic — BLOCKED (no reversal signal yet)
         d,c = "neutral", 0.0
@@ -1109,10 +1128,22 @@ def detect_asset(question):
 is_btc_market = is_valid_market
 
 def extract_time_window(question):
+    """Extract time window from market question.
+    
+    Supports:
+    - "3:25PM-3:30PM ET" (explicit time range)
+    - "5min" / "15min" / "5 min" / "15 min" (duration format)
+    - "3:25PM ET" (single time)
+    """
+    # Format 1: Time range "3:25PM-3:30PM ET"
     m=re.search(r'(\d{1,2}:\d{2}(AM|PM)\s*-\s*\d{1,2}:\d{2}(AM|PM)\s*(ET|UTC))',question,re.I)
     if m: return m.group(1).replace(" ","")
+    # Format 2: Single time "3:25PM ET"
     m=re.search(r'(\d{1,2}(AM|PM)\s*(ET|UTC))',question,re.I)
     if m: return m.group(1).replace(" ","")
+    # Format 3: Duration "5min" / "15min" / "5 min" / "1 hour"
+    m=re.search(r'(\d+\s*(?:min|minute|hour))',question,re.I)
+    if m: return m.group(1).strip().lower().replace(" ", "")
     return None
 
 def parse_end_time(end_date,window):
@@ -2052,21 +2083,33 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
                 direction = "neutral"; conf = 0.0
             elif rsi < 70:
                 # RSI 55-70: Moderate overbought → DOWN with confirmations
-                # Cheap DOWN tokens (15-35¢), mean reversion play
+                # V19.7e: SHADOW MODE — 51% MC WR, quarantine until validated
                 contra_confs = random.choices([0, 1, 2], weights=[0.3, 0.4, 0.3])[0]
                 if contra_confs >= 2:
                     direction = "down"
                     conf = min(MAX_CONFIDENCE, 0.85 + (rsi - 55) / 150)
+                    if HARD_MODE:  # Shadow: reduce confidence below threshold
+                        conf = min(conf, MIN_CONFIDENCE - 0.01)
                 elif contra_confs == 1:
                     direction = "down"
                     conf = min(0.85, 0.82 + (rsi - 55) / 200)
+                    if HARD_MODE:
+                        conf = min(conf, MIN_CONFIDENCE - 0.01)
                 else:
                     direction = "neutral"; conf = 0.0
             elif rsi < 82:
                 # RSI 70-82: Strong overbought → DOWN (cheap 5-15¢ tokens)
                 # @bonereaper: Down tokens at 8-15¢ = 488% ROI when RSI overbought
-                direction = "down"
-                conf = min(MAX_CONFIDENCE, 0.88 + (rsi - 70) / 80)
+                # V19.7e: Requires 2+ confirmations when DOWN_STRONG_CONFIRM
+                base_conf = min(MAX_CONFIDENCE, 0.88 + (rsi - 70) / 80)
+                # MC generates 0-2 confirmations for strong overbought
+                mc_contra = random.choices([0, 1, 2], weights=[0.2, 0.3, 0.5])[0]
+                if DOWN_STRONG_CONFIRM and mc_contra < 2:
+                    direction = "down"
+                    conf = min(base_conf, MIN_CONFIDENCE - 0.01)
+                else:
+                    direction = "down"
+                    conf = base_conf
             else:
                 # RSI > 82: Parabolic — BLOCKED (no reversal signal yet)
                 direction = "neutral"; conf = 0.0
