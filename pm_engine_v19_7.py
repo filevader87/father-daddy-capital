@@ -1445,6 +1445,7 @@ def discover_contracts(asset_key=None):
 
                         contracts.append({
                             "question": question, "conditionId": cid,
+                            "clobTokenIds": m.get("clobTokenIds", ""),
                             "up_price": float(prices[up_i]),
                             "down_price": float(prices[down_i]),
                             "volume": vol,
@@ -1512,6 +1513,7 @@ def discover_contracts(asset_key=None):
                         up_i2, down_i2 = (1, 0)
                 contracts.append({
                     "question": q2, "conditionId": cid2,
+                    "clobTokenIds": m.get("clobTokenIds", ""),
                     "up_price": float(prices2[up_i2]),
                     "down_price": float(prices2[down_i2]),
                     "volume": vol2,
