@@ -215,3 +215,4 @@ discovery_debug/
 dry_run/
 shadow_validation/
 *.jsonl
+pbot_research.jsonl

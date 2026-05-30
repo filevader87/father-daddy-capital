@@ -163,15 +163,17 @@ def slug_provider(asset_key="BTC", interval="5m", look_ahead=3):
     
     timestamps = compute_window_timestamps(interval_min, look_ahead)
     markets = []
-    raw_count = 0
+    queries_attempted = 0
+    raw_events_returned = 0
     
     for ts in timestamps:
         slug = f"{prefix}-updown-{slug_interval}-{ts}"
         url = f"{GAMMA}/events?slug={slug}"
         data = _get(url)
+        queries_attempted += 1
         if data is None:
             continue
-        raw_count += 1
+        raw_events_returned += 1
         
         if isinstance(data, list) and len(data) > 0:
             event = data[0]
@@ -185,7 +187,8 @@ def slug_provider(asset_key="BTC", interval="5m", look_ahead=3):
     return {
         "provider": "SlugProvider",
         "markets": markets,
-        "raw_count": raw_count,
+        "raw_count": raw_events_returned,
+        "queries_attempted": queries_attempted,
         "deduped_count": len(markets),
     }
 
@@ -201,10 +204,12 @@ def gamma_events_provider(max_pages=3, page_size=100):
     """
     markets = []
     raw_count = 0
+    queries_attempted = 0
     
     for offset in range(0, max_pages * page_size, page_size):
         url = f"{GAMMA}/events?active=true&closed=false&limit={page_size}&offset={offset}&order=volume&ascending=false"
         data = _get(url)
+        queries_attempted += 1
         if data is None or not isinstance(data, list) or len(data) == 0:
             break
         raw_count += len(data)
@@ -221,6 +226,7 @@ def gamma_events_provider(max_pages=3, page_size=100):
         "provider": "GammaEventsProvider",
         "markets": markets,
         "raw_count": raw_count,
+        "queries_attempted": queries_attempted,
         "deduped_count": len(markets),
     }
 
@@ -237,10 +243,12 @@ def gamma_markets_provider(max_pages=3, page_size=500):
     markets = []
     raw_count = 0
     seen = set()
+    queries_attempted = 0
     
     for offset in range(0, max_pages * page_size, page_size):
         url = f"{GAMMA}/markets?active=true&closed=false&limit={page_size}&offset={offset}&order=volume&ascending=false"
         data = _get(url)
+        queries_attempted += 1
         if data is None or not isinstance(data, list) or len(data) == 0:
             break
         raw_count += len(data)
@@ -258,6 +266,7 @@ def gamma_markets_provider(max_pages=3, page_size=500):
         "provider": "GammaMarketsProvider",
         "markets": markets,
         "raw_count": raw_count,
+        "queries_attempted": queries_attempted,
         "deduped_count": len(markets),
     }
 
@@ -276,11 +285,13 @@ def tag_explorer(tag_ids=None, max_pages=2):
     
     markets = []
     raw_count = 0
+    queries_attempted = 0
     
     for tag_id in tag_ids:
         for offset in range(0, max_pages * 100, 100):
             url = f"{GAMMA}/events?tag_id={tag_id}&active=true&closed=false&limit=100&offset={offset}"
             data = _get(url)
+            queries_attempted += 1
             if data is None or not isinstance(data, list) or len(data) == 0:
                 break
             raw_count += len(data)
@@ -297,6 +308,7 @@ def tag_explorer(tag_ids=None, max_pages=2):
         "provider": "TagExplorer",
         "markets": markets,
         "raw_count": raw_count,
+        "queries_attempted": queries_attempted,
         "deduped_count": len(markets),
     }
 
@@ -797,13 +809,22 @@ def save_discovery_report(results, cycle_num=None):
         for m in results["future"]
     ]
     
-    # Per-provider details
+    # Per-provider details (V19.7m expanded)
     for p in results["providers"]:
         pname = p["provider"]
         if pname not in report["comparison"]:
             report["comparison"][pname] = {}
-        report["comparison"][pname]["raw_count"] = p.get("raw_count", 0)
+        report["comparison"][pname]["queries_attempted"] = p.get("queries_attempted", p.get("raw_count", 0))
+        report["comparison"][pname]["raw_events_returned"] = p.get("raw_count", 0)
+        report["comparison"][pname]["raw_markets_extracted"] = len(p.get("markets", []))
         report["comparison"][pname]["deduped_count"] = p.get("deduped_count", 0)
+        # Count valid/future/expired per provider
+        p_valid = [m for m in results["valid"] if m.get("_provider") == pname]
+        p_future = [m for m in results["future"] if m.get("_provider") == pname]
+        p_expired = [m for m in results.get("diagnostic", []) if m.get("_provider") == pname and m.get("_strict", {}).get("classification") == "EXPIRED"]
+        report["comparison"][pname]["valid_count"] = len(p_valid)
+        report["comparison"][pname]["future_count"] = len(p_future)
+        report["comparison"][pname]["expired_count"] = len(p_expired)
     
     # Provider-level rejections
     if results["all_raw"]:
