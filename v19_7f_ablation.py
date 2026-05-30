@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """V19.7f Large Ablation with Wilson Score CI.
 
-Runs MC with enough seeds/cycles to get 300+ trades per zone.
-Reports Wilson 95% CI for WR, plus EV, PF, DD, spread, fill estimates.
+Uses MC journal entries (nested format) for per-zone, per-direction, per-asset stats.
+Reports Wilson 95% CI for WR, EV, PF, DD.
 """
 
-import sys, os, json, random, math
+import sys, os, json, math
 sys.path.insert(0, '/mnt/c/Users/12035/father_daddy_capital')
 import pm_engine_v19_7 as eng
 import numpy as np
 
 def wilson_ci(wins, total, z=1.96):
-    """Wilson score interval for binomial proportion."""
     if total == 0:
         return 0, 0, 0
     p = wins / total
@@ -22,10 +21,9 @@ def wilson_ci(wins, total, z=1.96):
 
 def run_ablation():
     print(f"{'='*70}")
-    print(f"V19.7f LARGE ABLATION — Wilson CI, 300+ trades per zone")
+    print(f"V19.7f LARGE ABLATION — 50s × 5000c, Wilson CI")
     print(f"{'='*70}")
     
-    # Hard-mode MC
     eng.HARD_MODE = True
     eng.INITIAL_BANKROLL = 100
     
@@ -36,81 +34,102 @@ def run_ablation():
     results = eng.mc_backtest(seeds=SEEDS, cycles=CYCLES)
     
     # Collect all journal entries
-    journals_dir = eng.JOURNAL_DIR
+    journals = sorted(eng.JOURNAL_DIR.glob("journal_*.json"))
     all_entries = []
-    for seed_r in results:
-        journal_path = journals_dir / f"journal_seed_{seed_r['seed']}.json"
-        if journal_path.exists():
-            with open(journal_path) as f:
+    for jp in journals:
+        try:
+            with open(jp) as f:
                 jdata = json.load(f)
             for e in jdata.get("entries", []):
-                entry = e.get("entry", e)
-                all_entries.append(entry)
+                all_entries.append(e)
+        except: pass
     
     print(f"\nTotal journal entries: {len(all_entries)}")
     
-    # Classify entries by zone
-    zones = {
-        "RSI_20_28_UP": lambda e: e.get("rsi", 50) < 28 and e.get("side", e.get("direction", "")).lower() in ("up", "buy"),
-        "RSI_28_35_UP": lambda e: 28 <= e.get("rsi", 50) < 35 and e.get("side", e.get("direction", "")).lower() in ("up", "buy"),
-        "RSI_55_70_DOWN": lambda e: 55 <= e.get("rsi", 50) < 70 and e.get("side", e.get("direction", "")).lower() in ("down", "sell"),
-        "RSI_70_82_DOWN": lambda e: 70 <= e.get("rsi", 50) < 82 and e.get("side", e.get("direction", "")).lower() in ("down", "sell"),
-    }
+    if not all_entries:
+        print("No entries found. Using MC results for aggregate stats only.")
+        # Use MC seed results for aggregate
+        all_wr = [r['win_rate'] for r in results]
+        all_pnl = [r['pnl'] for r in results]
+        all_dd = [r['drawdown'] for r in results]
+        all_pf = [r['profit_factor'] for r in results if r['profit_factor'] > 0]
+        all_trades = [r['trades'] for r in results]
+        print(f"\n  Aggregate (from MC seeds):")
+        print(f"    Avg WR: {np.mean(all_wr):.1f}% | Avg PnL: ${np.mean(all_pnl):.2f}")
+        print(f"    Avg DD: {np.mean(all_dd):.1f}% | Avg PF: {np.mean(all_pf):.2f}")
+        print(f"    Avg Trades: {np.mean(all_trades):.1f}")
+        return
     
-    # Also by direction
-    directions = {
-        "UP": lambda e: e.get("side", e.get("direction", "")).lower() in ("up", "buy"),
-        "DOWN": lambda e: e.get("side", e.get("direction", "")).lower() in ("down", "sell"),
-    }
+    # Parse entries — nested format: entry.side, entry.rsi, exit.pnl, exit.won
+    parsed = []
+    for e in all_entries:
+        ent = e.get("entry", e)
+        ext = e.get("exit", {})
+        flt = e.get("filters", {})
+        parsed.append({
+            "side": ent.get("side", "").lower(),
+            "direction": ent.get("direction", "").lower(),
+            "rsi": ent.get("rsi", 50),
+            "confidence": ent.get("confidence", 0),
+            "contract_price": ent.get("contract_price", 0),
+            "bet": ent.get("bet", 0),
+            "entry_price": ent.get("entry_price", 0),
+            "regime": ent.get("regime", ""),
+            "win_prob_model": ent.get("win_prob_model", 0),
+            "pnl": ext.get("pnl", 0),
+            "won": ext.get("won", False),
+            "exit_type": ext.get("exit_type", ""),
+            "asset": ent.get("asset", "BTC"),
+            "cycle": e.get("cycle", 0),
+            "seed": e.get("seed", 0),
+        })
     
-    # Also by asset
-    assets = {
-        "BTC": lambda e: e.get("asset", "BTC") == "BTC",
-        "ETH": lambda e: e.get("asset", "") == "ETH",
-        "SOL": lambda e: e.get("asset", "") == "SOL",
-        "XRP": lambda e: e.get("asset", "") == "XRP",
-    }
-    
-    # Also by timeframe
-    timeframes = {
-        "5m": lambda e: "5" in str(e.get("interval", e.get("timeframe", "5m"))),
-        "15m": lambda e: "15" in str(e.get("interval", e.get("timeframe", ""))),
-    }
-    
-    # Also by confidence
-    conf_bins = {
-        "conf_0.82_0.85": lambda e: 0.82 <= e.get("confidence", 0) < 0.85,
-        "conf_0.85_0.90": lambda e: 0.85 <= e.get("confidence", 0) < 0.90,
-        "conf_0.90_0.95": lambda e: 0.90 <= e.get("confidence", 0) < 0.95,
-        "conf_0.95_1.00": lambda e: 0.95 <= e.get("confidence", 1),
+    # Classify
+    classifiers = {
+        # By direction
+        "UP": lambda p: p["side"] in ("up", "buy") or p["direction"] == "up",
+        "DOWN": lambda p: p["side"] in ("down", "sell") or p["direction"] == "down",
+        # By RSI zone
+        "RSI_20_28_UP": lambda p: p["rsi"] < 28 and (p["side"] in ("up","buy") or p["direction"]=="up"),
+        "RSI_28_35_UP": lambda p: 28 <= p["rsi"] < 35 and (p["side"] in ("up","buy") or p["direction"]=="up"),
+        "RSI_55_70_DOWN": lambda p: 55 <= p["rsi"] < 70 and (p["side"] in ("down","sell") or p["direction"]=="down"),
+        "RSI_70_82_DOWN": lambda p: 70 <= p["rsi"] < 82 and (p["side"] in ("down","sell") or p["direction"]=="down"),
+        # By asset
+        "BTC": lambda p: p["asset"] == "BTC",
+        "ETH": lambda p: p["asset"] == "ETH",
+        "SOL": lambda p: p["asset"] == "SOL",
+        "XRP": lambda p: p["asset"] == "XRP",
+        # By confidence
+        "conf_0.82_0.85": lambda p: 0.82 <= p["confidence"] < 0.85,
+        "conf_0.85_0.90": lambda p: 0.85 <= p["confidence"] < 0.90,
+        "conf_0.90_0.95": lambda p: 0.90 <= p["confidence"] < 0.95,
+        "conf_0.95_1.00": lambda p: p["confidence"] >= 0.95,
     }
     
     def compute_stats(entries, label):
         if not entries:
-            print(f"\n  {label}: 0 trades — INSUFFICIENT DATA")
-            return
+            print(f"\n  {label}: 0 trades — INSUFFICIENT DATA ⚠️")
+            return None
         
-        wins = sum(1 for e in entries if e.get("pnl", e.get("net_pnl", 0)) > 0)
-        losses = sum(1 for e in entries if e.get("pnl", e.get("net_pnl", 0)) <= 0)
+        wins = sum(1 for e in entries if e["won"])
         total = len(entries)
-        wr = wins / total if total > 0 else 0
+        wr = wins / total
         
-        pnl_list = [e.get("pnl", e.get("net_pnl", 0)) for e in entries]
-        entry_prices = [e.get("entry_price", e.get("price", 0)) for e in entries]
+        pnl_list = [e["pnl"] for e in entries]
+        entry_prices = [e["contract_price"] for e in entries]
         
         total_pnl = sum(pnl_list)
-        avg_pnl = total_pnl / total if total > 0 else 0
-        avg_entry = np.mean(entry_prices) if entry_prices else 0
+        avg_pnl = total_pnl / total
+        avg_entry = np.mean(entry_prices)
         
         gross_win = sum(p for p in pnl_list if p > 0)
         gross_loss = abs(sum(p for p in pnl_list if p < 0))
         pf = gross_win / gross_loss if gross_loss > 0 else float('inf')
         
-        # Bankroll DD (cumulative PnL peak-to-trough)
+        # Bankroll DD (cumulative PnL)
         cum = 0; peak = 0; max_dd = 0
         for p in pnl_list:
-            cum += p
-            peak = max(peak, cum)
+            cum += p; peak = max(peak, cum)
             dd = (peak - cum) / peak if peak > 0 else 0
             max_dd = max(max_dd, dd)
         
@@ -120,80 +139,55 @@ def run_ablation():
             if p <= 0: streak += 1; max_streak = max(max_streak, streak)
             else: streak = 0
         
-        # Average spread (entry_price + (1-entry_price) gap from fair)
-        spreads = [abs(ep + (e.get("down_price", 1 - ep)) - 1.0) for e, ep in zip(entries, entry_prices) if ep > 0]
-        avg_spread = np.mean(spreads) if spreads else 0
-        
         # Wilson CI
         p_hat, ci_lo, ci_hi = wilson_ci(wins, total)
         
-        print(f"\n  {label}:")
-        print(f"    Trades: {total} | Wins: {wins} | Losses: {losses}")
-        print(f"    WR: {wr:.1%} | Wilson 95% CI: [{ci_lo:.1%}, {ci_hi:.1%}]")
-        print(f"    Avg entry: ${avg_entry:.3f} | Net EV: ${avg_pnl:.3f}/trade")
-        print(f"    Total PnL: ${total_pnl:.2f} | PF: {pf:.2f}")
-        print(f"    Bankroll DD: {max_dd:.1%} | Loss streak: {max_streak}")
-        print(f"    Avg spread: ${avg_spread:.4f}")
+        sufficient = "✅" if total >= 300 else f"⚠️ <300 trades"
         
-        sufficient = "✅" if total >= 300 else "⚠️ <300 trades"
-        print(f"    Sample size: {sufficient} ({total} trades)")
+        print(f"\n  {label}:")
+        print(f"    Trades: {total} | Wins: {wins} | Losses: {total - wins}")
+        print(f"    WR: {wr:.1%} | Wilson 95% CI: [{ci_lo:.1%}, {ci_hi:.1%}]")
+        print(f"    Avg entry: ${avg_entry:.3f} | Net EV: ${avg_pnl:+.4f}/trade")
+        print(f"    Gross win: ${gross_win:.2f} | Gross loss: ${gross_loss:.2f} | PF: {pf:.2f}")
+        print(f"    Bankroll DD: {max_dd:.1%} | Loss streak: {max_streak}")
+        print(f"    Sample: {sufficient} ({total} trades)")
         
         return {
-            "label": label, "trades": total, "wins": wins, "losses": losses,
+            "label": label, "trades": total, "wins": wins, "losses": total - wins,
             "wr": wr, "ci_lo": ci_lo, "ci_hi": ci_hi,
             "avg_entry": avg_entry, "net_ev": avg_pnl,
             "pnl": total_pnl, "pf": pf, "dd": max_dd,
-            "loss_streak": max_streak, "avg_spread": avg_spread,
+            "loss_streak": max_streak, "sufficient": total >= 300,
         }
     
-    # Report by direction
-    print(f"\n{'─'*70}")
-    print("BY DIRECTION")
-    print(f"{'─'*70}")
-    for label, fn in directions.items():
-        entries = [e for e in all_entries if fn(e)]
-        compute_stats(entries, label)
+    sections = [
+        ("BY DIRECTION", ["UP", "DOWN"]),
+        ("BY RSI ZONE", ["RSI_20_28_UP", "RSI_28_35_UP", "RSI_55_70_DOWN", "RSI_70_82_DOWN"]),
+        ("BY ASSET", ["BTC", "ETH", "SOL", "XRP"]),
+        ("BY CONFIDENCE", ["conf_0.82_0.85", "conf_0.85_0.90", "conf_0.90_0.95", "conf_0.95_1.00"]),
+    ]
     
-    # Report by RSI zone
-    print(f"\n{'─'*70}")
-    print("BY RSI ZONE")
-    print(f"{'─'*70}")
-    for label, fn in zones.items():
-        entries = [e for e in all_entries if fn(e)]
-        compute_stats(entries, label)
+    report = {}
+    for title, labels in sections:
+        print(f"\n{'─'*70}")
+        print(f"{title}")
+        print(f"{'─'*70}")
+        for label in labels:
+            fn = classifiers[label]
+            matching = [e for e in parsed if fn(e)]
+            report[label] = compute_stats(matching, label)
     
-    # Report by asset
+    # ALL
     print(f"\n{'─'*70}")
-    print("BY ASSET")
+    print(f"ALL TRADES")
     print(f"{'─'*70}")
-    for label, fn in assets.items():
-        entries = [e for e in all_entries if fn(e)]
-        compute_stats(entries, label)
+    report["ALL"] = compute_stats(parsed, "ALL")
     
-    # Report by timeframe
-    print(f"\n{'─'*70}")
-    print("BY TIMEFRAME")
-    print(f"{'─'*70}")
-    for label, fn in timeframes.items():
-        entries = [e for e in all_entries if fn(e)]
-        compute_stats(entries, label)
-    
-    # Report by confidence
-    print(f"\n{'─'*70}")
-    print("BY CONFIDENCE")
-    print(f"{'─'*70}")
-    for label, fn in conf_bins.items():
-        entries = [e for e in all_entries if fn(e)]
-        compute_stats(entries, label)
-    
-    # Overall
-    print(f"\n{'─'*70}")
-    print("ALL TRADES")
-    print(f"{'─'*70}")
-    compute_stats(all_entries, "ALL")
-    
-    print(f"\n{'='*70}")
-    print(f"ABLATION COMPLETE")
+    # Save report
+    report_path = "/mnt/c/Users/12035/father_daddy_capital/v19_7f_ablation_report.json"
+    with open(report_path, 'w') as f:
+        json.dump({k: v for k, v in report.items() if v is not None}, f, indent=2, default=str)
+    print(f"\nReport saved: {report_path}")
     print(f"{'='*70}")
 
 if __name__ == "__main__":
