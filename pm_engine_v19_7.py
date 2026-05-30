@@ -145,7 +145,7 @@ RSI_OVERBOUGHT = 999        # V18.3: Overbought zone KILLED
 RSI_NEAR_OVERSOLD = 35      # Near-oversold with confirmations
 RSI_DEAD_ZONE_LOW = 35      # V18.3b: dead zone kills mid-zone 33% WR
 RSI_DEAD_ZONE_HIGH = 999
-MIN_CONFIDENCE = 0.85
+MIN_CONFIDENCE = 0.82
 MAX_CONFIDENCE = 0.95
 
 # Contracts — short-duration "Up or Down" only
