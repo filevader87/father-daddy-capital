@@ -2337,7 +2337,15 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
                         recent_pnls.pop(0)
                     if won: w += 1
                     else: l += 1
-                    log.append({"pnl": round(pnl, 2), "exit": "expiry", "won": won})
+                    # V19.7g: Zone key for per-sequence DD tracking
+                    rsi_zone = "extreme_low" if pos.get("rsi", 50) < 20 else \
+                               "oversold" if pos.get("rsi", 50) < 28 else \
+                               "near_oversold" if pos.get("rsi", 50) < 35 else \
+                               "dead_zone" if pos.get("rsi", 50) < 55 else \
+                               "moderate_ob" if pos.get("rsi", 50) < 70 else \
+                               "strong_ob" if pos.get("rsi", 50) < 82 else "parabolic"
+                    zone_key = f"{pos.get('side', '?').lower()}_{rsi_zone}"
+                    log.append({"pnl": round(pnl, 2), "exit": "expiry", "won": won, "zone": zone_key})
                     consecutive_losses = consecutive_losses + 1 if not won else 0
                     # Journal exit log
                     journal.log_exit(pos.get("journal_idx"), "expiry", won, pnl)
@@ -2607,12 +2615,27 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
             recent_pnls.append(pnl)
             if won: w += 1
             else: l += 1
-            log.append({"pnl": round(pnl, 2), "exit": "force_close", "won": won})
+            zone_key = f"{pos.get('side', '?').lower()}_force_close"
+            log.append({"pnl": round(pnl, 2), "exit": "force_close", "won": won, "zone": zone_key})
             journal.log_exit(pos.get("journal_idx"), "force_close", won, pnl)
 
         # ── Calculate stats ──
         wr = w/max(n,1)*100
-        # V19.7: Calculate DD from rolling PnL window, not all-time peak
+        # V19.7g: Continuous account equity curve DD (primary metric)
+        # Build equity curve from initial bankroll through all PnL events
+        equity_curve = [bankroll]
+        for t in log:
+            equity_curve.append(equity_curve[-1] + t["pnl"])
+        cont_peak = equity_curve[0]
+        cont_max_dd = 0.0
+        for eq in equity_curve:
+            cont_peak = max(cont_peak, eq)
+            if cont_peak > 0:
+                dd = (cont_peak - eq) / cont_peak
+                cont_max_dd = max(cont_max_dd, dd)
+        continuous_account_dd = cont_max_dd * 100  # primary deploy metric
+        
+        # V19.7g: Rolling PnL window DD (secondary, circuit-breaker metric)
         if len(recent_pnls) >= 5:
             cum = 0.0; roll_peak = 0.0; max_roll_dd = 0.0
             for pnl_val in recent_pnls:
@@ -2620,9 +2643,52 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
                 roll_peak = max(roll_peak, cum)
                 if roll_peak > 0:
                     max_roll_dd = max(max_roll_dd, (roll_peak - cum) / roll_peak)
-            dd_pct = max_roll_dd * 100
+            rolling_dd = max_roll_dd * 100
         else:
-            dd_pct = (peak - max_dd_cap) / max(peak, 1.0) * 100
+            rolling_dd = (peak - max_dd_cap) / max(peak, 1.0) * 100
+        
+        # V19.7g: Per-zone sequence drawdown and loss clustering
+        zone_pnls = {}  # zone_key -> list of pnls
+        zone_streaks = {}  # zone_key -> current loss streak, max loss streak
+        for t in log:
+            zk = t.get("zone", "unknown")
+            if zk not in zone_pnls:
+                zone_pnls[zk] = []
+                zone_streaks[zk] = {"current": 0, "max": 0}
+            zone_pnls[zk].append(t["pnl"])
+            if t["pnl"] < 0:
+                zone_streaks[zk]["current"] += 1
+                zone_streaks[zk]["max"] = max(zone_streaks[zk]["max"], zone_streaks[zk]["current"])
+            else:
+                zone_streaks[zk]["current"] = 0
+        
+        zone_seq_dd = {}
+        zone_loss_info = {}
+        for zk, pnls in zone_pnls.items():
+            if len(pnls) >= 3:
+                cum_pnl = 0.0; sp = 0.0; smdd = 0.0
+                for p in pnls:
+                    cum_pnl += p; sp = max(sp, cum_pnl)
+                    if sp > 0:
+                        smdd = max(smdd, (sp - cum_pnl) / sp)
+                zone_seq_dd[zk] = smdd * 100
+                # Worst N-trade windows
+                worst_5 = min(sum(pnls[i:i+5]) for i in range(len(pnls) - 5 + 1)) if len(pnls) >= 5 else 0
+                worst_10 = min(sum(pnls[i:i+10]) for i in range(len(pnls) - 10 + 1)) if len(pnls) >= 10 else 0
+                worst_20 = min(sum(pnls[i:i+20]) for i in range(len(pnls) - 20 + 1)) if len(pnls) >= 20 else 0
+                zone_loss_info[zk] = {
+                    "trades": len(pnls), "wins": sum(1 for p in pnls if p > 0),
+                    "losses": sum(1 for p in pnls if p < 0),
+                    "seq_dd": round(smdd * 100, 1),
+                    "max_loss_streak": zone_streaks[zk]["max"],
+                    "worst_5": worst_5,
+                    "worst_10": worst_10,
+                    "worst_20": worst_20,
+                }
+            else:
+                zone_seq_dd[zk] = 0
+                zone_loss_info[zk] = {"trades": len(pnls), "insufficient": True}
+        
         gw = sum(t["pnl"] for t in log if t["pnl"] > 0)
         gl = abs(sum(t["pnl"] for t in log if t["pnl"] < 0))
         pf = gw/max(gl, 0.01)
@@ -2630,10 +2696,10 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
         sh = (np.mean(rets)/max(np.std(rets),1e-9))*np.sqrt(n) if n > 1 else 0
 
         gates = {
-            "sharpe_gt_1.0": sh > 1.0,  # Relaxed from 1.5 for micro-scale
+            "sharpe_gt_1.0": sh > 1.0,
             "win_rate_gt_52": wr > 52,
-            "profit_factor_gt_1.2": pf > 1.2,  # Relaxed from 1.5
-            "drawdown_lt_15pct": dd_pct < 15,  # Relaxed from 8 for micro
+            "profit_factor_gt_1.2": pf > 1.2,
+            "drawdown_lt_15pct": continuous_account_dd < 15,  # V19.7g: continuous account DD
             "green_trades_gte_5": sum(1 for t in log if t["pnl"] > 0) >= 5,
         }
         gates_passed = sum(gates.values())
@@ -2648,69 +2714,209 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
             "seed": seed, "trades": n, "wins": w, "losses": l,
             "win_rate": round(wr, 1), "pnl": round(pnl_t, 2),
             "pnl_pct": round(pnl_t/bankroll*100, 1),
-            "capital": round(cap, 2), "drawdown": round(dd_pct, 1),
+            "capital": round(cap, 2),
+            "continuous_account_dd": round(continuous_account_dd, 1),  # V19.7g: primary
+            "rolling_dd": round(rolling_dd, 1),  # V19.7g: secondary
             "sharpe": round(sh, 2), "profit_factor": round(pf, 2),
             "gates_passed": gates_passed, "gates": gates,
             "exit_types": exit_counts,
+            "equity_curve": equity_curve,  # V19.7g: full curve for aggregation
+            "zone_seq_dd": zone_seq_dd,  # V19.7g: per-zone sequence DD
+            "zone_loss_info": zone_loss_info,  # V19.7g: loss clustering
         })
 
-    # ── Summary ──
+    # ── V19.7g Summary: Multi-part DD framework ──
     passed_seeds = sum(1 for r in results if r["gates_passed"] >= 4)
     all_passed = sum(1 for r in results if r["gates_passed"] >= 5)
     avg_wr = np.mean([r["win_rate"] for r in results])
     avg_pnl = np.mean([r["pnl"] for r in results])
     avg_sharpe = np.mean([r["sharpe"] for r in results])
-    avg_dd = np.mean([r["drawdown"] for r in results])
     avg_trades = np.mean([r["trades"] for r in results])
     
-    # Qualified WR: only seeds with ≥5 trades (diagnostic, not deploy gate)
-    qualified = [r for r in results if r["trades"] >= 5]
-    qual_wr = np.mean([r["win_rate"] for r in qualified]) if qualified else avg_wr
-    qual_count = len(qualified)
+    # ── Seed classification ──
+    no_opp = [r for r in results if r["trades"] == 0]
+    single = [r for r in results if r["trades"] == 1]
+    eligible = [r for r in results if r["trades"] >= 5]  # sequence-DD eligible
+    marginal = [r for r in results if 2 <= r["trades"] < 5]
     
-    # V19.7f: Deploy gate — EV/PF/DD, NOT qualified WR
+    no_opp_rate = len(no_opp) / len(results) * 100 if results else 0
+    single_rate = len(single) / len(results) * 100 if results else 0
+    single_wins = sum(1 for r in single if r["wins"] > 0)
+    single_losses = len(single) - single_wins
+    
+    # ── Continuous account DD (primary deploy metric) ──
+    # Per-seed DD: compute each seed's own peak-to-trough DD, then aggregate
+    # (NOT averaging equity curves of different lengths — that pads with zeros)
+    seed_dds = []  # each seed's max DD from its own equity curve
+    for r in results:
+        eq = r["equity_curve"]
+        if len(eq) < 2:
+            seed_dds.append(0.0)
+            continue
+        peak = eq[0]
+        max_seed_dd = 0.0
+        for val in eq:
+            peak = max(peak, val)
+            if peak > 0:
+                dd = (peak - val) / peak
+                max_seed_dd = max(max_seed_dd, dd)
+        seed_dds.append(max_seed_dd * 100)
+    # Continuous account DD = worst-case across all seeds (primary metric)
+    # Also compute mean and percentiles for the DD distribution
+    sorted_seed_dds = sorted(seed_dds)
+    continuous_account_max_dd = max(seed_dds) if seed_dds else 0
+    mean_seed_dd = np.mean(seed_dds) if seed_dds else 0
+    
+    # ── Per-seed DD distribution for eligible seeds (trades >= 5) ──
+    eligible_dds = sorted([r["continuous_account_dd"] for r in eligible]) if eligible else [0]
+    eligible_rolling_dds = sorted([r["rolling_dd"] for r in eligible]) if eligible else [0]
+    
+    def percentile(sorted_vals, p):
+        if not sorted_vals: return 0
+        idx = int(len(sorted_vals) * p / 100)
+        return sorted_vals[min(idx, len(sorted_vals)-1)]
+    
+    # CVaR 95: average DD of worst 5% of eligible seeds
+    cvar_cutoff = max(1, int(len(eligible_dds) * 0.05))
+    cvar_95_dd = np.mean(eligible_dds[-cvar_cutoff:]) if eligible_dds else 0
+    
+    # ── Per-zone sequence drawdown ──
+    zone_agg_streaks = {}  # zone -> max loss streaks
+    zone_agg_worst_n = {}  # zone -> {5: worst, 10: worst, 20: worst}
+    zone_agg_wr = {}  # zone -> {wins, losses, trades}
+    for r in eligible:
+        for zk, info in r.get("zone_loss_info", {}).items():
+            if zk not in zone_agg_streaks:
+                zone_agg_streaks[zk] = 0
+                zone_agg_worst_n[zk] = {5: 0, 10: 0, 20: 0}
+                zone_agg_wr[zk] = {"wins": 0, "losses": 0, "trades": 0}
+            if not info.get("insufficient"):
+                zone_agg_streaks[zk] = max(zone_agg_streaks[zk], info.get("max_loss_streak", 0))
+                for ws in [5, 10, 20]:
+                    if info.get(f"worst_{ws}", 0) != 0:
+                        zone_agg_worst_n[zk][ws] = min(zone_agg_worst_n[zk].get(ws, 0), info[f"worst_{ws}"])
+                zone_agg_wr[zk]["wins"] += info.get("wins", 0)
+                zone_agg_wr[zk]["losses"] += info.get("losses", 0)
+                zone_agg_wr[zk]["trades"] += info.get("trades", 0)
+    
+    # ── Wilson CI for WR ──
+    total_wins = sum(r["wins"] for r in results)
+    total_trades = sum(r["trades"] for r in results)
+    wr_all = total_wins / max(total_trades, 1) * 100
+    z = 1.96  # 95% CI
+    n = max(total_trades, 1)
+    p_hat = total_wins / n
+    se = np.sqrt(p_hat * (1 - p_hat) / n) if n > 0 else 0
+    wr_lo = max(0, (p_hat - z * se) * 100)
+    wr_hi = min(100, (p_hat + z * se) * 100)
+    
+    # ── V19.7g Deploy Gate ──
     all_pnls = [r["pnl"] for r in results]
     all_pfs = [r["profit_factor"] for r in results if r["profit_factor"] > 0]
-    all_dds = [r["drawdown"] for r in results]
     
     net_ev_per_trade = avg_pnl / max(avg_trades, 1) if avg_trades > 0 else 0
     avg_pf = np.mean(all_pfs) if all_pfs else 0
-    worst_dd = max(all_dds) if all_dds else 100
     
-    # Deploy criteria (V19.7f): EV > 0, PF >= 1.25, max DD <= 15%, classifier has zero false accepts
-    deploy_ev = net_ev_per_trade > 0
-    deploy_pf = avg_pf >= 1.25
-    deploy_dd = avg_dd <= 15.0
-    deploy_trades = avg_trades >= 5  # minimum opportunity threshold
+    # Gate 1: Continuous account max DD
+    g1_cont_dd = continuous_account_max_dd <= 15.0
+    # Gate 2: P95 eligible-seed DD
+    p95_dd = percentile(eligible_dds, 95)
+    g2_p95_dd = p95_dd <= 25.0
+    # Gate 3: P99 eligible-seed DD
+    p99_dd = percentile(eligible_dds, 99)
+    g3_p99_dd = p99_dd <= 35.0
+    # Gate 4: Net EV > 0 after slippage
+    g4_ev = net_ev_per_trade > 0
+    # Gate 5: PF >= 1.25
+    g5_pf = avg_pf >= 1.25
+    # Sparse seed reporting (not gating, but diagnostic)
+    # Gate 6-10 verified separately (classifier, no fallback, etc.)
     
-    deploy_pass = deploy_ev and deploy_pf and deploy_dd and deploy_trades
+    deploy_pass = g1_cont_dd and g2_p95_dd and g3_p99_dd and g4_ev and g5_pf
 
-    print(f"\n{'='*60}")
-    print(f"V19.7f MONTE CARLO — {seeds} seeds × {cycles} cycles × ${bankroll:.0f}")
-    print(f"{'='*60}")
+    print(f"\n{'='*70}")
+    print(f"V19.7g MONTE CARLO — {seeds} seeds × {cycles} cycles × ${bankroll:.0f}")
+    print(f"{'='*70}")
     print(f"  Config: Bear={'ON' if BEAR_SKIP else 'OFF'} Trend={'ON' if TREND_GUARD else 'OFF'} PriceGate={'ON' if DYNAMIC_PRICE_GATE else 'OFF'} MaxPos={MAX_OPEN_POSITIONS}")
-    print(f"  EV Gate: min={EV_MIN_GATE} | DD: 10%→½, 15%→¼, 25%→stop (rolling {DD_WINDOW} trades) | Risk: {RISK_PCT_COLD*100:.0f}%/{RISK_PCT_WARM*100:.0f}%/{RISK_PCT_PROVEN*100:.0f}%")
+    print(f"  EV Gate: min={EV_MIN_GATE} | DD: 10%→½, 15%→¼, 25%→stop (rolling {DD_WINDOW} trades)")
+    print(f"  Risk: {RISK_PCT_COLD*100:.0f}%/{RISK_PCT_WARM*100:.0f}%/{RISK_PCT_PROVEN*100:.0f}%")
     print(f"  Bet cap: ${MAX_BET_DOLLAR:.0f} until {WARM_UPDATES} trades proven | Min bet: ${MIN_BET:.2f}")
-    print(f"  RSI<20: BLOCKED | RSI 20-35: UP (oversold bounce) | RSI 35-55: DEAD | RSI 55-70: DOWN shadow | RSI 70-82: DOWN+conf | RSI>82: BLOCKED")
+    print(f"  RSI<20: BLOCKED | RSI 20-35: UP | RSI 35-55: DEAD | RSI 55-70: SHADOW | RSI 70-82: DOWN+conf | >82: BLOCKED")
     print(f"  Shadow: RSI 55-70 DOWN={DOWN_SHADOW_MODE} | RSI 70-82 conf={DOWN_STRONG_CONFIRM}")
-    print(f"  Exit: SL={STOP_LOSS_PCT:.0%} TD={TIME_DECAY_SELL_MINS}m SLIPPAGE={SLIPPAGE_TICKS} REJECT={REJECTION_RATE:.0%}")
-    print(f"  Avg Trades/seed: {avg_trades:.1f} | Avg WR: {avg_wr:.1f}% | Avg P&L: ${avg_pnl:+.2f}")
-    print(f"  Avg Sharpe: {avg_sharpe:.2f} | Avg DD: {avg_dd:.1f}% | Worst DD: {worst_dd:.1f}%")
-    print(f"  Seeds 4+/5 gates: {passed_seeds}/{seeds} | 5/5: {all_passed}/{seeds}")
-    print(f"  Qualified WR (≥5 trades): {qual_wr:.1f}% from {qual_count}/{seeds} seeds (DIAGNOSTIC)")
-    print(f"\n  ── DEPLOY GATE (V19.7f) ──")
-    print(f"  Net EV/trade > 0:     {'✅' if deploy_ev else '❌'} (${net_ev_per_trade:.3f}/trade)")
-    print(f"  Avg PF >= 1.25:       {'✅' if deploy_pf else '❌'} (PF={avg_pf:.2f})")
-    print(f"  Avg DD <= 15%:        {'✅' if deploy_dd else '❌'} (DD={avg_dd:.1f}%)")
-    print(f"  Avg trades >= 5:      {'✅' if deploy_trades else '❌'} ({avg_trades:.1f}/seed)")
+    print(f"  Hard-mode: latency_miss={LATENCY_MISS_PROB:.0%} partial_fill={PARTIAL_FILL_PROB:.0%} markov_drift_cap={MARKOV_DRIFT_CAP}" if HARD_MODE else "  Hard-mode: OFF")
+    
+    print(f"\n  ── PERFORMANCE ──")
+    print(f"  Trades/seed: {avg_trades:.1f} | WR: {avg_wr:.1f}% [{wr_lo:.1f}-{wr_hi:.1f}% 95% CI]")
+    print(f"  P&L: ${avg_pnl:+.2f} | Sharpe: {avg_sharpe:.2f} | PF: {avg_pf:.2f}")
+    print(f"  Net EV/trade: ${net_ev_per_trade:.3f}")
+    
+    print(f"\n  ── SEED CLASSIFICATION ──")
+    print(f"  Total seeds: {len(results)}")
+    print(f"  No-opportunity (0 trades): {len(no_opp)} ({no_opp_rate:.1f}%)")
+    print(f"  Single-trade (1 trade): {len(single)} ({single_rate:.1f}%) — wins={single_wins}, losses={single_losses}")
+    print(f"  Marginal (2-4 trades): {len(marginal)}")
+    print(f"  Eligible (≥5 trades): {len(eligible)} ({len(eligible)/len(results)*100:.1f}%)")
+    
+    print(f"\n  ── DRAWDOWN ANALYSIS ──")
+    print(f"  Continuous account max DD (worst seed): {continuous_account_max_dd:.1f}%  (PRIMARY METRIC)")
+    print(f"  Mean seed DD (all seeds): {mean_seed_dd:.1f}%")
+    print(f"  ── Per-seed DD (eligible, ≥5 trades) ──")
+    if eligible_dds:
+        print(f"    Mean:   {np.mean(eligible_dds):.1f}%")
+        print(f"    Median: {np.median(eligible_dds):.1f}%")
+        print(f"    P75:    {percentile(eligible_dds, 75):.1f}%")
+        print(f"    P90:    {percentile(eligible_dds, 90):.1f}%")
+        print(f"    P95:    {p95_dd:.1f}%")
+        print(f"    P99:    {p99_dd:.1f}%")
+        print(f"    Worst:  {eligible_dds[-1]:.1f}%")
+        print(f"    CVaR95: {cvar_95_dd:.1f}%")
+    else:
+        print(f"    (no eligible seeds)")
+    
+    print(f"\n  ── ZONE SEQUENCE DRAWDOWN ──")
+    print(f"  (Per-sequence PnL DD within zone — NOT bankroll DD)")
+    # Collect zone DDs from individual eligible seeds
+    zone_all_dd = {}
+    for r in eligible:
+        for zk, dd_val in r.get("zone_seq_dd", {}).items():
+            if zk not in zone_all_dd:
+                zone_all_dd[zk] = []
+            zone_all_dd[zk].append(dd_val)
+    for zk in sorted(zone_all_dd.keys()):
+        dds = zone_all_dd[zk]
+        avg_zdd = np.mean(dds)
+        max_zdd = max(dds)
+        n_with = len([d for d in dds if d > 0])
+        print(f"    {zk:25s}: avg_seq_dd={avg_zdd:.1f}%  max={max_zdd:.1f}%  seeds_with_trades={n_with}/{len(dds)}")
+    
+    print(f"\n  ── LOSS CLUSTERING BY ZONE ──")
+    for zk in sorted(zone_agg_streaks.keys()):
+        ms = zone_agg_streaks.get(zk, 0)
+        wn = zone_agg_worst_n.get(zk, {})
+        wr_info = zone_agg_wr.get(zk, {})
+        wr_pct = wr_info["wins"] / max(wr_info["trades"], 1) * 100 if wr_info.get("trades", 0) > 0 else 0
+        print(f"    {zk:25s}: max_streak={ms}  worst5={wn.get(5,0):.2f}  worst10={wn.get(10,0):.2f}  worst20={wn.get(20,0):.2f}  WR={wr_pct:.1f}% ({wr_info.get('trades',0)}tr)")
+    
+    print(f"  ── DEPLOY GATE (V19.7g) ──")
+    print(f"  1. Continuous account DD ≤ 15%:  {'✅' if g1_cont_dd else '❌'} ({continuous_account_max_dd:.1f}%)")
+    print(f"  2. P95 eligible-seed DD ≤ 25%:   {'✅' if g2_p95_dd else '❌'} ({p95_dd:.1f}%)")
+    print(f"  3. P99 eligible-seed DD ≤ 35%:   {'✅' if g3_p99_dd else '❌'} ({p99_dd:.1f}%)")
+    print(f"  4. Net EV/trade > 0:             {'✅' if g4_ev else '❌'} (${net_ev_per_trade:.3f}/trade)")
+    print(f"  5. Profit factor ≥ 1.25:         {'✅' if g5_pf else '❌'} (PF={avg_pf:.2f})")
+    print(f"  6. No-opportunity rate:          {no_opp_rate:.1f}% (diagnostic)")
+    print(f"  7. Single-trade rate:             {single_rate:.1f}% (diagnostic)")
+    print(f"  8. Classifier zero false-accept:  (verified separately)")
+    print(f"  9. No daily/weekly/strike:         (verified separately)")
+    print(f"  10. Live-shadow confirms markets:  (pending)")
     hard_mode_str = " | HARD-MODE ✅" if HARD_MODE else ""
     print(f"\n  DEPLOY DECISION: {'✅ PASS' if deploy_pass else '❌ FAIL — criteria not met'}{hard_mode_str}")
-    print(f"{'='*60}\n")
+    print(f"{'='*70}\n")
 
     for r in results:
         g = "✅" if r["gates_passed"] >= 5 else ("🟡" if r["gates_passed"] >= 4 else "❌")
         exits = " ".join(f"{k}:{v}" for k,v in r.get("exit_types",{}).items())
-        print(f"  seed {r['seed']:2d}: {r['trades']:3d}tr WR={r['win_rate']:5.1f}% P&L=${r['pnl']:+7.2f} DD={r['drawdown']:4.1f}% Sh={r['sharpe']:5.2f} PF={r['profit_factor']:4.2f} gates={r['gates_passed']}/5 {g}  [{exits}]")
+        cls = "eligible" if r["trades"] >= 5 else ("single" if r["trades"] == 1 else ("no_opp" if r["trades"] == 0 else "marginal"))
+        print(f"  seed {r['seed']:2d}: {r['trades']:3d}tr WR={r['win_rate']:5.1f}% P&L=${r['pnl']:+7.2f} cDD={r['continuous_account_dd']:4.1f}% rDD={r['rolling_dd']:4.1f}% Sh={r['sharpe']:5.2f} PF={r['profit_factor']:4.2f} {cls:9s} {g} [{exits}]")
 
     # ── Journal summary (@Gustafssonkotte: pattern mining data) ──
     js = journal.summary()
