@@ -85,9 +85,16 @@ JOURNAL_DETAILED = True  # Include signal context (RSI, MACD, blacklist results,
 SCAN_SECONDS = 120
 INITIAL_BANKROLL = 320.0; PAPER_BANKROLL = 320.0
 
-# BTC-only — proven winner across 20/20 seeds (in sim; live was a disaster due to
-# disabled guards, no exits, and over-positioning — all fixed in V18 + V19.7)
-ASSET = {"yf": "BTC-USD", "name": "Bitcoin"}
+# Multi-asset — BTC/ETH/SOL/XRP with asset-specific timeframe defaults (P1-B)
+# BTC → 5m (65.8% WR), ETH → 15m (63.1%), SOL → 15m (64.1%), XRP → 5m (62.5%)
+ASSETS = {
+    "BTC": {"yf": "BTC-USD",  "name": "Bitcoin",  "interval": "5m",  "wr": 0.658},
+    "ETH": {"yf": "ETH-USD",  "name": "Ethereum", "interval": "15m", "wr": 0.631},
+    "SOL": {"yf": "SOL-USD",  "name": "Solana",   "interval": "15m", "wr": 0.641},
+    "XRP": {"yf": "XRP-USD",  "name": "Ripple",   "interval": "5m",  "wr": 0.625},
+}
+# Legacy single-asset alias for backward compat (MC backtest uses this)
+ASSET = ASSETS["BTC"]
 
 # ── V19.7 P0-C: RISK SIZING CAP ──
 # Start at 1% per trade. Max 3% after 500+ trades with positive EV.
@@ -658,12 +665,26 @@ def calculate_ev(rsi, direction, contract_price, session_type=1, confirmations=2
 # Price fetching
 # ══════════════════════════════════════════════════════════════════════════════
 
-def fetch_5m():
+def fetch_prices(asset_cfg, interval=None):
+    """Fetch price history for a given asset. P1-B: uses asset-specific interval.
+    
+    BTC/XRP → 5m, ETH/SOL → 15m (validated WR defaults).
+    Returns list of closing prices or empty list on failure.
+    """
+    if interval is None:
+        interval = asset_cfg.get("interval", "5m")
     try:
         import yfinance as yf
-        h=yf.Ticker(ASSET["yf"]).history(period="5d",interval="5m")
-        return h['Close'].tolist()[-60:] if len(h)>=14 else []
-    except: return []
+        # yfinance interval mapping: "5m" or "15m" with appropriate period
+        period = "5d" if interval == "5m" else "60d"
+        h = yf.Ticker(asset_cfg["yf"]).history(period=period, interval=interval)
+        return h['Close'].tolist()[-60:] if len(h) >= 14 else []
+    except Exception:
+        return []
+
+# Keep legacy alias (BTC 5m)
+def fetch_5m():
+    return fetch_prices(ASSETS["BTC"], interval="5m")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -997,10 +1018,19 @@ class TradeJournal:
         
         # By RSI zone
         by_rsi = {"extreme_low": {"w":0,"t":0}, "low": {"w":0,"t":0}, 
-                  "mid": {"w":0,"t":0}, "high": {"w":0,"t":0}, "extreme_high": {"w":0,"t":0}}
+                  "mid": {"w":0,"t":0}, "moderate_ob": {"w":0,"t":0},
+                  "high": {"w":0,"t":0}, "extreme_high": {"w":0,"t":0}}
         for e in settled:
             rsi = e["entry"]["rsi"]
-            zone = "extreme_low" if rsi < 25 else "low" if rsi < 35 else "mid" if rsi < 55 else "high" if rsi < 65 else "extreme_high" if rsi > 75 else "mid"
+            # V19.7e: Bidirectional RSI zones matching signal generation
+            # oversold: extreme_low(<20), low(20-35), mid(dead 35-55)
+            # overbought: moderate_ob(55-70), high(70-82), extreme_high(>82)
+            zone = ("extreme_low" if rsi < 20 else
+                    "low" if rsi < 35 else
+                    "mid" if rsi < 55 else
+                    "moderate_ob" if rsi < 70 else
+                    "high" if rsi < 82 else
+                    "extreme_high")
             by_rsi[zone]["t"] += 1
             if e["exit"]["won"]:
                 by_rsi[zone]["w"] += 1
@@ -1030,23 +1060,53 @@ class TradeJournal:
 # Contract discovery — BTC "Up or Down" ONLY (V18: block non-BTC markets)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def is_btc_market(question):
-    """Filter: only accept BTC Up/Down contracts. Block weather/misc/daily."""
+# Asset name patterns for multi-asset market matching
+ASSET_PATTERNS = {
+    "BTC": ["bitcoin", "btc"],
+    "ETH": ["ethereum", "eth"],
+    "SOL": ["solana", "sol"],
+    "XRP": ["ripple", "xrp"],
+}
+
+def is_valid_market(question):
+    """Filter: accept BTC/ETH/SOL/XRP Up/Down contracts. Block weather/misc/daily.
+    
+    V19.7e: Multi-asset — matches all 4 assets with their Polymarket question patterns.
+    Also accepts '5min'/'15min'/'5 min' formats alongside '3:25PM-3:30PM ET'.
+    """
     q = question.lower()
-    # Must contain Bitcoin/BTC
-    if "bitcoin" not in q and "btc" not in q:
+    # Must contain one of the asset names
+    matched_asset = None
+    for asset_key, patterns in ASSET_PATTERNS.items():
+        if any(p in q for p in patterns):
+            matched_asset = asset_key
+            break
+    if matched_asset is None:
         return False
-    # Must match allowed patterns
+    # Must match allowed patterns (Up or Down, above, below)
     if not any(p.lower() in q for p in ALLOWED_MARKET_PATTERNS):
         return False
     # Must NOT match blocked patterns
     if any(p.lower() in q for p in BLOCKED_MARKET_PATTERNS):
         return False
-    # Must have a time window (5-min/15-min format like "3:25PM-3:30PM ET")
-    # This blocks daily/strike-price "above $X" contracts
-    if not re.search(r'\d{1,2}:\d{2}\s*(AM|PM)', q, re.I):
+    # Must have a time window — accept multiple formats:
+    # "3:25PM-3:30PM ET", "5min", "15min", "5 min", "15 min"
+    has_time = bool(re.search(r'\d{1,2}:\d{2}\s*(AM|PM)', q, re.I)) or \
+               bool(re.search(r'\d+\s*min', q, re.I))
+    if not has_time:
         return False
     return True
+
+def detect_asset(question):
+    """Return which asset a market question refers to, or None."""
+    q = question.lower()
+    for asset_key, patterns in ASSET_PATTERNS.items():
+        if any(p in q for p in patterns):
+            return asset_key
+    return None
+
+# Keep legacy name for backward compat
+is_btc_market = is_valid_market
 
 def extract_time_window(question):
     m=re.search(r'(\d{1,2}:\d{2}(AM|PM)\s*-\s*\d{1,2}:\d{2}(AM|PM)\s*(ET|UTC))',question,re.I)
@@ -1066,77 +1126,107 @@ def parse_end_time(end_date,window):
         except: pass
     return None
 
-def discover_contracts():
-    today=datetime.now(); month=today.strftime("%B"); day=today.day
-    n=ASSET["name"]; contracts=[]; seen=set()
+def discover_contracts(asset_key=None):
+    """V19.7e: Multi-asset contract discovery.
+    
+    Scans Gamma API for BTC/ETH/SOL/XRP Up or Down contracts.
+    If asset_key is specified, only searches that asset.
+    Returns list of contract dicts with added 'asset' field.
+    """
+    today = datetime.now(); month = today.strftime("%B"); day = today.day
+    contracts = []; seen = set()
+    
+    # Which assets to scan
+    if asset_key:
+        asset_keys = [asset_key]
+    else:
+        asset_keys = list(ASSETS.keys())
+    
+    for ak in asset_keys:
+        cfg = ASSETS[ak]
+        n = cfg["name"]
+        
+        # V19.7e: Multi-asset search queries per asset
+        queries = [
+            f"{n} Up or Down",
+            f"{n} Up or Down - {month} {day}",
+        ]
+        # Also search by ticker for cases where Polymarket uses the ticker
+        if ak != "BTC":  # BTC already covered by "Bitcoin"
+            queries.append(f"{ak} Up or Down")
+            queries.append(f"{ak} Up or Down - {month} {day}")
 
-    # V19.7d: ONLY 5-min/15-min Up/Down markets — NO daily/strike-price contracts
-    # Two discovery sources: Gamma search (covers known markets) + active markets endpoint (ephemeral)
-    queries = [
-        f"{n} Up or Down",                     # Short-duration (preferred)
-        f"{n} Up or Down - {month} {day}",     # Today's short-duration
-    ]
-    # V19.7d: NO daily/strike-price fallback — ONLY 5-min and 15-min Up/Down
+        for q in queries:
+            try:
+                data = _get(f"{GAMMA}/public-search?q={urllib.parse.quote(q)}")
+                for evt in data.get("events", []):
+                    for m in evt.get("markets", []):
+                        cid = m.get("conditionId", "")
+                        if cid in seen or m.get("closed", False):
+                            continue
 
-    for q in queries:
-        try:
-            data=_get(f"{GAMMA}/public-search?q={urllib.parse.quote(q)}")
-            for evt in data.get("events",[]):
-                for m in evt.get("markets",[]):
-                    cid=m.get("conditionId","")
-                    if cid in seen or m.get("closed",False): continue
+                        question = m.get("question", "")
 
-                    question=m.get("question","")
+                        # V19.7e: Multi-asset filter — accept all 4 assets
+                        if not is_valid_market(question):
+                            continue
+                        
+                        # Verify this contract belongs to the current asset
+                        detected = detect_asset(question)
+                        if asset_key and detected != asset_key:
+                            continue  # Wrong asset for this search pass
 
-                    # V18: BTC market filter — block non-BTC/non-price markets
-                    if not is_btc_market(question):
-                        continue
+                        vol = float(m.get("volume", 0))
+                        if vol < MIN_VOLUME_USD:
+                            continue
+                        seen.add(cid)
+                        prices = _parse(m.get("outcomePrices", []))
+                        if not isinstance(prices, list) or len(prices) < 2:
+                            continue
+                        outcomes = _parse(m.get("outcomes", []))
 
-                    vol = float(m.get("volume",0))
-                    if vol < MIN_VOLUME_USD: continue
-                    seen.add(cid)
-                    prices=_parse(m.get("outcomePrices",[]))
-                    if not isinstance(prices,list) or len(prices)<2: continue
-                    outcomes=_parse(m.get("outcomes",[]))
+                        window = extract_time_window(question)
+                        end_dt = None
+                        if window:
+                            end_dt = parse_end_time(m.get("endDate", ""), window)
+                        elif m.get("endDate"):
+                            try:
+                                end_dt = datetime.fromisoformat(m.get("endDate", "").replace("Z", "+00:00")).replace(tzinfo=None)
+                            except:
+                                pass
 
-                    window=extract_time_window(question)
-                    end_dt = None
-                    if window:
-                        end_dt=parse_end_time(m.get("endDate",""),window)
-                    elif m.get("endDate"):
-                        try:
-                            end_dt = datetime.fromisoformat(m.get("endDate","").replace("Z","+00:00")).replace(tzinfo=None)
-                        except: pass
+                        mins = 9999
+                        if end_dt:
+                            mins = (end_dt - datetime.now()).total_seconds() / 60
 
-                    mins = 9999
-                    if end_dt:
-                        mins=(end_dt-datetime.now()).total_seconds()/60
+                        if window and mins < 0:
+                            continue
+                        # V19.7e: Accept 5min and 15min Up/Down markets — block daily/strike
+                        if not window:
+                            continue  # No time window = daily/strike contract — REJECT
+                        if mins > MAX_WINDOW_MINUTES:
+                            continue
 
-                    if window and mins < 0: continue
-                    # V19.7d: ONLY accept 5-min and 15-min Up/Down markets — NO daily/strike contracts
-                    if not window: continue  # No time window = daily strike-price contract — REJECT
-                    if mins > MAX_WINDOW_MINUTES: continue  # Window > 15min = not a short-duration binary
+                        up_i, down_i = (0, 1)
+                        if isinstance(outcomes, list) and len(outcomes) >= 2:
+                            o0 = (outcomes[0] or "").lower()
+                            if "down" in o0 or "no" in o0 or "below" in o0:
+                                up_i, down_i = (1, 0)
 
-                    up_i,down_i=(0,1)
-                    if isinstance(outcomes,list) and len(outcomes)>=2:
-                        o0 = (outcomes[0] or "").lower()
-                        o1 = (outcomes[1] or "").lower()
-                        if "down" in o0 or "no" in o0 or "below" in o0:
-                            up_i,down_i=(1,0)
+                        contracts.append({
+                            "question": question, "conditionId": cid,
+                            "up_price": float(prices[up_i]),
+                            "down_price": float(prices[down_i]),
+                            "volume": vol,
+                            "slug": evt.get("slug", ""),
+                            "end_date": m.get("endDate", ""),
+                            "window": window, "mins_to_expiry": round(mins, 1),
+                            "asset": detected or ak,  # V19.7e: track which asset
+                        })
+            except:
+                continue
 
-                    contracts.append({
-                        "question":question,"conditionId":cid,
-                        "up_price":float(prices[up_i]),
-                        "down_price":float(prices[down_i]),
-                        "volume":vol,
-                        "slug":evt.get("slug",""),
-                        "end_date":m.get("endDate",""),
-                        "window":window,"mins_to_expiry":round(mins,1),
-                    })
-        except: continue
-
-    # V19.7d: Also scan active markets endpoint — ephemeral 5m/15m markets
-    # don't appear in gamma search (they show as closed by the time search indexes them)
+    # V19.7e: Multi-asset active markets scan — ephemeral 5m/15m markets
     try:
         active_url = f"{GAMMA}/markets?active=true&closed=false&limit=500&order=volume&ascending=false"
         active_data = _get(active_url)
@@ -1146,8 +1236,11 @@ def discover_contracts():
                 if cid2 in seen or m.get("closed", False):
                     continue
                 q2 = m.get("question", "")
-                if not is_btc_market(q2):
+                if not is_valid_market(q2):
                     continue
+                detected2 = detect_asset(q2)
+                if asset_key and detected2 != asset_key:
+                    continue  # Wrong asset
                 vol2 = float(m.get("volume", 0))
                 if vol2 < MIN_VOLUME_USD:
                     continue
@@ -1183,6 +1276,7 @@ def discover_contracts():
                     "slug": m.get("eventSlug", ""),
                     "end_date": m.get("endDate", ""),
                     "window": window2, "mins_to_expiry": round(mins2, 1),
+                    "asset": detected2 or "BTC",  # V19.7e
                 })
     except Exception:
         pass  # Active endpoint is bonus, not critical
@@ -1639,7 +1733,7 @@ def load_state():
             "daily_pnl":0,"daily_date":datetime.now().strftime("%Y-%m-%d"),
             "exit_stats":{"stop_loss":0,"time_decay":0,"expiry":0},
             "bankroll_peak":INITIAL_BANKROLL,"mode":"paper",
-            "version":"V19.7d","start_time":datetime.now().isoformat()}
+            "version":"V19.7e","start_time":datetime.now().isoformat()}
 
 def save_state(state):
     state["scans"]=state.get("scans",0)+1
@@ -1651,20 +1745,19 @@ def save_state(state):
     STATE.write_text(json.dumps(state,indent=2,default=str))
 
 def run_once(state):
-    prices=fetch_5m()
-    if not prices: return [],[],[],[]
-
-    sig=btc_signal(prices)
-    contracts=discover_contracts()
-
-    # V18: Process exits FIRST (before new entries)
+    """V19.7e: Multi-asset run — iterate BTC/ETH/SOL/XRP with per-asset timeframes."""
+    all_entries = []; all_settled = []; all_skip = []; all_sigs = {}
+    
+    # Discover all contracts across all assets
+    contracts = discover_contracts()
+    
+    # V18: Process exits FIRST (before new entries) — across all assets
     exit_settled = process_exits(state, contracts)
     for s in exit_settled:
         pnl=s["pnl"]; state["total_pnl"]+=pnl; state["bankroll"]+=pnl
         state["daily_pnl"] = state.get("daily_pnl", 0) + pnl
         if pnl>0: state["wins"]=state.get("wins",0)+1
         else: state["losses"]=state.get("losses",0)+1
-        # Track exit type stats
         exit_type = s.get("exit_type", "expiry")
         es = state.get("exit_stats", {"stop_loss":0,"time_decay":0,"expiry":0})
         es[exit_type] = es.get(exit_type, 0) + 1
@@ -1688,74 +1781,88 @@ def run_once(state):
                 neural.network.consolidate()
             neural.network.save(); neural.performance.save()
 
-    # Settle expired (expiry-based)
-    settled=check_settlements(state,sig["price"])
-    for s in settled:
-        pnl=s["pnl"]; state["total_pnl"]+=pnl; state["bankroll"]+=pnl
-        state["daily_pnl"] = state.get("daily_pnl", 0) + pnl
-        if pnl>0: state["wins"]=state.get("wins",0)+1
-        else: state["losses"]=state.get("losses",0)+1
-        es = state.get("exit_stats", {"stop_loss":0,"time_decay":0,"expiry":0})
-        es["expiry"] = es.get("expiry", 0) + 1
-        state["exit_stats"] = es
-        state.setdefault("journal",[]).append(
-            {"ts":datetime.now().isoformat(),"type":"settle","pnl":pnl,"question":s.get("question","")})
+    # V19.7e: Per-asset signal generation + contract matching
+    for ak, acfg in ASSETS.items():
+        prices = fetch_prices(acfg)
+        if not prices:
+            continue  # Skip asset if price data unavailable
+        
+        sig = btc_signal(prices)  # Works for any asset — RSI/MACD are universal
+        sig["asset"] = ak  # Tag signal with asset
+        all_sigs[ak] = sig
+        
+        # Settle expired positions for this asset's price
+        settled = check_settlements(state, sig["price"])
+        for s in settled:
+            pnl=s["pnl"]; state["total_pnl"]+=pnl; state["bankroll"]+=pnl
+            state["daily_pnl"] = state.get("daily_pnl", 0) + pnl
+            if pnl>0: state["wins"]=state.get("wins",0)+1
+            else: state["losses"]=state.get("losses",0)+1
+            es = state.get("exit_stats", {"stop_loss":0,"time_decay":0,"expiry":0})
+            es["expiry"] = es.get("expiry", 0) + 1
+            state["exit_stats"] = es
+            state.setdefault("journal",[]).append(
+                {"ts":datetime.now().isoformat(),"type":"settle","pnl":pnl,"question":s.get("question","")})
 
-        cal=_get_bayesian()
-        if cal:
-            sv_b=s.get("bayesian_features")
-            if sv_b: cal.update(np.array(sv_b,dtype=float),1 if pnl>0 else 0)
-        neural=_get_neural()
-        sv=s.get("signal_vector"); n_pred=s.get("neural_pred")
-        if neural and sv and n_pred is not None:
-            bet=s.get("bet",1); pnl_pct=pnl/max(bet,0.01)
-            sv_arr=np.array(sv,dtype=float)
-            neural.network.learn_from_trade(sv_arr,n_pred,scale_pnl(pnl_pct))
-            neural.network.add_to_replay(sv_arr,scale_pnl(pnl_pct))
-            if neural.network.updates%5==0: neural.network.replay()
-            if neural.network.updates>0 and neural.network.updates%NEURAL_CONS_EVERY==0:
-                neural.network.consolidate()
-            neural.network.save(); neural.performance.save()
-
-    # New entries (with V18 guards, price gate, hard limits)
-    entries,skip_info=evaluate_entries(sig,contracts,state)
-    for e in entries:
-        key=f"{e['conditionId'][:16]}_{e['side']}"
-        # V19.7: Place entry orders — paper or live
-        if _live_client and _live_client.mode == "LIVE":
-            order_result = _live_client.place_order(
-                token_id=e.get("token_id",""),
-                side="BUY",
-                price=e["contract_price"],
-                size=e["bet"],
-            )
-            e["order_result"] = order_result
-            e["mode"] = "LIVE"
-            if order_result.get("status") in ("LIVE","FILLED","SIMULATED"):
+            cal=_get_bayesian()
+            if cal:
+                sv_b=s.get("bayesian_features")
+                if sv_b: cal.update(np.array(sv_b,dtype=float),1 if pnl>0 else 0)
+            neural=_get_neural()
+            sv=s.get("signal_vector"); n_pred=s.get("neural_pred")
+            if neural and sv and n_pred is not None:
+                bet=s.get("bet",1); pnl_pct=pnl/max(bet,0.01)
+                sv_arr=np.array(sv,dtype=float)
+                neural.network.learn_from_trade(sv_arr,n_pred,scale_pnl(pnl_pct))
+                neural.network.add_to_replay(sv_arr,scale_pnl(pnl_pct))
+                if neural.network.updates%5==0: neural.network.replay()
+                if neural.network.updates>0 and neural.network.updates%NEURAL_CONS_EVERY==0:
+                    neural.network.consolidate()
+                neural.network.save(); neural.performance.save()
+        
+        all_settled.extend(settled)
+        
+        # Filter contracts for this asset only
+        asset_contracts = [c for c in contracts if c.get("asset", "BTC") == ak]
+        
+        # Evaluate entries for this asset
+        entries, skip_info = evaluate_entries(sig, asset_contracts, state)
+        for e in entries:
+            e["asset"] = ak  # Tag entry with asset
+            key=f"{e['conditionId'][:16]}_{e['side']}"
+            # V19.7: Place entry orders — paper or live
+            if _live_client and _live_client.mode == "LIVE":
+                order_result = _live_client.place_order(
+                    token_id=e.get("token_id",""),
+                    side="BUY",
+                    price=e["contract_price"],
+                    size=e["bet"],
+                )
+                e["order_result"] = order_result
+                e["mode"] = "LIVE"
+                if order_result.get("status") in ("LIVE","FILLED","SIMULATED"):
+                    state["positions"][key] = e
+                    state["bankroll"] -= e["bet"]
+            else:
+                e["mode"] = "PAPER"
                 state["positions"][key] = e
                 state["bankroll"] -= e["bet"]
-        else:
-            e["mode"] = "PAPER"
-            state["positions"][key] = e
-            state["bankroll"] -= e["bet"]
 
+        all_entries.extend(entries)
+        all_skip.extend(skip_info if isinstance(skip_info, list) else [])
+    
     # V18: Sim-live gap — model rejection rate
     if REJECTION_RATE > 0:
         import random as _r
-        entries = [e for e in entries if _r.random() > REJECTION_RATE]
-
-    # Model fill delay (entries are confirmed after FILL_DELAY_BARS)
-    # In paper mode, we instantly confirm; in live, there's latency
-    # This is handled by the live client
+        all_entries = [e for e in all_entries if _r.random() > REJECTION_RATE]
 
     # V19.7: Track bankroll peak for circuit breaker
     br_peak = state.get("bankroll_peak", state["bankroll"])
     if state["bankroll"] > br_peak:
         state["bankroll_peak"] = state["bankroll"]
     save_state(state)
-    all_settled = exit_settled + settled
-    print(summary(state, entries, all_settled, skip_info))
-    return entries, all_settled, skip_info, sig
+    print(summary(state, all_entries, all_settled, all_skip))
+    return all_entries, all_settled, all_skip, all_sigs
 
 def run_continuous():
     state=load_state()
@@ -1887,48 +1994,82 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
             all_prices.extend(prices[1:])
             price = prices[-1]
             
-            # ── V19.7: Generate synthetic RSI with realistic distribution ──
+            # ── V19.7e: Generate synthetic RSI with realistic distribution ──
             # The real btc_signal() doesn't work well with MC synthetic prices
             # because confluence factors (MACD, VWAP, session) are meaningless
             # in synthetic data. Instead, generate RSI from realistic distribution
             # and compute confidence directly.
+            # 
+            # V19.7e BIDIRECTIONAL: matches btc_signal() zones:
+            #   RSI <20: BLOCKED (knife-catching)
+            #   RSI 20-28: oversold → UP (contrarian bounce)
+            #   RSI 28-35: near-oversold → UP with confirmations
+            #   RSI 35-55: DEAD ZONE
+            #   RSI 55-70: moderate overbought → DOWN (cheap side, mean reversion)
+            #   RSI 70-82: strong overbought → DOWN (cheap 5-15¢, @bonereaper validated)
+            #   RSI >82: BLOCKED (parabolic)
             
-            # RSI distribution from multi-asset backtest:
-            # <20: 5%, 20-28: 11%, 28-35: 21%, 35-45: 25%, 45-65: 30%, >65: 8%
+            # RSI distribution from multi-asset backtest (shifted to increase overbought):
+            # <20: 5%, 20-28: 11%, 28-35: 21%, 35-55: 30%, 55-70: 17%, 70-82: 12%, >82: 4%
             rsi_rand = random.random()
             if rsi_rand < 0.05:
-                rsi = random.uniform(5, 20)  # Deep oversold (5%)
+                rsi = random.uniform(5, 20)   # Deep oversold (5%)
             elif rsi_rand < 0.16:
-                rsi = random.uniform(20, 28)  # Oversold (11%)
+                rsi = random.uniform(20, 28)   # Oversold (11%)
             elif rsi_rand < 0.37:
-                rsi = random.uniform(28, 35)  # Near-oversold (21%)
-            elif rsi_rand < 0.62:
-                rsi = random.uniform(35, 45)  # Near-oversold+conf (25%)
-            elif rsi_rand < 0.92:
-                rsi = random.uniform(45, 65)  # Dead zone (30%)
+                rsi = random.uniform(28, 35)   # Near-oversold (21%)
+            elif rsi_rand < 0.67:
+                rsi = random.uniform(35, 55)   # Dead zone (30%)
+            elif rsi_rand < 0.84:
+                rsi = random.uniform(55, 70)   # Moderate overbought (17%)
+            elif rsi_rand < 0.96:
+                rsi = random.uniform(70, 82)   # Strong overbought (12%)
             else:
-                rsi = random.uniform(65, 80)  # Overbought (8%)
+                rsi = random.uniform(82, 95)   # Parabolic (4%)
             
-            # V19.7: Direction from RSI zone
+            # V19.7e: Bidirectional signal generation (matches btc_signal)
             confirmations = 2  # Default confirmations for MC
+            contra_confs = 0   # Overbought confirmations
             if rsi < RSI_OVERSOLD_MIN:
-                direction = "neutral"  # RSI < 20: BLOCKED
-                conf = 0.0
+                # RSI < 20: BLOCKED — knife-catching zone
+                direction = "neutral"; conf = 0.0
             elif rsi < 28:
-                direction = "up"  # Oversold → contrarian UP
+                # RSI 20-28: Oversold → BUY UP tokens (contrarian bounce)
+                # UP tokens here are at moderate price (but cheap-side DOWN also works)
+                # Following btc_signal: direction = "up"
+                direction = "up"
                 conf = min(MAX_CONFIDENCE, 0.85 + (28 - rsi) / 100)
             elif rsi < RSI_NEAR_OVERSOLD:
-                # Near-oversold with confirmations
+                # RSI 28-35: Near-oversold → UP with confirmations
                 confirmations = random.choices([0, 1, 2], weights=[0.2, 0.3, 0.5])[0]
                 if confirmations >= 2:
                     direction = "up"
                     conf = min(MAX_CONFIDENCE, 0.85 + (35 - rsi) / 70)
                 else:
-                    direction = "neutral"
-                    conf = 0.0
+                    direction = "neutral"; conf = 0.0
+            elif rsi < 55:
+                # RSI 35-55: DEAD ZONE — no signal
+                direction = "neutral"; conf = 0.0
+            elif rsi < 70:
+                # RSI 55-70: Moderate overbought → DOWN with confirmations
+                # Cheap DOWN tokens (15-35¢), mean reversion play
+                contra_confs = random.choices([0, 1, 2], weights=[0.3, 0.4, 0.3])[0]
+                if contra_confs >= 2:
+                    direction = "down"
+                    conf = min(MAX_CONFIDENCE, 0.85 + (rsi - 55) / 150)
+                elif contra_confs == 1:
+                    direction = "down"
+                    conf = min(0.85, 0.82 + (rsi - 55) / 200)
+                else:
+                    direction = "neutral"; conf = 0.0
+            elif rsi < 82:
+                # RSI 70-82: Strong overbought → DOWN (cheap 5-15¢ tokens)
+                # @bonereaper: Down tokens at 8-15¢ = 488% ROI when RSI overbought
+                direction = "down"
+                conf = min(MAX_CONFIDENCE, 0.88 + (rsi - 70) / 80)
             else:
-                direction = "neutral"  # RSI 35+ = dead zone
-                conf = 0.0
+                # RSI > 82: Parabolic — BLOCKED (no reversal signal yet)
+                direction = "neutral"; conf = 0.0
 
             # ── Process exits for ALL open positions first ──
             for k, pos in list(positions.items()):
@@ -1998,20 +2139,29 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
             # These guards are live-only and would filter out too many synthetic signals.
 
             # ── Simulate contract discovery ──
-            # V19.7: Oversold → contrarian DOWN on cheap side
-            # When BTC is oversold, the DOWN token is cheap (≤15¢), that's our entry.
-            # UP direction is expensive (85¢+), not our edge.
-            # The MC should simulate buying the CHEAP side.
+            # V19.7e BIDIRECTIONAL: matches btc_signal() — both oversold UP and overbought DOWN
+            # - Oversold (RSI 20-35): Buy UP tokens. Price reflects UP side.
+            #   UP tokens at 15-45¢ (moderate) — we're buying a bounce, moderately priced.
+            # - Overbought (RSI 55-82): Buy DOWN tokens. Price reflects DOWN side.
+            #   DOWN tokens at 3-15¢ (cheap) — that's our edge (@bonereaper 488% ROI).
             if direction == "up":
-                # Oversold → buy DOWN token (cheap side)
-                # Cheap token price: 3-15¢ for cheap-side entries
+                # Oversold → contrarian UP bounce
+                # UP tokens at moderate prices (15-45¢) when BTC is oversold
+                # Market prices UP as less likely, so UP tokens are cheap-ish
+                base_up_price = 0.15 + np.random.exponential(0.10)  # Mean ~15-25¢
+                contract_price = round(min(0.45, max(0.08, base_up_price)), 3)
+                # UP token stays as-is — we're buying UP (contrarian bounce)
+                sim_side = "Up"
+            elif direction == "down":
+                # Overbought → DOWN (cheap side 5-15¢, @bonereaper strategy)
+                # DOWN tokens at cheap prices when BTC is overbought
                 base_down_price = 0.08 + np.random.exponential(0.04)  # Mean ~8-12¢
                 contract_price = round(min(0.15, max(0.03, base_down_price)), 3)
-                direction = "down"  # V19.7 correction: we buy DOWN tokens on cheap side
+                # DOWN token — we're buying cheap side (mean reversion)
+                sim_side = "Down"
             else:
-                # Fallback: direction is already "down"
-                base_price = 0.08 + np.random.exponential(0.04)
-                contract_price = round(min(0.15, max(0.03, base_price)), 3)
+                # Neutral — skip
+                continue
 
             # V18: Dynamic price gate — only buy if ask ≤ (conf - buffer)
             if DYNAMIC_PRICE_GATE:
@@ -2190,13 +2340,17 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
             else:
                 win_prob -= TAKER_PENALTY  # -1.12pp for taker fills
             
-            # V19.7: Regime blend — DOWN only (buying cheap DOWN tokens)
-            # When oversold, we buy DOWN → blend with down_prob
+            # V19.7e: Regime blend — bidirectional
+            # UP signals: blend with UP regime probability (contrarian bounce)
+            # DOWN signals: blend with DOWN regime probability (mean reversion)
             win_prob_base = win_prob
-            win_prob = win_prob_base * 0.90 + (1 - rp["up_prob"]) * 0.10
+            if direction == "up":
+                win_prob = win_prob_base * 0.90 + rp["up_prob"] * 0.10
+            else:  # down
+                win_prob = win_prob_base * 0.90 + (1 - rp["up_prob"]) * 0.10
 
             positions[key] = {
-                "side": "Up" if direction == "up" else "Down",
+                "side": sim_side,  # V19.7e: use sim_side (Up or Down)
                 "bet": bet, "contract_price": contract_price,
                 "entry_price": prices[-1], "entry_cycle": cycle,
                 "mins_to_expiry": mins_to_expiry,
@@ -2303,7 +2457,7 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
     print(f"  Config: Bear={'ON' if BEAR_SKIP else 'OFF'} Trend={'ON' if TREND_GUARD else 'OFF'} PriceGate={'ON' if DYNAMIC_PRICE_GATE else 'OFF'} MaxPos={MAX_OPEN_POSITIONS}")
     print(f"  EV Gate: min={EV_MIN_GATE} | DD: 10%→½, 15%→¼, 25%→stop (rolling {DD_WINDOW} trades) | Risk: {RISK_PCT_COLD*100:.0f}%/{RISK_PCT_WARM*100:.0f}%/{RISK_PCT_PROVEN*100:.0f}%")
     print(f"  Bet cap: ${MAX_BET_DOLLAR:.0f} until {WARM_UPDATES} trades proven | Min bet: ${MIN_BET:.2f}")
-    print(f"  RSI<20: BLOCKED | RSI 20-28: oversold | RSI 28-35: near-oversold+conf | RSI 35+: DEAD")
+    print(f"  RSI<20: BLOCKED | RSI 20-35: UP (oversold bounce) | RSI 35-55: DEAD | RSI 55-70: DOWN+conf | RSI 70-82: DOWN (cheap) | RSI>82: BLOCKED")
     print(f"  Exit: SL={STOP_LOSS_PCT:.0%} TD={TIME_DECAY_SELL_MINS}m SLIPPAGE={SLIPPAGE_TICKS} REJECT={REJECTION_RATE:.0%}")
     print(f"  Avg Trades/seed: {avg_trades:.1f} | Avg WR: {avg_wr:.1f}% | Avg P&L: ${avg_pnl:+.2f}")
     print(f"  Avg Sharpe: {avg_sharpe:.2f} | Avg DD: {avg_dd:.1f}%")
