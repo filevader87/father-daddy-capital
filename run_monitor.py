@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
-"""One-shot monitoring pipeline runner."""
+"""Run the FDC monitoring pipeline."""
 from monitoring import MonitoringPipeline
 
-def main():
-    mon = MonitoringPipeline()
-    result = mon.run_monitored_scan()
-    print(f"Scan: {result.get('entries', 0)} entries, {result.get('settled', 0)} settled, {result.get('contracts', 0)} contracts")
-    print(f"Audit events: {result['audit_events']}, Alerts: {result['alerts_fired']}")
-
-if __name__ == "__main__":
-    main()
+mon = MonitoringPipeline()
+result = mon.run_monitored_scan()
+print('Scan: %s entries, %s settled, %s contracts' % (result.get('entries', 0), result.get('settled', 0), result.get('contracts', 0)))
+print('Audit events: %s, Alerts: %s' % (result['audit_events'], result['alerts_fired']))
