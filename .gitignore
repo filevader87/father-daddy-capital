@@ -204,3 +204,8 @@ metar_research/
 poly_data/data/
 poly_data/processed/
 poly_data/.env
+
+# Paper trading runtime files
+paper_trading/runner.lock
+paper_trading/state_*.json
+paper_trading/cycle_*.json
