@@ -148,12 +148,12 @@ RSI_DEAD_ZONE_HIGH = 999
 MIN_CONFIDENCE = 0.82
 MAX_CONFIDENCE = 0.95
 
-# Contracts — short-duration "Up or Down" only
-MAX_WINDOW_MINUTES = 15
+# Contracts — short-duration "Up or Down" ONLY (5-min and 15-min)
+MAX_WINDOW_MINUTES = 15   # ONLY accept 5-min and 15-min Up/Down markets
 MIN_VOLUME_USD = 1000
-MIN_CONTRACT_PRICE = 0.08
-MAX_CONTRACT_PRICE = 0.55  # V19.7c: Allow UP tokens (50-55¢) + DOWN cheap tokens (8-45¢)
-# V18.3: PMXT-validated sweet spot — 10-15¢ at RSI<28 = 87.8% WR
+MIN_CONTRACT_PRICE = 0.08  # Minimum 8¢ — below this is longshot drag
+MAX_CONTRACT_PRICE = 0.55  # Allow UP tokens (50-55¢) + DOWN cheap tokens (8-45¢)
+# NO daily/strike-price contracts — only 5-min and 15-min Up/Down binaries
 # 5-8¢ = 77.8% WR, 1-5¢ = 69.5% WR (longshot drag)
 SWEET_SPOT_MIN = 0.08   # Below 8¢: longshot penalty
 SWEET_SPOT_MAX = 0.15   # Above 15¢: not cheap-side
@@ -1031,7 +1031,7 @@ class TradeJournal:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def is_btc_market(question):
-    """Filter: only accept BTC Up/Down contracts. Block weather/misc."""
+    """Filter: only accept BTC Up/Down contracts. Block weather/misc/daily."""
     q = question.lower()
     # Must contain Bitcoin/BTC
     if "bitcoin" not in q and "btc" not in q:
@@ -1041,6 +1041,10 @@ def is_btc_market(question):
         return False
     # Must NOT match blocked patterns
     if any(p.lower() in q for p in BLOCKED_MARKET_PATTERNS):
+        return False
+    # Must have a time window (5-min/15-min format like "3:25PM-3:30PM ET")
+    # This blocks daily/strike-price "above $X" contracts
+    if not re.search(r'\d{1,2}:\d{2}\s*(AM|PM)', q, re.I):
         return False
     return True
 
@@ -1066,12 +1070,13 @@ def discover_contracts():
     today=datetime.now(); month=today.strftime("%B"); day=today.day
     n=ASSET["name"]; contracts=[]; seen=set()
 
-    # V18: Only BTC Up/Down + daily above/below (no weather, no misc)
+    # V19.7d: ONLY 5-min/15-min Up/Down markets — NO daily/strike-price contracts
+    # Two discovery sources: Gamma search (covers known markets) + active markets endpoint (ephemeral)
     queries = [
         f"{n} Up or Down",                     # Short-duration (preferred)
         f"{n} Up or Down - {month} {day}",     # Today's short-duration
-        f"{n} above",                           # Daily above (fallback)
     ]
+    # V19.7d: NO daily/strike-price fallback — ONLY 5-min and 15-min Up/Down
 
     for q in queries:
         try:
@@ -1108,7 +1113,9 @@ def discover_contracts():
                         mins=(end_dt-datetime.now()).total_seconds()/60
 
                     if window and mins < 0: continue
-                    if not window and mins > 1440: continue
+                    # V19.7d: ONLY accept 5-min and 15-min Up/Down markets — NO daily/strike contracts
+                    if not window: continue  # No time window = daily strike-price contract — REJECT
+                    if mins > MAX_WINDOW_MINUTES: continue  # Window > 15min = not a short-duration binary
 
                     up_i,down_i=(0,1)
                     if isinstance(outcomes,list) and len(outcomes)>=2:
@@ -1125,9 +1132,61 @@ def discover_contracts():
                         "slug":evt.get("slug",""),
                         "end_date":m.get("endDate",""),
                         "window":window,"mins_to_expiry":round(mins,1),
-                        "is_daily": window is None,
                     })
         except: continue
+
+    # V19.7d: Also scan active markets endpoint — ephemeral 5m/15m markets
+    # don't appear in gamma search (they show as closed by the time search indexes them)
+    try:
+        active_url = f"{GAMMA}/markets?active=true&closed=false&limit=500&order=volume&ascending=false"
+        active_data = _get(active_url)
+        if isinstance(active_data, list):
+            for m in active_data:
+                cid2 = m.get("conditionId", "")
+                if cid2 in seen or m.get("closed", False):
+                    continue
+                q2 = m.get("question", "")
+                if not is_btc_market(q2):
+                    continue
+                vol2 = float(m.get("volume", 0))
+                if vol2 < MIN_VOLUME_USD:
+                    continue
+                seen.add(cid2)
+                prices2 = _parse(m.get("outcomePrices", []))
+                if not isinstance(prices2, list) or len(prices2) < 2:
+                    continue
+                outcomes2 = _parse(m.get("outcomes", []))
+                window2 = extract_time_window(q2)
+                if not window2:
+                    continue  # No time window = daily/strike contract
+                end_dt2 = None
+                if m.get("endDate"):
+                    try:
+                        end_dt2 = datetime.fromisoformat(m.get("endDate", "").replace("Z", "+00:00")).replace(tzinfo=None)
+                    except:
+                        pass
+                mins2 = 9999
+                if end_dt2:
+                    mins2 = (end_dt2 - datetime.now()).total_seconds() / 60
+                if mins2 < 0 or mins2 > MAX_WINDOW_MINUTES:
+                    continue
+                up_i2, down_i2 = (0, 1)
+                if isinstance(outcomes2, list) and len(outcomes2) >= 2:
+                    o0 = (outcomes2[0] or "").lower()
+                    if "down" in o0 or "no" in o0:
+                        up_i2, down_i2 = (1, 0)
+                contracts.append({
+                    "question": q2, "conditionId": cid2,
+                    "up_price": float(prices2[up_i2]),
+                    "down_price": float(prices2[down_i2]),
+                    "volume": vol2,
+                    "slug": m.get("eventSlug", ""),
+                    "end_date": m.get("endDate", ""),
+                    "window": window2, "mins_to_expiry": round(mins2, 1),
+                })
+    except Exception:
+        pass  # Active endpoint is bonus, not critical
+
     return contracts
 
 
@@ -1212,14 +1271,18 @@ def evaluate_entries(sig,contracts,state):
     candidates=[]
     for c in contracts:
         ep=c["up_price"] if direction=="up" else c["down_price"]
-
+        
+        # 5-min/15-min only — no daily contracts
+        max_price = MAX_CONTRACT_PRICE
+        
         # V18: Dynamic price gate — only buy if ask ≤ (estWR - buffer)
         if DYNAMIC_PRICE_GATE:
-            max_ask = conf - DYNAMIC_PRICE_GATE_BUFFER
+            price_buffer = DYNAMIC_PRICE_GATE_BUFFER
+            max_ask = conf - price_buffer
             if ep > max_ask:
                 continue  # Price too high for our estimated edge
 
-        if MIN_CONTRACT_PRICE<ep<MAX_CONTRACT_PRICE:
+        if MIN_CONTRACT_PRICE < ep < max_price:
             candidates.append({"contract":c,"side":"Up" if direction=="up" else "Down","price":ep})
 
     if not candidates: return [],[]
@@ -1576,7 +1639,7 @@ def load_state():
             "daily_pnl":0,"daily_date":datetime.now().strftime("%Y-%m-%d"),
             "exit_stats":{"stop_loss":0,"time_decay":0,"expiry":0},
             "bankroll_peak":INITIAL_BANKROLL,"mode":"paper",
-            "version":"V19.7c","start_time":datetime.now().isoformat()}
+            "version":"V19.7d","start_time":datetime.now().isoformat()}
 
 def save_state(state):
     state["scans"]=state.get("scans",0)+1

@@ -65,7 +65,7 @@ def load_state():
                 "bankroll_peak": BANKROLL_START,
                 "mode": "paper",
                 "start_time": datetime.now().isoformat(),
-                "version": "V19.7c",
+                "version": "V19.7d",
             }
             for k, v in defaults.items():
                 if k not in state:
@@ -89,7 +89,7 @@ def load_state():
         "bankroll_peak": BANKROLL_START,
         "mode": "paper",
         "start_time": datetime.now().isoformat(),
-        "version": "V19.7c",
+        "version": "V19.7d",
     }
 
 
@@ -418,7 +418,7 @@ def run_daemon(paper=True, scan_interval=300):
     save_state(state)
     
     log(f"═" * 60)
-    log(f"  FDC V19.7c DAEMON — {mode} MODE")
+    log(f"  FDC V19.7d DAEMON — {mode} MODE")
     log(f"  Bankroll: ${state['bankroll']:,.2f} | Scan: {scan_interval}s")
     log(f"  EV GATE: min_ev=0.02 | DD: 10%→½, 15%→¼+halt, 25%→stop")
     log(f"  RISK: 1% cold → 2% warm → 3% proven | $10 cap")
