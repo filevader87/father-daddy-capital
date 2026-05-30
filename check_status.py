@@ -1,35 +1,40 @@
-import json
+#!/usr/bin/env python3
+"""Check FDC audit DB and alert status."""
+import sqlite3
+import os
 
-# Check dashboard data
-try:
-    with open('dashboard_data.json') as f:
-        data = json.load(f)
-    print(f'Dashboard data: {len(data)} sections refreshed')
-    for k in data:
-        v = data[k]
-        if isinstance(v, list):
-            print(f'  {k}: {len(v)} items')
-        elif isinstance(v, dict):
-            print(f'  {k}: {len(v)} keys')
-        else:
-            print(f'  {k}: {v}')
-except Exception as e:
-    print(f'Dashboard data: {e}')
+db_path = '/mnt/c/Users/12035/father_daddy_capital/output/fdc_audit.db'
+if os.path.exists(db_path):
+    db = sqlite3.connect(db_path)
+    total = db.execute('SELECT COUNT(*) FROM audit_trail').fetchone()[0]
+    types = db.execute('SELECT event_type, COUNT(*) FROM audit_trail GROUP BY event_type').fetchall()
+    latest = db.execute('SELECT id, event_type, ts_utc FROM audit_trail ORDER BY id DESC LIMIT 5').fetchall()
+    print(f"Audit DB: {total} total events")
+    print(f"Event types: {dict(types)}")
+    print(f"Latest events:")
+    for row in latest:
+        print(f"  id={row[0]} type={row[1]} ts={row[2]}")
+    
+    # Check chain integrity
+    rows = db.execute('SELECT id, row_hash, prev_row_hash FROM audit_trail ORDER BY id').fetchall()
+    chain_ok = True
+    for i in range(1, len(rows)):
+        if rows[i][2] != rows[i-1][1]:
+            chain_ok = False
+            break
+    print(f"Chain integrity: {'INTACT' if chain_ok else 'BROKEN'}")
+    db.close()
+else:
+    print("No audit DB found")
 
-# Check audit log
-try:
-    with open('audit_log.json') as f:
-        audit = json.load(f)
-    print(f'Audit log: {len(audit)} events')
-    if audit:
-        print(f'  Latest: {audit[-1].get("event","?")} at {audit[-1].get("timestamp","?")}')
-except Exception as e:
-    print(f'Audit log: {e}')
-
-# Check alerts
-try:
-    with open('alerts.json') as f:
-        alerts = json.load(f)
-    print(f'Alerts: {len(alerts)} active')
-except Exception as e:
-    print(f'Alerts: {e}')
+# Check for alerts
+alert_files = [
+    '/mnt/c/Users/12035/father_daddy_capital/output/alerts.json',
+    '/mnt/c/Users/12035/father_daddy_capital/alerts.json',
+]
+for af in alert_files:
+    if os.path.exists(af):
+        import json
+        with open(af) as f:
+            alerts = json.load(f)
+        print(f"Alerts file {af}: {len(alerts)} alerts")

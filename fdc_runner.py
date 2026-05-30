@@ -245,14 +245,14 @@ def place_exit_order(pos, exit_info, state, paper=True):
 def run_scan(state, paper=True):
     """Execute one scan cycle. Returns (entries, exits, skip_info, signal)."""
     from pm_engine_v19_7 import (
-        fetch_5m, btc_signal, discover_contracts, evaluate_entries,
+        fetch_prices, btc_signal, discover_contracts, evaluate_entries,
         process_exits, check_settlements, save_state as engine_save,
         _check_kill_switch, _rolling_drawdown, _init_live,
-        PAPER_BANKROLL, INITIAL_BANKROLL
+        PAPER_BANKROLL, INITIAL_BANKROLL, ASSETS
     )
     
-    # Fetch signal
-    prices = fetch_5m()
+    # Fetch signal (BTC 5m)
+    prices = fetch_prices(ASSETS["BTC"])
     if not prices:
         return [], [], [], None
     

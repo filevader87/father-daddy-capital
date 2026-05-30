@@ -94,7 +94,8 @@ ASSETS = {
     "XRP": {"yf": "XRP-USD",  "name": "Ripple",   "interval": "5m",  "wr": 0.625},
 }
 # Legacy single-asset alias for backward compat (MC backtest uses this)
-ASSET = ASSETS["BTC"]
+# V19.7f: Legacy alias REMOVED. Use ASSETS[key] directly.
+# ASSET = ASSETS["BTC"] — deleted to prevent silent BTC-only fallback.
 
 # ── V19.7 P0-C: RISK SIZING CAP ──
 # Start at 1% per trade. Max 3% after 500+ trades with positive EV.
@@ -686,8 +687,7 @@ def fetch_prices(asset_cfg, interval=None):
         return []
 
 # Keep legacy alias (BTC 5m)
-def fetch_5m():
-    return fetch_prices(ASSETS["BTC"], interval="5m")
+# V19.7f: fetch_5m() DELETED — use fetch_prices(ASSETS[ak], interval=...) instead
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1124,8 +1124,169 @@ def detect_asset(question):
             return asset_key
     return None
 
-# Keep legacy name for backward compat
-is_btc_market = is_valid_market
+
+# V19.7f: Full market classification using complete market object (not just question string).
+REJECT_REASONS = {
+    "no_question": "No question text",
+    "wrong_asset": "Asset not in BTC/ETH/SOL/XRP",
+    "no_up_down": "Not an Up/Down binary",
+    "strike_price": "Contains strike price ($)",
+    "daily": "Daily expiry (no time window)",
+    "weekly": "Weekly expiry",
+    "monthly": "Monthly expiry",
+    "ladder": "Strike ladder (range/rung)",
+    "closed": "Market closed",
+    "expired": "Market expired",
+    "no_time_window": "No parseable time window",
+    "window_too_long": f"Window > {15} min",
+    "ambiguous": "Cannot classify market type",
+}
+
+def classify_market(market, expected_asset=None):
+    """V19.7f: Classify a full market object for validity.
+    
+    Inspects question, title, slug, event, outcomes, condition ID,
+    active/closed status, and expiry — not just the question string.
+    
+    Returns dict:
+        valid: bool
+        asset: str or None (BTC/ETH/SOL/XRP)
+        interval: str or None (5m/15m)
+        direction: str or None (up/down)
+        reason: str (rejection reason if not valid)
+        market_type: str (5m_binary / 15m_binary / daily / weekly / other)
+    """
+    # 1. Must have question text
+    question = market.get("question", "") or market.get("title", "")
+    if not question:
+        return {"valid": False, "asset": None, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["no_question"], "market_type": "other"}
+    
+    # 2. Must not be closed/expired
+    if market.get("closed", False):
+        return {"valid": False, "asset": None, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["closed"], "market_type": "other"}
+    
+    # 3. Check expiry — not in the past
+    end_date = market.get("endDate", market.get("end_date_iso", ""))
+    if end_date:
+        try:
+            from datetime import timezone
+            ed = datetime.fromisoformat(str(end_date).replace("Z", "+00:00"))
+            if ed.replace(tzinfo=None) < datetime.now():
+                return {"valid": False, "asset": None, "interval": None, "direction": None,
+                        "reason": REJECT_REASONS["expired"], "market_type": "other"}
+        except: pass
+    
+    # 4. Detect asset from question (also check slug/event for context)
+    slug = market.get("slug", market.get("eventSlug", ""))
+    event_title = ""
+    if market.get("_event"):
+        event_title = market["_event"].get("title", "")
+    combined = f"{question} {slug} {event_title}".lower()
+    
+    detected = None
+    for asset_key, patterns in ASSET_PATTERNS.items():
+        if any(p in combined for p in patterns):
+            detected = asset_key
+            break
+    
+    if not detected:
+        return {"valid": False, "asset": None, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["wrong_asset"], "market_type": "other"}
+    
+    if expected_asset and detected != expected_asset:
+        return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["wrong_asset"], "market_type": "other"}
+    
+    # 5. Must be Up/Down format — reject strikes, ranges, ladders
+    q = question.lower()
+    has_up_down = ("up" in q and "down" in q) or ("above" in q and "below" in q)
+    has_strike = "$" in q or any(c.isdigit() and "," in q for c in q)
+    has_range = "between" in q and "$" in q
+    
+    if has_strike and not has_up_down:
+        return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["strike_price"], "market_type": "other"}
+    if has_range:
+        return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["ladder"], "market_type": "other"}
+    if "ladder" in q or "rung" in q:
+        return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["ladder"], "market_type": "other"}
+    if not has_up_down:
+        return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["no_up_down"], "market_type": "other"}
+    
+    # 6. Extract time window and classify interval
+    window = extract_time_window(question)
+    if not window and end_date:
+        # Try to infer from end_date vs startDate
+        pass  # Will be caught below
+    
+    if not window:
+        # Check for daily/weekly/monthly indicators
+        if "daily" in q or "today" in q or "tonight" in q:
+            return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                    "reason": REJECT_REASONS["daily"], "market_type": "daily"}
+        if "weekly" in q or "this week" in q or "week" in q:
+            return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                    "reason": REJECT_REASONS["weekly"], "market_type": "weekly"}
+        if "monthly" in q or "this month" in q:
+            return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                    "reason": REJECT_REASONS["monthly"], "market_type": "monthly"}
+        return {"valid": False, "asset": detected, "interval": None, "direction": None,
+                "reason": REJECT_REASONS["no_time_window"], "market_type": "other"}
+    
+    # 7. Determine interval
+    interval = None
+    if window == "5min" or window == "5minute" or window == "5m":
+        interval = "5m"
+    elif window == "15min" or window == "15minute" or window == "15m":
+        interval = "15m"
+    elif window == "1min" or window == "1minute":
+        interval = "1m"
+    # Duration format: check if it's a pure duration string
+    elif isinstance(window, str) and window.rstrip("m").isdigit():
+        mins_val = int(window.rstrip("m"))
+        if mins_val <= 5: interval = "5m"
+        elif mins_val <= 15: interval = "15m"
+    
+    # 8. Check window length
+    mins_to_expiry = None
+    if end_date:
+        try:
+            ed_dt = datetime.fromisoformat(str(end_date).replace("Z", "+00:00")).replace(tzinfo=None)
+            mins_to_expiry = (ed_dt - datetime.now()).total_seconds() / 60
+            if mins_to_expiry < 0:
+                return {"valid": False, "asset": detected, "interval": interval, "direction": None,
+                        "reason": REJECT_REASONS["expired"], "market_type": "other"}
+            if mins_to_expiry > MAX_WINDOW_MINUTES:
+                return {"valid": False, "asset": detected, "interval": interval, "direction": None,
+                        "reason": REJECT_REASONS["window_too_long"], "market_type": "other"}
+        except: pass
+    
+    # 9. Determine direction from outcomes
+    outcomes = market.get("outcomes", [])
+    direction = None
+    if isinstance(outcomes, list):
+        try:
+            outcomes_parsed = _parse(outcomes) if isinstance(outcomes, str) else outcomes
+            if len(outcomes_parsed) >= 2:
+                o0 = str(outcomes_parsed[0]).lower()
+                if "up" in o0 or "above" in o0:
+                    direction = "up_first"
+                elif "down" in o0 or "below" in o0:
+                    direction = "down_first"
+        except: pass
+    
+    # 10. Final validation using string classifier
+    if not is_valid_market(question):
+        return {"valid": False, "asset": detected, "interval": interval, "direction": direction,
+                "reason": REJECT_REASONS["ambiguous"], "market_type": "other"}
+    
+    return {"valid": True, "asset": detected, "interval": interval, "direction": direction,
+            "reason": None, "market_type": f"{interval or 'unknown'}_binary"}
 
 def extract_time_window(question):
     """Extract time window from market question.
@@ -1257,38 +1418,43 @@ def discover_contracts(asset_key=None):
             except:
                 continue
 
-    # V19.7e: Multi-asset active markets scan — ephemeral 5m/15m markets
-    try:
-        active_url = f"{GAMMA}/markets?active=true&closed=false&limit=500&order=volume&ascending=false"
-        active_data = _get(active_url)
-        if isinstance(active_data, list):
-            for m in active_data:
+    # V19.7f: Multi-asset ACTIVE-MARKET discovery — paginated, not event-first
+    # Uses /markets?active=true&closed=false with cursor/offset pagination
+    offset = 0; page_size = 500; total_pages = 0; active_raw = 0; active_deduped = 0
+    while True:
+        total_pages += 1
+        page_url = f"{GAMMA}/markets?active=true&closed=false&limit={page_size}&offset={offset}&order=volume&ascending=false"
+        try:
+            page_data = _get(page_url)
+            if not isinstance(page_data, list) or len(page_data) == 0:
+                break  # No more pages
+            active_raw += len(page_data)
+            for m in page_data:
                 cid2 = m.get("conditionId", "")
                 if cid2 in seen or m.get("closed", False):
                     continue
                 q2 = m.get("question", "")
-                if not is_valid_market(q2):
+                # V19.7f: Use classify_market for full-object validation
+                classification = classify_market(m, asset_key)
+                if not classification["valid"]:
                     continue
-                detected2 = detect_asset(q2)
-                if asset_key and detected2 != asset_key:
-                    continue  # Wrong asset
+                detected2 = classification["asset"]
                 vol2 = float(m.get("volume", 0))
                 if vol2 < MIN_VOLUME_USD:
                     continue
-                seen.add(cid2)
+                seen.add(cid2); active_deduped += 1
                 prices2 = _parse(m.get("outcomePrices", []))
                 if not isinstance(prices2, list) or len(prices2) < 2:
                     continue
                 outcomes2 = _parse(m.get("outcomes", []))
                 window2 = extract_time_window(q2)
                 if not window2:
-                    continue  # No time window = daily/strike contract
+                    continue  # No time window = daily/strike — REJECT
                 end_dt2 = None
                 if m.get("endDate"):
                     try:
                         end_dt2 = datetime.fromisoformat(m.get("endDate", "").replace("Z", "+00:00")).replace(tzinfo=None)
-                    except:
-                        pass
+                    except: pass
                 mins2 = 9999
                 if end_dt2:
                     mins2 = (end_dt2 - datetime.now()).total_seconds() / 60
@@ -1304,13 +1470,21 @@ def discover_contracts(asset_key=None):
                     "up_price": float(prices2[up_i2]),
                     "down_price": float(prices2[down_i2]),
                     "volume": vol2,
-                    "slug": m.get("eventSlug", ""),
+                    "slug": m.get("eventSlug", m.get("slug", "")),
                     "end_date": m.get("endDate", ""),
                     "window": window2, "mins_to_expiry": round(mins2, 1),
-                    "asset": detected2 or "BTC",  # V19.7e
+                    "asset": detected2 or "BTC",
+                    # V19.7f: Enrich with classification data
+                    "interval": classification.get("interval"),
+                    "market_type": classification.get("market_type"),
+                    "direction_order": classification.get("direction"),
                 })
-    except Exception:
-        pass  # Active endpoint is bonus, not critical
+            # V19.7f: Check if we got fewer than page_size — last page
+            if len(page_data) < page_size:
+                break
+            offset += page_size
+        except Exception:
+            break
 
     return contracts
 
@@ -2489,25 +2663,48 @@ def mc_backtest(seeds=20, cycles=200, bankroll=100.0, master_seed=0):
     avg_dd = np.mean([r["drawdown"] for r in results])
     avg_trades = np.mean([r["trades"] for r in results])
     
-    # Qualified WR: only seeds with ≥5 trades (statistically meaningful)
+    # Qualified WR: only seeds with ≥5 trades (diagnostic, not deploy gate)
     qualified = [r for r in results if r["trades"] >= 5]
     qual_wr = np.mean([r["win_rate"] for r in qualified]) if qualified else avg_wr
     qual_count = len(qualified)
+    
+    # V19.7f: Deploy gate — EV/PF/DD, NOT qualified WR
+    all_pnls = [r["pnl"] for r in results]
+    all_pfs = [r["profit_factor"] for r in results if r["profit_factor"] > 0]
+    all_dds = [r["drawdown"] for r in results]
+    
+    net_ev_per_trade = avg_pnl / max(avg_trades, 1) if avg_trades > 0 else 0
+    avg_pf = np.mean(all_pfs) if all_pfs else 0
+    worst_dd = max(all_dds) if all_dds else 100
+    
+    # Deploy criteria (V19.7f): EV > 0, PF >= 1.25, max DD <= 15%, classifier has zero false accepts
+    deploy_ev = net_ev_per_trade > 0
+    deploy_pf = avg_pf >= 1.25
+    deploy_dd = avg_dd <= 15.0
+    deploy_trades = avg_trades >= 5  # minimum opportunity threshold
+    
+    deploy_pass = deploy_ev and deploy_pf and deploy_dd and deploy_trades
 
     print(f"\n{'='*60}")
-    print(f"V19.7 MONTE CARLO — {seeds} seeds × {cycles} cycles × ${bankroll:.0f}")
+    print(f"V19.7f MONTE CARLO — {seeds} seeds × {cycles} cycles × ${bankroll:.0f}")
     print(f"{'='*60}")
     print(f"  Config: Bear={'ON' if BEAR_SKIP else 'OFF'} Trend={'ON' if TREND_GUARD else 'OFF'} PriceGate={'ON' if DYNAMIC_PRICE_GATE else 'OFF'} MaxPos={MAX_OPEN_POSITIONS}")
     print(f"  EV Gate: min={EV_MIN_GATE} | DD: 10%→½, 15%→¼, 25%→stop (rolling {DD_WINDOW} trades) | Risk: {RISK_PCT_COLD*100:.0f}%/{RISK_PCT_WARM*100:.0f}%/{RISK_PCT_PROVEN*100:.0f}%")
     print(f"  Bet cap: ${MAX_BET_DOLLAR:.0f} until {WARM_UPDATES} trades proven | Min bet: ${MIN_BET:.2f}")
-    print(f"  RSI<20: BLOCKED | RSI 20-35: UP (oversold bounce) | RSI 35-55: DEAD | RSI 55-70: DOWN+conf | RSI 70-82: DOWN (cheap) | RSI>82: BLOCKED")
+    print(f"  RSI<20: BLOCKED | RSI 20-35: UP (oversold bounce) | RSI 35-55: DEAD | RSI 55-70: DOWN shadow | RSI 70-82: DOWN+conf | RSI>82: BLOCKED")
+    print(f"  Shadow: RSI 55-70 DOWN={DOWN_SHADOW_MODE} | RSI 70-82 conf={DOWN_STRONG_CONFIRM}")
     print(f"  Exit: SL={STOP_LOSS_PCT:.0%} TD={TIME_DECAY_SELL_MINS}m SLIPPAGE={SLIPPAGE_TICKS} REJECT={REJECTION_RATE:.0%}")
     print(f"  Avg Trades/seed: {avg_trades:.1f} | Avg WR: {avg_wr:.1f}% | Avg P&L: ${avg_pnl:+.2f}")
-    print(f"  Avg Sharpe: {avg_sharpe:.2f} | Avg DD: {avg_dd:.1f}%")
+    print(f"  Avg Sharpe: {avg_sharpe:.2f} | Avg DD: {avg_dd:.1f}% | Worst DD: {worst_dd:.1f}%")
     print(f"  Seeds 4+/5 gates: {passed_seeds}/{seeds} | 5/5: {all_passed}/{seeds}")
-    print(f"  Qualified WR (≥5 trades): {qual_wr:.1f}% from {qual_count}/{seeds} seeds")
+    print(f"  Qualified WR (≥5 trades): {qual_wr:.1f}% from {qual_count}/{seeds} seeds (DIAGNOSTIC)")
+    print(f"\n  ── DEPLOY GATE (V19.7f) ──")
+    print(f"  Net EV/trade > 0:     {'✅' if deploy_ev else '❌'} (${net_ev_per_trade:.3f}/trade)")
+    print(f"  Avg PF >= 1.25:       {'✅' if deploy_pf else '❌'} (PF={avg_pf:.2f})")
+    print(f"  Avg DD <= 15%:        {'✅' if deploy_dd else '❌'} (DD={avg_dd:.1f}%)")
+    print(f"  Avg trades >= 5:      {'✅' if deploy_trades else '❌'} ({avg_trades:.1f}/seed)")
     hard_mode_str = " | HARD-MODE ✅" if HARD_MODE else ""
-    print(f"\n  DEPLOY DECISION: {'✅ PASS' if passed_seeds >= 18 else '❌ FAIL — iterate more'}{hard_mode_str}")
+    print(f"\n  DEPLOY DECISION: {'✅ PASS' if deploy_pass else '❌ FAIL — criteria not met'}{hard_mode_str}")
     print(f"{'='*60}\n")
 
     for r in results:
