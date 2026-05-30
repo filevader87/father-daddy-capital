@@ -853,7 +853,6 @@ def run_paper_cycle():
 
             # V19.7n: Track unique markets seen
             for c in contracts[:3]:
-                state["trade_candidates_total"] += 1
                 cid = c.get("condition_id", "")
                 if cid and cid not in state["seen_condition_ids"]:
                     state["seen_condition_ids"].append(cid)
@@ -865,6 +864,7 @@ def run_paper_cycle():
 
             # Determine token IDs from CLOB data
             for c in contracts[:3]:
+                state["trade_candidates_total"] += 1
                 is_up = direction == "up"
                 if is_up:
                     token_price = c.get("up_price", 0.5)
