@@ -1292,18 +1292,39 @@ def extract_time_window(question):
     """Extract time window from market question.
     
     Supports:
-    - "3:25PM-3:30PM ET" (explicit time range)
+    - "3:25PM-3:30PM ET" (explicit time range) → computes duration
     - "5min" / "15min" / "5 min" / "15 min" (duration format)
     - "3:25PM ET" (single time)
     """
-    # Format 1: Time range "3:25PM-3:30PM ET"
-    m=re.search(r'(\d{1,2}:\d{2}(AM|PM)\s*-\s*\d{1,2}:\d{2}(AM|PM)\s*(ET|UTC))',question,re.I)
-    if m: return m.group(1).replace(" ","")
+    import re
+    # Format 1: Time range "3:25PM-3:30PM ET" — compute duration in minutes
+    m = re.search(r'(\d{1,2}):(\d{2})(AM|PM)\s*-\s*(\d{1,2}):(\d{2})(AM|PM)\s*(ET|UTC|EST|EDT)?', question, re.I)
+    if m:
+        try:
+            sh, sm, sap = int(m.group(1)), int(m.group(2)), m.group(3).upper()
+            eh, em, eap = int(m.group(4)), int(m.group(5)), m.group(6).upper()
+            # Convert to 24h
+            if sap == "PM" and sh != 12: sh += 12
+            if sap == "AM" and sh == 12: sh = 0
+            if eap == "PM" and eh != 12: eh += 12
+            if eap == "AM" and eh == 12: eh = 0
+            start_min = sh * 60 + sm
+            end_min = eh * 60 + em
+            # Handle overnight (end < start)
+            if end_min <= start_min: end_min += 24 * 60
+            duration = end_min - start_min
+            if duration <= 5: return "5m"
+            elif duration <= 15: return "15m"
+            else: return f"{duration}m"
+        except:
+            pass
+        # Fallback: return the raw string
+        return m.group(0).replace(" ", "")
     # Format 2: Single time "3:25PM ET"
-    m=re.search(r'(\d{1,2}(AM|PM)\s*(ET|UTC))',question,re.I)
-    if m: return m.group(1).replace(" ","")
+    m = re.search(r'(\d{1,2})(AM|PM)\s*(ET|UTC)', question, re.I)
+    if m: return m.group(0).replace(" ", "")
     # Format 3: Duration "5min" / "15min" / "5 min" / "1 hour"
-    m=re.search(r'(\d+\s*(?:min|minute|hour))',question,re.I)
+    m = re.search(r'(\d+\s*(?:min|minute|hour))', question, re.I)
     if m: return m.group(1).strip().lower().replace(" ", "")
     return None
 
@@ -1390,6 +1411,11 @@ def discover_contracts(asset_key=None):
                         mins = 9999
                         if end_dt:
                             mins = (end_dt - datetime.now()).total_seconds() / 60
+                        elif window:
+                            # V19.7g: Infer duration from window string when no end_date
+                            dur_str = window.rstrip("m")
+                            if dur_str.isdigit():
+                                mins = int(dur_str)
 
                         if window and mins < 0:
                             continue
@@ -1405,6 +1431,18 @@ def discover_contracts(asset_key=None):
                             if "down" in o0 or "no" in o0 or "below" in o0:
                                 up_i, down_i = (1, 0)
 
+                        # V19.7g: Determine interval from window
+                        contract_interval = None
+                        if window:
+                            if window in ("5m", "5min", "5minute"):
+                                contract_interval = "5m"
+                            elif window in ("15m", "15min", "15minute"):
+                                contract_interval = "15m"
+                            elif window.rstrip("m").isdigit() and int(window.rstrip("m")) <= 5:
+                                contract_interval = "5m"
+                            elif window.rstrip("m").isdigit() and int(window.rstrip("m")) <= 15:
+                                contract_interval = "15m"
+
                         contracts.append({
                             "question": question, "conditionId": cid,
                             "up_price": float(prices[up_i]),
@@ -1414,6 +1452,8 @@ def discover_contracts(asset_key=None):
                             "end_date": m.get("endDate", ""),
                             "window": window, "mins_to_expiry": round(mins, 1),
                             "asset": detected or ak,  # V19.7e: track which asset
+                            "interval": contract_interval,
+                            "market_type": f"{contract_interval or 'unknown'}_binary" if contract_interval else "unknown_binary",
                         })
             except:
                 continue
@@ -1458,6 +1498,11 @@ def discover_contracts(asset_key=None):
                 mins2 = 9999
                 if end_dt2:
                     mins2 = (end_dt2 - datetime.now()).total_seconds() / 60
+                elif window2:
+                    # V19.7g: Infer duration from window string when no end_date
+                    dur_str = window2.rstrip("m")
+                    if dur_str.isdigit():
+                        mins2 = int(dur_str)
                 if mins2 < 0 or mins2 > MAX_WINDOW_MINUTES:
                     continue
                 up_i2, down_i2 = (0, 1)
