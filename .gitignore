@@ -209,3 +209,9 @@ poly_data/.env
 paper_trading/runner.lock
 paper_trading/state_*.json
 paper_trading/cycle_*.json
+
+# V19.7l discovery debug + dry-run + shadow outputs
+discovery_debug/
+dry_run/
+shadow_validation/
+*.jsonl
