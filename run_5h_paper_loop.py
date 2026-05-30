@@ -306,7 +306,8 @@ def run_5h_loop():
 
 # ── Supervisor mode ──
 def supervise():
-    """Cron supervisor: starts, monitors, or restarts the 5h loop"""
+    """Cron supervisor: ensures 5h loop is running, restarts if stale.
+    Does NOT run the loop directly — spawns via subprocess."""
     lock = read_lock()
     
     if lock and lock.get("completed"):
@@ -322,7 +323,7 @@ def supervise():
             age = STALE_TIMEOUT + 1
         
         if age < STALE_TIMEOUT:
-            # Runner active and fresh
+            # Runner active and fresh — do nothing
             return
         
         # Stale — kill and restart
@@ -335,9 +336,17 @@ def supervise():
                 pass
         clear_lock()
     
-    # No lock or stale — start fresh
-    print(f"Starting 5h runner (supervisor mode)")
-    run_5h_loop()
+    # No lock or stale — spawn fresh 5h loop as detached subprocess
+    print(f"Spawning 5h runner (supervisor mode)")
+    import subprocess
+    script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'run_5h_paper_loop.py')
+    subprocess.Popen(
+        [sys.executable, script_path],
+        stdout=open('/tmp/v198_5h_loop.txt', 'a'),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+        cwd='/mnt/c/Users/12035/father_daddy_capital'
+    )
 
 # ── Entry point ──
 if __name__ == "__main__":
