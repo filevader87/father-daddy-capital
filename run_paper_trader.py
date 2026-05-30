@@ -89,7 +89,7 @@ def main():
     except:
         pass
     
-    from paper_trader_v19_7h import run_paper_cycle
+    from paper_trader_v19_7i import run_paper_cycle
     
     print(f"Runner PID {os.getpid()} started at {lock_data['started_at']}")
     print(f"Running {MAX_CYCLES} cycles at {CYCLE_INTERVAL}s intervals")
