@@ -153,16 +153,35 @@ def write_final_report(run_state):
     """Generate final 5-hour report"""
     elapsed = run_state["elapsed"]
     
-    # Determine classification
-    has_executable = run_state.get("executable_opportunities", 0) > 0
-    has_paper_trades = run_state.get("paper_trades_opened", 0) > 0
+    # Read actual CORE_UP state for classification (not the lightweight run_state)
+    core_state_path = Path('/mnt/c/Users/12035/father_daddy_capital/paper_trading/state_CORE_UP.json')
+    core_state = {}
+    if core_state_path.exists():
+        try:
+            with open(core_state_path) as f:
+                core_state = json.load(f)
+        except:
+            pass
     
+    exec_opp = core_state.get("executable_opportunities", run_state.get("executable_opportunities", 0))
+    paper_opened = core_state.get("paper_trades_opened", run_state.get("paper_trades_opened", 0))
+    blocked = core_state.get("blocked_trade_candidates", run_state.get("blocked_trade_candidates", 0))
+    market_opp = core_state.get("market_opportunities", run_state.get("market_opportunities", 0))
+    signal_opp = core_state.get("signal_opportunities", run_state.get("signal_opportunities", 0))
+    
+    # Determine classification per directive §15/§19
     if run_state["errors_count"] > 50:
         classification = "A_RUNTIME_FAILURE"
-    elif not has_executable:
-        classification = "A_COLLECTING_MARKET_AND_SIGNAL_DATA"
-    elif has_executable and has_paper_trades:
-        classification = "A_COLLECTING_EXECUTABLE_OPPORTUNITIES"
+    elif exec_opp == 0 and paper_opened == 0:
+        if market_opp == 0:
+            classification = "A_MARKET_DISCOVERY_ONLY"
+        elif signal_opp == 0:
+            classification = "A_COLLECTING_MARKET_AND_SIGNAL_DATA"
+        else:
+            classification = "A_COLLECTING_MARKET_AND_SIGNAL_DATA"
+    elif exec_opp >= 10 or paper_opened >= 5:
+        # Minimum gate: 10 executable OR 5 paper trades
+        classification = "B_PAPER_VALIDATED"
     else:
         classification = "A_COLLECTING_EXECUTABLE_OPPORTUNITIES"
     
@@ -175,6 +194,21 @@ def write_final_report(run_state):
         "runtime_errors": run_state["errors_count"],
         "classification": classification,
         "recommendation": classification,
+        # V19.8: Actual CORE_UP metrics from profile state
+        "CORE_UP_executable_opportunities": exec_opp,
+        "CORE_UP_paper_trades_opened": paper_opened,
+        "CORE_UP_blocked_candidates": blocked,
+        "CORE_UP_market_opportunities": market_opp,
+        "CORE_UP_signal_opportunities": signal_opp,
+        "CORE_UP_blocked_by_dormant_book": core_state.get("blocked_by_dormant_book", 0),
+        "CORE_UP_blocked_by_price_gate": core_state.get("blocked_by_price_gate", 0),
+        "CORE_UP_blocked_by_EV_gate": core_state.get("blocked_by_EV_gate", 0),
+        "CORE_UP_blocked_by_dormant_longshot": core_state.get("blocked_by_dormant_longshot", 0),
+        "CORE_UP_blocked_by_unrecoverable_distance": core_state.get("blocked_by_unrecoverable_distance", 0),
+        "CORE_UP_blocked_by_missing_reference_price": core_state.get("blocked_by_missing_reference_price", 0),
+        "CORE_UP_blocked_by_spread": core_state.get("blocked_by_spread", 0),
+        "CORE_UP_blocked_by_expiry_danger": core_state.get("blocked_by_expiry_danger", 0),
+        "CORE_UP_blocked_by_bad_market_phase": core_state.get("blocked_by_bad_market_phase", 0),
         **{k: v for k, v in run_state.items() if k not in ("start_time",)},
     }
     
@@ -190,6 +224,22 @@ def write_final_report(run_state):
 **Cycles:** {run_state['cycle_count']}
 **Runtime Errors:** {run_state['errors_count']}
 **Classification:** {classification}
+
+## CORE_UP Metrics
+- Market opportunities: {market_opp}
+- Signal opportunities: {signal_opp}
+- Executable opportunities: {exec_opp}
+- Paper trades opened: {paper_opened}
+- Blocked candidates (total): {blocked}
+  - Dormant book: {core_state.get('blocked_by_dormant_book',0)}
+  - Dormant longshot: {core_state.get('blocked_by_dormant_longshot',0)}
+  - Price gate: {core_state.get('blocked_by_price_gate',0)}
+  - EV gate: {core_state.get('blocked_by_EV_gate',0)}
+  - Spread: {core_state.get('blocked_by_spread',0)}
+  - Unrecoverable distance: {core_state.get('blocked_by_unrecoverable_distance',0)}
+  - Missing reference price: {core_state.get('blocked_by_missing_reference_price',0)}
+  - Expiry danger: {core_state.get('blocked_by_expiry_danger',0)}
+  - Bad market phase: {core_state.get('blocked_by_bad_market_phase',0)}
 
 ## Recommendation
 {classification}

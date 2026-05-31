@@ -394,6 +394,67 @@ def test_profile_isolation():
     assert_test(not eligible, f"BIDIRECTIONAL_SHADOW not live-eligible: {blocked}")
     eligible2, _, blocked2 = check_live_eligible("PARABOLIC_RESEARCH", "BTC", "oversold", "up", "5m")
     assert_test(not eligible, f"PARABOLIC_RESEARCH not live-eligible: {blocked2}")
+    return  # end test_profile_isolation
+
+
+# ═══════════════════════════════════════════════════════════════════
+# V19.8 Reference-Price / Recoverability Test Definitions (32-40)
+# ═══════════════════════════════════════════════════════════════════
+
+import reference_price_engine as rpe
+
+def test_32_reference_price_infer():
+    ref = rpe.get_reference_price({"end_date": "2026-05-31T06:55:00Z", "interval": "5m", "asset": "BTC"}, {"BTC": 73992.13})
+    assert ref is not None and ref["reference_price"] == 73992.13
+    print("  ✅ Reference price inferred from spot")
+
+def test_33_recoverability_in_the_money():
+    r = rpe.compute_recoverability("BTC", "up", 74000, 73500, 180)
+    assert r["recoverability_score"] == 1.0
+    print("  ✅ In-the-money → score 1.0")
+
+def test_34_recoverability_longshot():
+    r = rpe.compute_recoverability("BTC", "up", 73000, 74500, 60)
+    assert r["recoverability_score"] < 0.3 and r["recoverability_reason"] == "longshot"
+    print("  ✅ Longshot → low score")
+
+def test_35_token_state_dormant():
+    ts = rpe.classify_token_state(0.99, 0.01)
+    assert ts[0] == "nearly_decided"
+    ts3 = rpe.classify_token_state(0.97, 0.03)
+    assert ts3[0] in ("nearly_decided", "dormant_longshot")
+    print("  ✅ 1-5¢ tokens → nearly_decided/dormant_longshot")
+
+def test_36_token_state_live_dislocation():
+    ts = rpe.classify_token_state(0.325, 0.675)
+    assert ts[0] == "live_dislocation"
+    ts2 = rpe.classify_token_state(0.50, 0.50)
+    assert ts2[0] == "balanced"
+    print("  ✅ 8-35¢ → live_dislocation, 35-65¢ → balanced")
+
+def test_37_market_phase():
+    phase = rpe.classify_market_phase({"end_date": "2026-01-01T00:00:00Z", "interval": "5m"})
+    assert phase[0] == "CLOSED_OR_EXPIRED"
+    print("  ✅ Market phase classification works")
+
+def test_38_recoverable_gate():
+    ok, _ = rpe.check_recoverable_cheap_token(0.03, {"recoverability_score": 0.7}, 0.02, 100, 180, 0.05, 0.03)
+    assert not ok
+    ok2, reason2 = rpe.check_recoverable_cheap_token(0.15, {"recoverability_score": 0.7}, 0.02, 100, 180, 0.10, 0.03)
+    assert ok2
+    print("  ✅ Gate blocks <8¢, allows 8-35¢ with good recycl")
+
+def test_39_expensive_side_diag():
+    diag = rpe.make_expensive_side_diagnostic({"slug": "btc-test"}, "up", 0.85, 0.80, 0.02)
+    assert diag["diagnostic_only"] == True and diag["max_loss_if_wrong"] == 0.85
+    print("  ✅ Expensive-side diagnostic is paper-only")
+
+def test_40_pbot_style():
+    style = rpe.classify_pbot_style(("live_dislocation","t"), "up", "MID_WINDOW", {"recoverability_score": 0.7})
+    assert style == "cheap_reversal"
+    style2 = rpe.classify_pbot_style(("live_dislocation","t"), "up", "LATE_WINDOW", {"recoverability_score": 0.7})
+    assert style2 == "late_window_dislocation"
+    print("  ✅ PBot style classification works")
 
 
 if __name__ == "__main__":
@@ -753,8 +814,22 @@ print(f"\n{'='*60}")
 print(f"V19.8 TOTAL: {TESTS_PASSED} passed, {TESTS_FAILED} failed")
 print(f"{'='*60}")
 
+# ── V19.8 Reference-Price / Recoverability Tests (32-40) ──
+print(f"\n── V19.8 RP Tests (32-40) ──")
+for t in [test_32_reference_price_infer, test_33_recoverability_in_the_money, test_34_recoverability_longshot, test_35_token_state_dormant, test_36_token_state_live_dislocation, test_37_market_phase, test_38_recoverable_gate, test_39_expensive_side_diag, test_40_pbot_style]:
+    try:
+        t()
+        TESTS_PASSED += 1
+    except Exception as e:
+        print(f"  ❌ {t.__name__}: {e}")
+        TESTS_FAILED += 1
+
+print(f"\n{'='*60}")
+print(f"V19.8 FINAL: {TESTS_PASSED} passed, {TESTS_FAILED} failed")
+print(f"{'='*60}")
+
 if TESTS_FAILED > 0:
     print("❌ V19.8 TESTS FAILED")
     sys.exit(1)
-else:
-    print("✅ ALL V19.8 TESTS PASSED")
+print("  ✅ PBot style classification works")
+

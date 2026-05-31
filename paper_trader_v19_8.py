@@ -21,6 +21,7 @@ import urllib.request
 sys.path.insert(0, '/mnt/c/Users/12035/father_daddy_capital')
 import pm_engine_v19_7 as eng
 import discovery_providers as dp
+import reference_price_engine as rpe
 
 OUT_DIR = Path('/mnt/c/Users/12035/father_daddy_capital/paper_trading')
 OUT_DIR.mkdir(exist_ok=True)
@@ -496,6 +497,20 @@ def init_profile_state(profile_key):
         "blocked_by_price_gate": 0,
         "blocked_by_EV_gate": 0,
         "blocked_by_duplicate_position": 0,
+        # V19.8 Reference-Price / Recoverability counters
+        "blocked_by_missing_reference_price": 0,
+        "blocked_by_dormant_longshot": 0,
+        "blocked_by_unrecoverable_distance": 0,
+        "blocked_by_expiry_danger": 0,
+        "blocked_by_bad_market_phase": 0,
+        # Token state counts
+        "token_states_seen": {"balanced": 0, "live_dislocation": 0, "dormant_longshot": 0,
+                              "nearly_decided": 0, "wide_spread": 0, "untradeable": 0},
+        "market_phases_seen": {"PRE_OPEN_FUTURE": 0, "EARLY_WINDOW": 0, "MID_WINDOW": 0,
+                               "LATE_WINDOW": 0, "EXPIRY_DANGER": 0, "CLOSED_OR_EXPIRED": 0},
+        "recoverability_scores": [],  # Distribution tracking
+        "reference_price_missing_count": 0,
+        "expensive_side_diagnostics": [],  # §8: paper-only, never counts toward readiness
         "paper_trades_resolved": 0,
         "valid_opportunities": 0,         # LEGACY alias — same as executable_opportunities
         "unique_markets_seen": 0,         # distinct condition_ids across all cycles
@@ -873,6 +888,84 @@ def run_paper_cycle():
                     token_price = c.get("down_price", 0.5)
                     token_side = "DOWN"
 
+                # ── V19.8: Market phase classification ──
+                market_phase, phase_detail = rpe.classify_market_phase(c)
+                if market_phase in state.get("market_phases_seen", {}):
+                    state["market_phases_seen"][market_phase] += 1
+
+                # ── V19.8: Entry window gate ──
+                entry_ok, entry_reason, entry_phase, time_since_start, time_to_expiry_sec = rpe.check_entry_window(c)
+                if not entry_ok:
+                    if "pre_open" in entry_reason or "pre_stable" in entry_reason:
+                        state["blocked_by_bad_market_phase"] += 1
+                    elif "too_late" in entry_reason or "expiry_danger" in entry_reason:
+                        state["blocked_by_expiry_danger"] += 1
+                    elif "closed" in entry_reason or "expired" in entry_reason:
+                        state["blocked_by_bad_market_phase"] += 1
+                    state["blocked_trade_candidates"] += 1
+                    continue
+
+                # ── V19.8: Token state classification ──
+                up_p = c.get("up_price", 0.5)
+                down_p = c.get("down_price", 0.5)
+                spread_val = abs(up_p + down_p - 1.0)
+                token_state = rpe.classify_token_state(up_p, down_p, spread=spread_val)
+                ts_name = token_state[0]
+                if ts_name in state.get("token_states_seen", {}):
+                    state["token_states_seen"][ts_name] += 1
+
+                # ── V19.8: Dormant longshot gate ──
+                if ts_name == "dormant_longshot":
+                    state["blocked_by_dormant_longshot"] += 1
+                    state["blocked_trade_candidates"] += 1
+                    state["dormant_longshot_reject"] = state.get("dormant_longshot_reject", 0) + 1
+                    continue
+
+                # ── V19.8: Reference price computation ──
+                spot_prices = {}
+                for a, p_list in all_prices.items():
+                    if p_list:
+                        spot_prices[a] = p_list[-1]
+                reference = rpe.get_reference_price(c, spot_prices)
+                if reference is None:
+                    state["blocked_by_missing_reference_price"] += 1
+                    state["reference_price_missing_count"] += 1
+                    state["blocked_trade_candidates"] += 1
+                    continue
+
+                # ── V19.8: Recoverability score ──
+                current_spot = spot_prices.get(ak, reference["reference_price"])
+                recycl = rpe.compute_recoverability(
+                    ak, direction, current_spot, reference["reference_price"],
+                    time_to_expiry_sec, atr_short=None,
+                    candle_velocity=sig.get("candle_velocity", 0) if sig else 0
+                )
+                state["recoverability_scores"].append(recycl["recoverability_score"])
+
+                # ── V19.8: Unrecoverable distance gate ──
+                if recycl["recoverability_score"] < rpe.MIN_RECOVERABILITY:
+                    state["blocked_by_unrecoverable_distance"] += 1
+                    state["blocked_trade_candidates"] += 1
+                    continue
+
+                # ── V19.8: Recoverable cheap token gate (pre-check, book/EV not yet known) ──
+                recycl_ok, recycl_reason = rpe.check_recoverable_cheap_token(
+                    token_price, recycl, spread_val, 0,  # depth unknown yet
+                    time_to_expiry_sec, 0,  # EV not yet computed
+                    profile_cfg.get("ev_min_gate", eng.EV_MIN_GATE)
+                )
+                # Full recycl check will be repeated after EV gate below
+
+                # ── V19.8: Expensive-side diagnostic (§8) ──
+                expensive_price = up_p if is_up and up_p >= 0.80 else (down_p if not is_up and down_p >= 0.80 else None)
+                if expensive_price:
+                    exp_diag = rpe.make_expensive_side_diagnostic(
+                        c, direction, expensive_price,
+                        sig.get("win_probability", 0.5) if sig else 0.5,
+                        0, would_have_won=None
+                    )
+                    state["expensive_side_diagnostics"].append(exp_diag)
+
                 # ── Duplicate check ──
                 condition_id = c.get("conditionId", "")
                 if not condition_id:
@@ -1003,6 +1096,28 @@ def run_paper_cycle():
                     state["EV_gate_reject"] += 1
                     continue
 
+                # ── V19.8: Recoverable cheap token FINAL check (with real EV + depth) ──
+                depth_val = book.get("ask_depth_5c", 0) if book_available else 0
+                recycl_final_ok, recycl_final_reason = rpe.check_recoverable_cheap_token(
+                    token_price, recycl, spread_val, depth_val,
+                    time_to_expiry_sec, net_ev,
+                    profile_cfg.get("ev_min_gate", eng.EV_MIN_GATE)
+                )
+                if not recycl_final_ok:
+                    # Determine which sub-reason
+                    if "dormant_longshot" in recycl_final_reason:
+                        state["blocked_by_dormant_longshot"] += 1
+                    elif "unrecoverable" in recycl_final_reason:
+                        state["blocked_by_unrecoverable_distance"] += 1
+                    elif "spread" in recycl_final_reason:
+                        state["blocked_by_spread_too_wide"] = state.get("blocked_by_spread_too_wide", 0) + 1
+                    elif "ev" in recycl_final_reason:
+                        state["blocked_by_EV_gate"] += 1
+                    else:
+                        state["blocked_by_dormant_longshot"] += 1
+                    state["blocked_trade_candidates"] += 1
+                    continue
+
                 passed_ev_gate = True
 
                 # Position sizing
@@ -1046,6 +1161,15 @@ def run_paper_cycle():
                     "gross_ev": round(gross_ev, 6),
                     "net_ev": round(net_ev, 6),
                     "executable": book_available,
+                    # ── V19.8: Reference-price / Recoverability fields ──
+                    "reference_price": reference.get("reference_price") if reference else None,
+                    "reference_price_source": reference.get("reference_price_source") if reference else None,
+                    "market_phase": market_phase,
+                    "token_state": ts_name,
+                    "recoverability_score": recycl.get("recoverability_score"),
+                    "recoverability_reason": recycl.get("recoverability_reason"),
+                    "needed_move_pct": recycl.get("needed_move_pct"),
+                    "needed_move_atr": recycl.get("needed_move_atr"),
                     # ── Resolution fields (filled later) ──
                     "exit_timestamp": "",
                     "resolution_source": "",
@@ -1389,6 +1513,33 @@ def run_paper_cycle():
         print(f"  CORE_UP blocked: {block_str}")
     print(f"  ⚠️  PBot diagnostics do NOT affect CORE_UP readiness or live eligibility")
 
+    # ── V19.8: Reference Diagnostic JSONL ──
+    try:
+        ref_diag_path = OUT_DIR / "reference_diagnostics.jsonl"
+        # Build diagnostic record for the cycle
+        core = load_profile_state("CORE_UP")
+        recycl_scores = core.get("recoverability_scores", [])
+        rec_summary = {
+            "cycle": core.get("cycles_run", 0),
+            "timestamp": cycle_time.isoformat(),
+            "token_states": core.get("token_states_seen", {}),
+            "market_phases": core.get("market_phases_seen", {}),
+            "blocked_by_missing_reference_price": core.get("blocked_by_missing_reference_price", 0),
+            "blocked_by_dormant_longshot": core.get("blocked_by_dormant_longshot", 0),
+            "blocked_by_unrecoverable_distance": core.get("blocked_by_unrecoverable_distance", 0),
+            "blocked_by_expiry_danger": core.get("blocked_by_expiry_danger", 0),
+            "blocked_by_bad_market_phase": core.get("blocked_by_bad_market_phase", 0),
+            "recoverability_count": len(recycl_scores),
+            "recoverability_mean": round(sum(recycl_scores)/len(recycl_scores), 4) if recycl_scores else 0,
+            "recoverability_min": round(min(recycl_scores), 4) if recycl_scores else 0,
+            "recoverability_max": round(max(recycl_scores), 4) if recycl_scores else 0,
+            "expensive_side_count": len(core.get("expensive_side_diagnostics", [])),
+        }
+        with open(ref_diag_path, "a") as f:
+            f.write(json.dumps(rec_summary, default=str) + "\n")
+    except Exception as ex:
+        print(f"  ⚠️  Reference diag log failed: {ex}")
+
     # ── Dashboard ──
     print(f"\n{'='*78}")
     print(f"PAPER TRADING DASHBOARD — {cycle_time.strftime('%H:%M:%S UTC')}")
@@ -1566,6 +1717,20 @@ def run_paper_cycle():
     print(f"    stale_book={bb('blocked_by_stale_book',0)} dormant_book={bb('blocked_by_dormant_book',0)} missing_book={bb('blocked_by_missing_book',0)}")
     print(f"    price_gate={bb('blocked_by_price_gate',0)} spread={bb('blocked_by_spread',0)} depth={bb('blocked_by_depth',0)} EV_gate={bb('blocked_by_EV_gate',0)}")
     print(f"    duplicate={bb('blocked_by_duplicate_position',0)}")
+    # V19.8: Reference-price / Recoverability counters
+    print(f"    ── V19.8 Recoverability ──")
+    print(f"    dormant_longshot={bb('blocked_by_dormant_longshot',0)} unrecoverable={bb('blocked_by_unrecoverable_distance',0)} missing_ref={bb('blocked_by_missing_reference_price',0)}")
+    print(f"    expiry_danger={bb('blocked_by_expiry_danger',0)} bad_phase={bb('blocked_by_bad_market_phase',0)}")
+    ts = core.get("token_states_seen", {})
+    print(f"    token_states: balanced={ts.get('balanced',0)} live_disloc={ts.get('live_dislocation',0)} dormant={ts.get('dormant_longshot',0)} nearly_dec={ts.get('nearly_decided',0)}")
+    mp = core.get("market_phases_seen", {})
+    print(f"    phases: EARLY={mp.get('EARLY_WINDOW',0)} MID={mp.get('MID_WINDOW',0)} LATE={mp.get('LATE_WINDOW',0)} EXPIRY={mp.get('EXPIRY_DANGER',0)} CLOSED={mp.get('CLOSED_OR_EXPIRED',0)}")
+    rs = core.get("recoverability_scores", [])
+    if rs:
+        print(f"    recycl_scores: n={len(rs)} mean={sum(rs)/len(rs):.3f} min={min(rs):.3f} max={max(rs):.3f}")
+    exp_diag = core.get("expensive_side_diagnostics", [])
+    if exp_diag:
+        print(f"    expensive_side_diags: {len(exp_diag)} (paper only)")
     print(f"  CORE_UP unique_markets_seen:        {core.get('unique_markets_seen', 0)}")
     print(f"  CORE_UP remaining_to_50:            {max(0, 50 - exec_opp_core)}")
 
