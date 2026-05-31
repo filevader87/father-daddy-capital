@@ -1663,13 +1663,7 @@ def run_paper_cycle():
         for reason, count in cycle_blocked.items():
             state["blocked_reasons"][reason] = state.get("blocked_reasons", {}).get(reason, 0) + count
 
-        # ── V19.8: Persist signal_detail to CORE_UP state ──
-        if profile_key == "CORE_UP" and state.get("blocked_by_signal_detail"):
-            # Merge into persistent state
-            if "blocked_by_signal_detail" not in state:
-                state["blocked_by_signal_detail"] = {}
-            for k, v in state["blocked_by_signal_detail"].items():
-                state["blocked_by_signal_detail"][k] = state["blocked_by_signal_detail"].get(k, 0) + v
+        # ── V19.8: signal_detail already accumulated in-place during cycle; just save ──
 
         save_profile_state(state, profile_key)
         cycle_results[profile_key] = {
