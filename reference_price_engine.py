@@ -416,10 +416,11 @@ def classify_market_phase(contract, now=None):
     if elapsed < min_start:
         return ("EARLY_WINDOW", f"pre_stable_{elapsed:.0f}s")  # Too early, reference unstable
     
-    # Check each phase
-    for phase_name, (lo, hi) in phases.items():
+    # Check each phase (skip "total" — it's not a phase)
+    for phase_name, bounds in phases.items():
         if phase_name == "total":
             continue
+        lo, hi = bounds
         if lo <= elapsed < hi:
             return (phase_name, f"elapsed={elapsed:.0f}s")
     

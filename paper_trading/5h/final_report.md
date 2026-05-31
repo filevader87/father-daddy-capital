@@ -1,13 +1,29 @@
 # V19.8 5-Hour Paper Trading Final Report
 
-**Run ID:** 20260530_2305
-**Duration:** 5.0h 0.0m 29.27948236465454s
-**Cycles:** 279
-**Runtime Errors:** 0
-**Classification:** A_COLLECTING_MARKET_AND_SIGNAL_DATA
+**Run ID:** 20260531_1119
+**Duration:** 0.0h 1.0m 35.80034780502319s
+**Cycles:** 2
+**Runtime Errors:** 2
+**Classification:** A_MARKET_DISCOVERY_ONLY
+
+## CORE_UP Metrics
+- Market opportunities: 0
+- Signal opportunities: 0
+- Executable opportunities: 0
+- Paper trades opened: 0
+- Blocked candidates (total): 0
+  - Dormant book: 0
+  - Dormant longshot: 0
+  - Price gate: 0
+  - EV gate: 0
+  - Spread: 0
+  - Unrecoverable distance: 0
+  - Missing reference price: 0
+  - Expiry danger: 0
+  - Bad market phase: 0
 
 ## Recommendation
-A_COLLECTING_MARKET_AND_SIGNAL_DATA
+A_MARKET_DISCOVERY_ONLY
 
 ## Summary
 - Market opportunities observed
