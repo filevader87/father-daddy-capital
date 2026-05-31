@@ -161,6 +161,7 @@ PROFILES = {
     },
     # ── V19.8: Type-1 Open-Window Direction (§13, paper-only) ──
     "TYPE1_OPEN_WINDOW": {
+        "name": "Type-1 Open-Window Direction",
         "description": "Type-1 open-window direction: spot movement + PM pricing gap (paper-only)",
         "direction": "up",
         "min_confidence": 0.50,  # low threshold — diagnostic only
@@ -1684,7 +1685,7 @@ def run_paper_cycle():
 
     _lat["profile_end"] = _time.time()
 
-    # ── V19.8: Persist shadow confirmation variants to CORE_UP state ──
+    # ── V19.8: Persist shadow confirmation variants + cycle latency to CORE_UP state ──
     core_up_state = load_profile_state("CORE_UP")
     if "shadow_confirmation_variants" not in core_up_state:
         core_up_state["shadow_confirmation_variants"] = {}
@@ -1692,25 +1693,25 @@ def run_paper_cycle():
         existing = core_up_state["shadow_confirmation_variants"].setdefault(vname, {
             "signal_count": 0, "signal_market_overlap": 0, "trade_candidates": 0,
             "blocked_by_book": 0, "blocked_by_recoverability": 0, "blocked_by_EV": 0,
+            "blocked_by_dormant_longshot": 0,
             "executable_opportunities": 0, "paper_trades_opened": 0})
         for k in vdata:
             existing[k] = existing.get(k, 0) + vdata[k]
-    save_profile_state(core_up_state, "CORE_UP")
 
-    # ── V19.8: Cycle latency recording ──
+    # ── V19.8: Cycle latency recording (same save cycle as shadow variants) ──
     _lat["cycle_end"] = _time.time()
     cycle_duration = _lat["cycle_end"] - _lat["cycle_start"]
     if "cycle_latency" not in core_up_state:
-        core_up_state["cycle_latency"] = {"durations": [], "breakdown": {}, 
+        core_up_state["cycle_latency"] = {"durations": [], "breakdown": {},
                                             "avg_cycle_duration": 0, "p50_cycle_duration": 0,
                                             "p95_cycle_duration": 0, "max_cycle_duration": 0}
     cl = core_up_state["cycle_latency"]
-    cl["durations"].append((core_up_state.get("cycles_run", 0), cycle_duration))
+    cl["durations"].append({"cycle": core_up_state.get("cycles_run", 0), "duration": round(cycle_duration, 3)})
     # Keep last 500 for stats
     if len(cl["durations"]) > 500:
         cl["durations"] = cl["durations"][-500:]
     # Compute stats
-    durs = [d for _, d in cl["durations"]]
+    durs = [d["duration"] for d in cl["durations"]]
     if durs:
         durs_sorted = sorted(durs)
         cl["avg_cycle_duration"] = round(sum(durs) / len(durs), 2)
