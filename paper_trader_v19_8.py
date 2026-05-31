@@ -159,6 +159,21 @@ PROFILES = {
         "primary_asset": "BTC",
         "discovery_assets": ["ETH", "SOL", "XRP"],
     },
+    # ── V19.8: Type-1 Open-Window Direction (§13, paper-only) ──
+    "TYPE1_OPEN_WINDOW": {
+        "description": "Type-1 open-window direction: spot movement + PM pricing gap (paper-only)",
+        "direction": "up",
+        "min_confidence": 0.50,  # low threshold — diagnostic only
+        "ev_min_gate": 0.01,
+        "max_contract_price": 0.90,
+        "primary_asset": "BTC",
+        "discovery_assets": ["ETH", "SOL", "XRP"],
+        "enabled_rsi_zones": {"up": ["oversold", "near_oversold1"], "down": []},
+        "_paper_only": True,  # Cannot unlock CORE_UP live readiness
+        "_entry_window_start": 30,  # seconds after market start
+        "_entry_window_end": 90,   # seconds after market start
+        "_min_pricing_gap": 0.05,  # 5¢ token price vs fair-value gap required
+    },
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -546,6 +561,25 @@ def init_profile_state(profile_key):
         "spread_reject": 0,
         "depth_reject": 0,
         "price_gate_reject": 0,
+        # V19.8 Post-loop hardening counters
+        "blocked_by_signal_detail": {},
+        "shadow_confirmation_variants": {},
+        "dislocation_audit": [],
+        "ev_wr_diagnostics": [],
+        "cycle_latency": {"durations": [], "breakdown": {}, "avg_cycle_duration": 0,
+                          "p50_cycle_duration": 0, "p95_cycle_duration": 0, "max_cycle_duration": 0},
+        "clean_ticks_seen": 0,
+        "dirty_ticks_rejected": 0,
+        "first_snapshots_skipped": 0,
+        "stale_book_ticks": 0,
+        "stale_spot_ticks": 0,
+        "impossible_jump_rejects": 0,
+        "blocked_by_unclean_tick": 0,
+        "prewatch_ready": 0,
+        "prewatch_missed": 0,
+        "prewatch_late": 0,
+        "prewatch_no_book": 0,
+        "prewatch_no_spot": 0,
         "EV_gate_reject": 0,
         "signal_gate_reject": 0,
         "book_checks_skipped_no_signal": 0,
@@ -654,11 +688,21 @@ def validate_pnl(pos, resolved_winner):
 
 _CONSECUTIVE_ZERO_VALID = 0  # module-level counter for raw dump trigger
 
+def _update_last_dislocation(state, reason):
+    """V19.8: Update blocked_by for the most recently recorded dislocation audit entry."""
+    da = state.get("dislocation_audit", [])
+    if da and da[-1].get("blocked_by") == "pending":
+        da[-1]["blocked_by"] = reason
+
 def run_paper_cycle():
     """Run one paper trading cycle for all profiles."""
     global _CONSECUTIVE_ZERO_VALID
     cycle_time = datetime.now(timezone.utc)
     cycle_results = {}
+    
+    # ── V19.8: Cycle latency audit ──
+    import time as _time
+    _lat = {"cycle_start": _time.time()}
 
     # ── Discover markets once per cycle (V19.7l: new discovery providers) ──
     all_contracts = {}
@@ -668,7 +712,9 @@ def run_paper_cycle():
     discovery_results = None
     discovery_report = None
     consecutive_zero_valid = _CONSECUTIVE_ZERO_VALID
+    signal_debug = {}  # V19.8: per-asset signal diagnostics
 
+    _lat["ccxt_start"] = _time.time()
     for ak, acfg in eng.ASSETS.items():
         try:
             prices = eng.fetch_prices(acfg)
@@ -717,8 +763,63 @@ def run_paper_cycle():
             all_signals[ak] = sig
         else:
             all_signals[ak] = None
+        
+        # ── V19.8: Signal debug diagnostics ──
+        if sig:
+            rsi_val = sig.get("rsi", 50)
+            if rsi_val < 20: rsi_zone = "extreme_oversold"
+            elif rsi_val < 28: rsi_zone = "oversold"
+            elif rsi_val < 35: rsi_zone = "near_oversold"
+            elif rsi_val < 55: rsi_zone = "mid"
+            elif rsi_val < 70: rsi_zone = "near_overbought"
+            elif rsi_val < 82: rsi_zone = "overbought"
+            else: rsi_zone = "parabolic"
+            
+            # Determine reason for zero confidence / neutral direction
+            conf_val = sig.get("confidence", 0)
+            dir_val = sig.get("direction", "neutral")
+            confs = sig.get("confirmations", 0)
+            
+            reason_conf_zero = "not_zero" if conf_val > 0 else ""
+            if conf_val == 0:
+                if rsi_val < 20: reason_conf_zero = "rsi_below_20_knife"
+                elif 20 <= rsi_val < 35 and confs < 2: reason_conf_zero = "no_confirmations_near_oversold"
+                elif 35 <= rsi_val < 55: reason_conf_zero = "mid_zone_dead"
+                elif 55 <= rsi_val < 82: reason_conf_zero = "shadow_mode_capped"
+                elif rsi_val >= 82: reason_conf_zero = "parabolic_blocked"
+                else: reason_conf_zero = "unknown"
+            
+            reason_dir_neutral = "not_neutral" if dir_val != "neutral" else ""
+            if dir_val == "neutral":
+                if rsi_val < 20: reason_dir_neutral = "rsi_below_20"
+                elif 20 <= rsi_val < 35 and confs < 2: reason_dir_neutral = "no_confirmations"
+                elif 35 <= rsi_val < 55: reason_dir_neutral = "mid_zone"
+                elif rsi_val >= 82: reason_dir_neutral = "parabolic"
+                else: reason_dir_neutral = "other"
+            
+            signal_debug[ak] = {
+                "asset": ak, "rsi": rsi_val, "rsi_zone": rsi_zone,
+                "raw_direction": dir_val, "final_direction": dir_val,
+                "confidence": conf_val, "min_confidence": 0.82,
+                "confirmation_count": confs, "required_confirmations": 2 if rsi_zone == "near_oversold" else 0,
+                "macd_condition": sig.get("macd", 0) > 0,
+                "sma_condition": abs(sig.get("sma20_distance", 0)) > 0.003,
+                "recent_up_bars": sig.get("momentum", 0),
+                "rsi_slope": sig.get("rsi_slope", 0),
+                "sma20_distance": sig.get("sma20_distance", 0),
+                "candle_velocity": sig.get("candle_velocity", 0),
+                "volume_available": sig.get("volume_available", False),
+                "volume_spike": sig.get("volume_spike"),
+                "reason_confidence_zero": reason_conf_zero,
+                "reason_direction_neutral": reason_dir_neutral,
+            }
+    
+    _lat["ccxt_end"] = _time.time()
+    _lat["signal_start"] = _lat["ccxt_end"]
+    _lat["signal_end"] = _lat["ccxt_end"]  # signal gen was inline above
 
     # V19.7l: Use new discovery providers (deterministic slug + gamma API + tag explorer)
+    _lat["discovery_start"] = _time.time()
     try:
         discovery_results = dp.discover_markets(look_ahead=3)
         discovery_report = dp.save_discovery_report(discovery_results, cycle_num=None)
@@ -754,7 +855,26 @@ def run_paper_cycle():
             except:
                 all_contracts[ak] = []
 
+    _lat["discovery_end"] = _time.time()
+
+    # ── V19.8: Shadow confirmation sensitivity variants (diagnostic only) ──
+    shadow_variants = {
+        "CORE_UP_STRICT": {"signal_count": 0, "signal_market_overlap": 0, "trade_candidates": 0,
+                           "blocked_by_book": 0, "blocked_by_recoverability": 0, "blocked_by_EV": 0,
+                           "executable_opportunities": 0, "paper_trades_opened": 0},
+        "CORE_UP_RSI_ONLY_SHADOW": {"signal_count": 0, "signal_market_overlap": 0, "trade_candidates": 0,
+                                     "blocked_by_book": 0, "blocked_by_recoverability": 0, "blocked_by_EV": 0,
+                                     "executable_opportunities": 0, "paper_trades_opened": 0},
+        "CORE_UP_ONE_CONFIRM_SHADOW": {"signal_count": 0, "signal_market_overlap": 0, "trade_candidates": 0,
+                                        "blocked_by_book": 0, "blocked_by_recoverability": 0, "blocked_by_EV": 0,
+                                        "executable_opportunities": 0, "paper_trades_opened": 0},
+        "CORE_UP_TWO_CONFIRM_SHADOW": {"signal_count": 0, "signal_market_overlap": 0, "trade_candidates": 0,
+                                        "blocked_by_book": 0, "blocked_by_recoverability": 0, "blocked_by_EV": 0,
+                                        "executable_opportunities": 0, "paper_trades_opened": 0},
+    }
+
     # ── Run each profile ──
+    _lat["profile_start"] = _time.time()
     for profile_key, profile_cfg in PROFILES.items():
         state = load_profile_state(profile_key)
         state["cycles_run"] += 1
@@ -851,6 +971,41 @@ def run_paper_cycle():
             if direction == "neutral" or confidence < profile_cfg["min_confidence"]:
                 cycle_blocked["below_min_confidence"] += 1
                 state["book_checks_skipped_no_signal"] += 1
+                # ── V19.8: Signal detail breakdown ──
+                sd = signal_debug.get(ak, {})
+                rsi_val = sd.get("rsi", 50)
+                rsi_zone = sd.get("rsi_zone", "unknown")
+                if rsi_zone in ("oversold", "near_oversold", "extreme_oversold"):
+                    state.setdefault("blocked_by_signal_detail", {}).setdefault("below_min_confidence_rsi_in_zone", 0)
+                    state["blocked_by_signal_detail"]["below_min_confidence_rsi_in_zone"] += 1
+                    if sd.get("reason_confidence_zero", "") == "no_confirmations_near_oversold":
+                        state["blocked_by_signal_detail"].setdefault("rsi_in_zone_but_no_confirmation", 0)
+                        state["blocked_by_signal_detail"]["rsi_in_zone_but_no_confirmation"] += 1
+                    if direction == "neutral":
+                        state["blocked_by_signal_detail"].setdefault("rsi_in_zone_but_direction_neutral", 0)
+                        state["blocked_by_signal_detail"]["rsi_in_zone_but_direction_neutral"] += 1
+                    if sd.get("macd_condition") is False and direction != "neutral":
+                        state["blocked_by_signal_detail"].setdefault("rsi_in_zone_but_momentum_wrong_way", 0)
+                        state["blocked_by_signal_detail"]["rsi_in_zone_but_momentum_wrong_way"] += 1
+                
+                # ── V19.8: Shadow confirmation variants (CORE_UP only) ──
+                if profile_key == "CORE_UP" and rsi_val >= 20 and rsi_val <= 35:
+                    confs = sd.get("confirmation_count", 0)
+                    has_contracts = bool(all_contracts.get(ak, []))
+                    # RSI_ONLY: always passes
+                    shadow_variants["CORE_UP_RSI_ONLY_SHADOW"]["signal_count"] += 1
+                    if has_contracts:
+                        shadow_variants["CORE_UP_RSI_ONLY_SHADOW"]["signal_market_overlap"] += 1
+                    # ONE_CONFIRM: passes if confs >= 1
+                    if confs >= 1:
+                        shadow_variants["CORE_UP_ONE_CONFIRM_SHADOW"]["signal_count"] += 1
+                        if has_contracts:
+                            shadow_variants["CORE_UP_ONE_CONFIRM_SHADOW"]["signal_market_overlap"] += 1
+                    # TWO_CONFIRM: passes if confs >= 2
+                    if confs >= 2:
+                        shadow_variants["CORE_UP_TWO_CONFIRM_SHADOW"]["signal_count"] += 1
+                        if has_contracts:
+                            shadow_variants["CORE_UP_TWO_CONFIRM_SHADOW"]["signal_market_overlap"] += 1
                 continue
 
             if not check_signal_allowed(zone, direction, profile_cfg):
@@ -876,7 +1031,15 @@ def run_paper_cycle():
             # Signal + Market overlap detected
             if had_valid_signal:
                 had_signal_and_market = True
-
+            
+            # ── V19.8: Shadow STRICT count (CORE_UP signal passed all gates) ──
+            if profile_key == "CORE_UP" and had_valid_signal and had_compatible_market:
+                rsi_val = signal_debug.get(ak, {}).get("rsi", 50)
+                if 20 <= rsi_val <= 35:
+                    shadow_variants["CORE_UP_STRICT"]["signal_count"] += 1
+                    shadow_variants["CORE_UP_STRICT"]["signal_market_overlap"] += 1
+                    shadow_variants["CORE_UP_RSI_ONLY_SHADOW"]["signal_market_overlap"]  # already counted above
+                    
             # Determine token IDs from CLOB data
             for c in contracts[:3]:
                 state["trade_candidates_total"] += 1
@@ -887,6 +1050,64 @@ def run_paper_cycle():
                 else:
                     token_price = c.get("down_price", 0.5)
                     token_side = "DOWN"
+
+                # ── V19.8: Clean tick gate (§7) ──
+                book_exists = bool(c.get("up_price") or c.get("down_price"))
+                spot_exists = (all_signals.get(ak) or {}).get("price", 0) > 0
+                book_fresh = True  # Will be validated by CLOB fetch later
+                spot_fresh = spot_exists
+                first_snapshot = c.get("_first_snapshot", True)  # True if not yet tracked
+                c["_first_snapshot"] = False  # Mark as seen for next cycle
+                
+                # Check for impossible price jumps
+                prev_price = c.get("_prev_spot", 0)
+                cur_spot = (all_signals.get(ak) or {}).get("price", 0)
+                impossible_jump = False
+                if prev_price > 0 and cur_spot > 0:
+                    jump_pct = abs(cur_spot - prev_price) / prev_price
+                    impossible_jump = jump_pct > 0.10  # >10% instantaneous move
+                c["_prev_spot"] = cur_spot
+                
+                # Clean tick requires: book exists, spot exists, not first snapshot,
+                # at least 2 consecutive ticks, no impossible jump
+                c["_tick_count"] = c.get("_tick_count", 0) + 1
+                ticks_seen = c["_tick_count"]
+                
+                is_clean = (book_exists and spot_exists and book_fresh and spot_fresh
+                           and not first_snapshot and ticks_seen >= 2 and not impossible_jump)
+                
+                if is_clean:
+                    state["clean_ticks_seen"] += 1
+                else:
+                    state["dirty_ticks_rejected"] += 1
+                    if first_snapshot:
+                        state["first_snapshots_skipped"] += 1
+                    if not book_fresh:
+                        state["stale_book_ticks"] += 1
+                    if not spot_fresh:
+                        state["stale_spot_ticks"] += 1
+                    if impossible_jump:
+                        state["impossible_jump_rejects"] += 1
+                    state["blocked_by_unclean_tick"] += 1
+                    # Don't fully block — allow evaluation but track the counter
+                    # Full block would lose too many candidates on first cycle
+                
+                # ── V19.8: Pre-watch tracking (§6) ──
+                # Track when we first see viable data for each market
+                pw_state = c.get("_prewatch", "unknown")
+                if pw_state == "unknown":
+                    if book_exists and spot_exists and is_clean:
+                        c["_prewatch"] = "ready"
+                        state["prewatch_ready"] += 1
+                    elif not book_exists and not spot_exists:
+                        c["_prewatch"] = "missed"
+                        state["prewatch_missed"] += 1
+                    elif not book_exists:
+                        c["_prewatch"] = "no_book"
+                        state["prewatch_no_book"] += 1
+                    else:
+                        c["_prewatch"] = "no_spot"
+                        state["prewatch_no_spot"] += 1
 
                 # ── V19.8: Market phase classification ──
                 market_phase, phase_detail = rpe.classify_market_phase(c)
@@ -914,11 +1135,30 @@ def run_paper_cycle():
                 if ts_name in state.get("token_states_seen", {}):
                     state["token_states_seen"][ts_name] += 1
 
+                # ── V19.8: Dislocation outcome audit ──
+                if ts_name == "live_dislocation":
+                    state.setdefault("dislocation_audit", [])
+                    state["dislocation_audit"].append({
+                        "asset": ak, "interval": c.get("interval", ""),
+                        "slug": c.get("slug", ""),
+                        "market_phase": c.get("_market_phase", ""),
+                        "time_to_expiry": c.get("time_to_expiry_sec", 0),
+                        "target_token_ask": c.get("up_price" if direction == "up" else "down_price", 0),
+                        "target_token_bid": c.get("up_bid" if direction == "up" else "down_bid", 0),
+                        "spread": spread_val,
+                        "up_price": up_p, "down_price": down_p,
+                        "reference_price": c.get("reference_price", 0),
+                        "spot_price": (all_signals.get(ak) or {}).get("price", 0),
+                        "blocked_by": "pending",  # filled downstream
+                        "timestamp": cycle_time.isoformat(),
+                    })
+
                 # ── V19.8: Dormant longshot gate ──
                 if ts_name == "dormant_longshot":
                     state["blocked_by_dormant_longshot"] += 1
                     state["blocked_trade_candidates"] += 1
                     state["dormant_longshot_reject"] = state.get("dormant_longshot_reject", 0) + 1
+                    _update_last_dislocation(state, "dormant_longshot")
                     continue
 
                 # ── V19.8: Reference price computation ──
@@ -931,6 +1171,7 @@ def run_paper_cycle():
                     state["blocked_by_missing_reference_price"] += 1
                     state["reference_price_missing_count"] += 1
                     state["blocked_trade_candidates"] += 1
+                    _update_last_dislocation(state, "missing_reference_price")
                     continue
 
                 # ── V19.8: Recoverability score ──
@@ -946,6 +1187,7 @@ def run_paper_cycle():
                 if recycl["recoverability_score"] < rpe.MIN_RECOVERABILITY:
                     state["blocked_by_unrecoverable_distance"] += 1
                     state["blocked_trade_candidates"] += 1
+                    _update_last_dislocation(state, "unrecoverable")
                     continue
 
                 # ── V19.8: Recoverable cheap token gate (pre-check, book/EV not yet known) ──
@@ -990,6 +1232,7 @@ def run_paper_cycle():
                     state["blocked_by_price_gate"] += 1
                     state["blocked_trade_candidates"] += 1
                     state["price_gate_reject"] += 1
+                    _update_last_dislocation(state, "price_gate")
                     continue
 
                 passed_price_gate = True
@@ -1087,13 +1330,40 @@ def run_paper_cycle():
                     cycle_blocked["ev_calc_error"] += 1
                     state["blocked_by_EV_gate"] += 1
                     state["blocked_trade_candidates"] += 1
+                    _update_last_dislocation(state, "ev_calc_error")
                     continue
+
+                # ── V19.8: EV-over-WR buffered edge (§11) ──
+                break_even_prob = fill_price
+                raw_edge = p_win - fill_price
+                slippage_pen = 0.01  # conservative estimate
+                recoverability_pen = (1 - recycl.get("recoverability_score", 1.0)) * 0.05
+                min_edge_buffer = profile_cfg.get("ev_min_gate", 0.02)
+                cost_adjusted_edge = p_win - fill_price - slippage_pen - recoverability_pen
+                buffered_edge = cost_adjusted_edge - min_edge_buffer
+                # Store in state for reporting
+                state.setdefault("ev_wr_diagnostics", [])
+                state["ev_wr_diagnostics"].append({
+                    "estimated_probability": round(p_win, 4),
+                    "entry_ask": round(fill_price, 4),
+                    "break_even_probability": round(break_even_prob, 4),
+                    "raw_edge": round(raw_edge, 4),
+                    "slippage_penalty": round(slippage_pen, 4),
+                    "recoverability_penalty": round(recoverability_pen, 4),
+                    "minimum_edge_buffer": round(min_edge_buffer, 4),
+                    "buffered_edge": round(buffered_edge, 4),
+                    "decision": "trade" if buffered_edge > 0 else "reject",
+                    "timestamp": cycle_time.isoformat(),
+                })
+                if len(state.get("ev_wr_diagnostics", [])) > 500:
+                    state["ev_wr_diagnostics"] = state["ev_wr_diagnostics"][-500:]
 
                 if net_ev < profile_cfg["ev_min_gate"]:
                     cycle_blocked["ev_below_gate"] += 1
                     state["blocked_by_EV_gate"] += 1
                     state["blocked_trade_candidates"] += 1
                     state["EV_gate_reject"] += 1
+                    _update_last_dislocation(state, "EV_gate")
                     continue
 
                 # ── V19.8: Recoverable cheap token FINAL check (with real EV + depth) ──
@@ -1250,6 +1520,14 @@ def run_paper_cycle():
 
                 print(f"    PAPER {ak} {token_side} @ {fill_price:.4f} | ev={net_ev:.4f} bet=${bet_size:.2f} | {'EXEC' if book_available else 'GAMMA'} | {pos['status']}")
 
+        # ── V19.8: Dislocation audit sweep — fill blocked_by for remaining pending entries ──
+        for dentry in state.get("dislocation_audit", []):
+            if dentry.get("blocked_by") == "pending":
+                dentry["blocked_by"] = "downstream_gate"  # catch-all for any pending
+        # Also limit audit list size to prevent unbounded growth
+        if len(state.get("dislocation_audit", [])) > 200:
+            state["dislocation_audit"] = state["dislocation_audit"][-200:]
+
         # ── Lifecycle: check expiring and resolving positions ──
         for eid, pos in list(state["positions"].items()):
             status = pos.get("status", STATE_CANDIDATE)
@@ -1384,6 +1662,14 @@ def run_paper_cycle():
         for reason, count in cycle_blocked.items():
             state["blocked_reasons"][reason] = state.get("blocked_reasons", {}).get(reason, 0) + count
 
+        # ── V19.8: Persist signal_detail to CORE_UP state ──
+        if profile_key == "CORE_UP" and state.get("blocked_by_signal_detail"):
+            # Merge into persistent state
+            if "blocked_by_signal_detail" not in state:
+                state["blocked_by_signal_detail"] = {}
+            for k, v in state["blocked_by_signal_detail"].items():
+                state["blocked_by_signal_detail"][k] = state["blocked_by_signal_detail"].get(k, 0) + v
+
         save_profile_state(state, profile_key)
         cycle_results[profile_key] = {
             "trades": cycle_trades,
@@ -1396,6 +1682,81 @@ def run_paper_cycle():
             "losses": state["losses"],
         }
 
+    _lat["profile_end"] = _time.time()
+
+    # ── V19.8: Persist shadow confirmation variants to CORE_UP state ──
+    core_up_state = load_profile_state("CORE_UP")
+    if "shadow_confirmation_variants" not in core_up_state:
+        core_up_state["shadow_confirmation_variants"] = {}
+    for vname, vdata in shadow_variants.items():
+        existing = core_up_state["shadow_confirmation_variants"].setdefault(vname, {
+            "signal_count": 0, "signal_market_overlap": 0, "trade_candidates": 0,
+            "blocked_by_book": 0, "blocked_by_recoverability": 0, "blocked_by_EV": 0,
+            "executable_opportunities": 0, "paper_trades_opened": 0})
+        for k in vdata:
+            existing[k] = existing.get(k, 0) + vdata[k]
+    save_profile_state(core_up_state, "CORE_UP")
+
+    # ── V19.8: Cycle latency recording ──
+    _lat["cycle_end"] = _time.time()
+    cycle_duration = _lat["cycle_end"] - _lat["cycle_start"]
+    if "cycle_latency" not in core_up_state:
+        core_up_state["cycle_latency"] = {"durations": [], "breakdown": {}, 
+                                            "avg_cycle_duration": 0, "p50_cycle_duration": 0,
+                                            "p95_cycle_duration": 0, "max_cycle_duration": 0}
+    cl = core_up_state["cycle_latency"]
+    cl["durations"].append((core_up_state.get("cycles_run", 0), cycle_duration))
+    # Keep last 500 for stats
+    if len(cl["durations"]) > 500:
+        cl["durations"] = cl["durations"][-500:]
+    # Compute stats
+    durs = [d for _, d in cl["durations"]]
+    if durs:
+        durs_sorted = sorted(durs)
+        cl["avg_cycle_duration"] = round(sum(durs) / len(durs), 2)
+        cl["p50_cycle_duration"] = round(durs_sorted[len(durs_sorted)//2], 2)
+        cl["p95_cycle_duration"] = round(durs_sorted[int(len(durs_sorted)*0.95)], 2)
+        cl["max_cycle_duration"] = round(max(durs), 2)
+    # Breakdown
+    cl["breakdown"] = {
+        "ccxt_fetch": round(_lat.get("ccxt_end", 0) - _lat.get("ccxt_start", 0), 3),
+        "signal_gen": round(_lat.get("signal_end", 0) - _lat.get("signal_start", 0), 3),
+        "discovery": round(_lat.get("discovery_end", 0) - _lat.get("discovery_start", 0), 3),
+        "profile_eval": round(_lat.get("profile_end", _lat.get("cycle_end", 0)) - _lat.get("profile_start", 0), 3),
+    }
+    if cl["p95_cycle_duration"] > 45:
+        print(f"  ⚠️ SCANNER_TOO_SLOW_FOR_5M (p95={cl['p95_cycle_duration']:.0f}s)")
+    save_profile_state(core_up_state, "CORE_UP")
+
+    # ── V19.8: Market tape recording ──
+    tape_dir = OUT_DIR / "tape"
+    tape_dir.mkdir(exist_ok=True)
+    tape_path = tape_dir / "market_ticks.jsonl"
+    try:
+        with open(tape_path, 'a') as tf:
+            for ak in eng.ASSETS:
+                for c in all_contracts.get(ak, [])[:3]:
+                    spot = (all_signals.get(ak) or {}).get("price", 0)
+                    ref_price = c.get("reference_price", 0)
+                    dist_pct = 0
+                    if ref_price and spot:
+                        dist_pct = (ref_price - spot) / spot * 100 if spot else 0
+                    tf.write(json.dumps({
+                        "timestamp": cycle_time.isoformat(),
+                        "asset": ak, "interval": c.get("interval", ""),
+                        "slug": c.get("slug", ""),
+                        "conditionId": c.get("condition_id", ""),
+                        "market_phase": c.get("_market_phase", ""),
+                        "time_to_expiry": c.get("time_to_expiry_sec", 0),
+                        "UP_bid": c.get("up_bid", 0), "UP_ask": c.get("up_price", 0),
+                        "DOWN_bid": c.get("down_bid", 0), "DOWN_ask": c.get("down_price", 0),
+                        "spot_price": spot,
+                        "reference_price": ref_price,
+                        "distance_to_reference_pct": round(dist_pct, 4),
+                    }, default=str) + "\n")
+    except Exception:
+        pass  # Non-critical: tape is diagnostic only
+
     # ── Save combined cycle report ──
     ts = cycle_time.strftime("%Y%m%d_%H%M%S")
     combined = {
@@ -1407,6 +1768,8 @@ def run_paper_cycle():
                     for ak in eng.ASSETS},
         "markets_found": {ak: len(all_contracts.get(ak, [])) for ak in eng.ASSETS},
         "profiles": cycle_results,
+        "signal_debug": signal_debug,  # V19.8
+        "shadow_variants": shadow_variants,  # V19.8
     }
     combined_path = OUT_DIR / f"cycle_{ts}.json"
     with open(combined_path, 'w') as f:
