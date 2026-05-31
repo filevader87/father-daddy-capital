@@ -88,10 +88,10 @@ INITIAL_BANKROLL = 320.0; PAPER_BANKROLL = 320.0
 # Multi-asset — BTC/ETH/SOL/XRP with asset-specific timeframe defaults (P1-B)
 # BTC → 5m (65.8% WR), ETH → 15m (63.1%), SOL → 15m (64.1%), XRP → 5m (62.5%)
 ASSETS = {
-    "BTC": {"yf": "BTC-USD",  "name": "Bitcoin",  "interval": "5m",  "wr": 0.658},
-    "ETH": {"yf": "ETH-USD",  "name": "Ethereum", "interval": "15m", "wr": 0.631},
-    "SOL": {"yf": "SOL-USD",  "name": "Solana",   "interval": "15m", "wr": 0.641},
-    "XRP": {"yf": "XRP-USD",  "name": "Ripple",   "interval": "5m",  "wr": 0.625},
+    "BTC": {"yf": "BTC-USD",  "ccxt": "BTC/USDT", "name": "Bitcoin",  "interval": "5m",  "wr": 0.658},
+    "ETH": {"yf": "ETH-USD",  "ccxt": "ETH/USDT", "name": "Ethereum", "interval": "15m", "wr": 0.631},
+    "SOL": {"yf": "SOL-USD",  "ccxt": "SOL/USDT", "name": "Solana",   "interval": "15m", "wr": 0.641},
+    "XRP": {"yf": "XRP-USD",  "ccxt": "XRP/USDT", "name": "Ripple",   "interval": "5m",  "wr": 0.625},
 }
 # Legacy single-asset alias for backward compat (MC backtest uses this)
 # V19.7f: Legacy alias REMOVED. Use ASSETS[key] directly.
@@ -670,21 +670,39 @@ def calculate_ev(rsi, direction, contract_price, session_type=1, confirmations=2
 # ══════════════════════════════════════════════════════════════════════════════
 
 def fetch_prices(asset_cfg, interval=None):
-    """Fetch price history for a given asset. P1-B: uses asset-specific interval.
+    """Fetch OHLCV price history. V19.8: CCXT Binance primary, yfinance fallback.
     
-    BTC/XRP → 5m, ETH/SOL → 15m (validated WR defaults).
-    Returns list of closing prices or empty list on failure.
+    Returns list of closing prices (60 candles) or empty list on failure.
+    CCXT provides: real volume, deeper history, faster, lower latency.
     """
     if interval is None:
         interval = asset_cfg.get("interval", "5m")
-    try:
-        import yfinance as yf
-        # yfinance interval mapping: "5m" or "15m" with appropriate period
-        period = "5d" if interval == "5m" else "60d"
-        h = yf.Ticker(asset_cfg["yf"]).history(period=period, interval=interval)
-        return h['Close'].tolist()[-60:] if len(h) >= 14 else []
-    except Exception:
-        return []
+    
+    # V19.8: CCXT Binance (primary, cached exchange instance)
+    ccxt_symbol = asset_cfg.get("ccxt")
+    if ccxt_symbol:
+        try:
+            import ccxt
+            if not hasattr(fetch_prices, '_binance'):
+                fetch_prices._binance = ccxt.binance({'enableRateLimit': True})
+            ohlcv = fetch_prices._binance.fetch_ohlcv(ccxt_symbol, interval, limit=60)
+            if ohlcv and len(ohlcv) >= 14:
+                return [c[4] for c in ohlcv[-60:]]  # closes only
+        except Exception:
+            pass  # Fall through to yfinance
+    
+    # Fallback: yfinance
+    yf_symbol = asset_cfg.get("yf")
+    if yf_symbol:
+        try:
+            import yfinance as yf
+            period = "5d" if interval == "5m" else "60d"
+            h = yf.Ticker(yf_symbol).history(period=period, interval=interval)
+            return h['Close'].tolist()[-60:] if len(h) >= 14 else []
+        except Exception:
+            pass
+    
+    return []
 
 # Keep legacy alias (BTC 5m)
 # V19.7f: fetch_5m() DELETED — use fetch_prices(ASSETS[ak], interval=...) instead
