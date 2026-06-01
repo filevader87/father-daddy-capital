@@ -24,7 +24,7 @@ CACHE_DIR = os.path.dirname(CACHE_FILE)
 
 # Provider TTL in seconds
 PROVIDER_TTL = {
-    "slug_provider": 120,           # 2 minutes
+    "slug_provider": 60,            # 1 minute (5m markets refresh fast)
     "discover_markets": 120,        # 2 minutes (main heavy call)
     "tag_explorer": 600,            # 10 minutes
     "gamma_markets_provider": 600,  # 10 minutes
@@ -303,7 +303,7 @@ class MarketScheduleCache:
                 
                 if end_str:
                     end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                    if now > end_dt and (now - end_dt).total_seconds() > 1800:
+                    if now > end_dt:
                         entry["status"] = "EXPIRED"
                     else:
                         entry["status"] = "ACTIVE"
