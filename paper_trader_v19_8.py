@@ -22,6 +22,7 @@ sys.path.insert(0, '/mnt/c/Users/12035/father_daddy_capital')
 import pm_engine_v19_7 as eng
 import discovery_providers as dp
 import reference_price_engine as rpe
+import market_schedule_cache as msc_mod
 
 OUT_DIR = Path('/mnt/c/Users/12035/father_daddy_capital/paper_trading')
 OUT_DIR.mkdir(exist_ok=True)
@@ -519,9 +520,11 @@ def init_profile_state(profile_key):
         "blocked_by_unrecoverable_distance": 0,
         "blocked_by_expiry_danger": 0,
         "blocked_by_bad_market_phase": 0,
+        "blocked_by_false_dislocation": 0,
         # Token state counts
         "token_states_seen": {"balanced": 0, "live_dislocation": 0, "dormant_longshot": 0,
-                              "nearly_decided": 0, "wide_spread": 0, "untradeable": 0},
+                              "nearly_decided": 0, "wide_spread": 0, "untradeable": 0,
+                              "false_dislocation": 0},
         "market_phases_seen": {"PRE_OPEN_FUTURE": 0, "EARLY_WINDOW": 0, "MID_WINDOW": 0,
                                "LATE_WINDOW": 0, "EXPIRY_DANGER": 0, "CLOSED_OR_EXPIRED": 0},
         "recoverability_scores": [],  # Distribution tracking
@@ -585,6 +588,12 @@ def init_profile_state(profile_key):
         "signal_gate_reject": 0,
         "book_checks_skipped_no_signal": 0,
         "book_checks_skipped_no_market": 0,
+        # ── V19.8: Liquidity availability report (§6) ──
+        "liquidity_report": {},  # {asset_interval: {markets_seen, book_dormant, books_executable, avg_spread, ...}}
+        # ── V19.8: Maker-opportunity diagnostic (§7) ──
+        "maker_diagnostics": [],  # Capped at 200 entries
+        # ── V19.8: Early diagnostic EV (§8) ──
+        "diagnostic_ev": [],  # Capped at 500 entries
         # ── Per-trade stats ──
         "entry_prices": [],
         "spreads": [],
@@ -688,6 +697,116 @@ def validate_pnl(pos, resolved_winner):
 
 
 _CONSECUTIVE_ZERO_VALID = 0  # module-level counter for raw dump trigger
+
+# ── V19.8: Persistent market state cache (cross-cycle clean tick / prewatch) ──
+MARKET_STATE_CACHE = {}
+MARKET_STATE_CACHE_FILE = os.path.join(os.path.dirname(__file__) or ".", "paper_trading", "cache", "market_state_cache.json")
+MARKET_STATE_CACHE_DIR = os.path.dirname(MARKET_STATE_CACHE_FILE)
+
+def _load_market_state_cache():
+    """Load persistent market state cache from disk."""
+    global MARKET_STATE_CACHE
+    try:
+        if os.path.exists(MARKET_STATE_CACHE_FILE):
+            with open(MARKET_STATE_CACHE_FILE, "r") as f:
+                MARKET_STATE_CACHE = json.load(f)
+    except Exception:
+        MARKET_STATE_CACHE = {}
+
+def _save_market_state_cache():
+    """Save persistent market state cache to disk."""
+    try:
+        os.makedirs(MARKET_STATE_CACHE_DIR, exist_ok=True)
+        with open(MARKET_STATE_CACHE_FILE, "w") as f:
+            json.dump(MARKET_STATE_CACHE, f)
+    except Exception:
+        pass  # Non-critical — cache is best-effort
+
+def _expire_market_state_cache():
+    """Remove entries for markets that ended >30 min ago."""
+    now = datetime.now(timezone.utc)
+    expired_keys = []
+    for k, v in MARKET_STATE_CACHE.items():
+        end_str = v.get("market_end_time", "")
+        if end_str:
+            try:
+                end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+                if (now - end_dt).total_seconds() > 1800:  # 30 min after end
+                    expired_keys.append(k)
+            except Exception:
+                pass
+    for k in expired_keys:
+        del MARKET_STATE_CACHE[k]
+
+def _cache_key_for_contract(c):
+    """Get cache key for a contract — prefer conditionId, fallback to slug+asset+interval+start."""
+    cid = c.get("conditionId") or c.get("condition_id")
+    if cid:
+        return cid
+    # Fallback composite key
+    slug = c.get("slug", "unknown")
+    asset = c.get("asset", "unknown")
+    interval = c.get("interval", "unknown")
+    start = c.get("market_start_time", c.get("start_date", ""))
+    return f"{slug}:{asset}:{interval}:{start}"
+
+def _hydrate_contract_from_cache(c):
+    """Hydrate contract dict with cross-cycle state from MARKET_STATE_CACHE."""
+    key = _cache_key_for_contract(c)
+    cached = MARKET_STATE_CACHE.get(key)
+    if not cached:
+        # First time seeing this market — initialize cache entry
+        MARKET_STATE_CACHE[key] = {
+            "first_snapshot_skipped": True,
+            "tick_count": 0,
+            "prev_spot": None,
+            "prev_book": None,
+            "prewatch_started_at": None,
+            "first_book_seen_at": None,
+            "first_spot_seen_at": None,
+            "first_clean_tick_at": None,
+            "last_seen_at": datetime.now(timezone.utc).isoformat(),
+            "last_book_update_at": None,
+            "clean_ticks": 0,
+            "dirty_ticks": 0,
+            "market_start_time": c.get("market_start_time", c.get("start_date", "")),
+            "market_end_time": c.get("market_end_time", c.get("end_date", "")),
+            "asset": c.get("asset", ""),
+            "interval": c.get("interval", ""),
+            "slug": c.get("slug", ""),
+        }
+        # Set contract-level fields from new cache
+        c["_first_snapshot"] = True
+        c["_tick_count"] = 0
+        c["_prev_spot"] = 0
+        c["_prewatch"] = "unknown"
+        return
+
+    # Hydrate from existing cache
+    c["_first_snapshot"] = cached.get("first_snapshot_skipped", True)
+    c["_tick_count"] = cached.get("tick_count", 0)
+    c["_prev_spot"] = cached.get("prev_spot") or 0
+    c["_prewatch"] = cached.get("prewatch_state", "unknown")
+    cached["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+
+def _sync_contract_to_cache(c):
+    """Write contract's cross-cycle state back to MARKET_STATE_CACHE."""
+    key = _cache_key_for_contract(c)
+    cached = MARKET_STATE_CACHE.get(key, {})
+    cached["first_snapshot_skipped"] = c.get("_first_snapshot", True)
+    cached["tick_count"] = c.get("_tick_count", 0)
+    cached["prev_spot"] = c.get("_prev_spot")
+    cached["prewatch_state"] = c.get("_prewatch", "unknown")
+    cached["last_seen_at"] = datetime.now(timezone.utc).isoformat()
+    cached["market_start_time"] = cached.get("market_start_time") or c.get("market_start_time", c.get("start_date", ""))
+    cached["market_end_time"] = cached.get("market_end_time") or c.get("market_end_time", c.get("end_date", ""))
+    cached["asset"] = cached.get("asset") or c.get("asset", "")
+    cached["interval"] = cached.get("interval") or c.get("interval", "")
+    cached["slug"] = cached.get("slug") or c.get("slug", "")
+    MARKET_STATE_CACHE[key] = cached
+
+# Load cache on module import
+_load_market_state_cache()
 
 def _update_last_dislocation(state, reason):
     """V19.8: Update blocked_by for the most recently recorded dislocation audit entry."""
@@ -819,31 +938,31 @@ def run_paper_cycle():
     _lat["signal_start"] = _lat["ccxt_end"]
     _lat["signal_end"] = _lat["ccxt_end"]  # signal gen was inline above
 
-    # V19.7l: Use new discovery providers (deterministic slug + gamma API + tag explorer)
+    # V19.8: Use MarketScheduleCache for discovery (TTL-based provider refresh)
     _lat["discovery_start"] = _time.time()
     try:
-        discovery_results = dp.discover_markets(look_ahead=3)
-        discovery_report = dp.save_discovery_report(discovery_results, cycle_num=None)
-
-        # Build per-asset contract lists from discovery results
-        for m in discovery_results["valid"]:
-            asset = m.get("asset")
-            if asset and asset not in all_contracts:
-                all_contracts[asset] = []
-            if asset:
-                all_contracts[asset].append(m)
-
-        # Track consecutive zero-valid cycles for raw dump
-        if not discovery_results["valid"]:
+        msc = msc_mod.get_msc()
+        # Refresh cache — only calls providers whose TTL expired
+        msc_timing = msc.refresh()
+        for k, v in msc_timing.items():
+            if k in _lat:
+                _lat[k] = v
+        
+        # Build per-asset contract lists from cache
+        for ak in eng.ASSETS:
+            cached_contracts = msc_mod.discover_contracts_cached(ak, msc)
+            all_contracts[ak] = cached_contracts
+        
+        # Track consecutive zero-valid cycles
+        total_valid = sum(len(v) for v in all_contracts.values())
+        if total_valid == 0:
             consecutive_zero_valid += 1
         else:
             consecutive_zero_valid = 0
         _CONSECUTIVE_ZERO_VALID = consecutive_zero_valid
-
-        # Trigger raw dump if 3+ consecutive cycles with 0 valid markets
-        dump_path = dp.maybe_raw_dump(discovery_results, consecutive_zero_valid)
-        if dump_path:
-            print(f"  ⚠ RAW DUMP: {dump_path}")
+        
+        # Cache stats for reporting
+        discovery_cache_stats = msc.get_cache_stats()
 
     except Exception as ex:
         print(f"  ⚠ Discovery provider error: {ex}")
@@ -1043,6 +1162,9 @@ def run_paper_cycle():
                     
             # Determine token IDs from CLOB data
             for c in contracts[:3]:
+                # ── V19.8: Hydrate contract from persistent cache ──
+                _hydrate_contract_from_cache(c)
+                
                 state["trade_candidates_total"] += 1
                 is_up = direction == "up"
                 if is_up:
@@ -1127,14 +1249,47 @@ def run_paper_cycle():
                     state["blocked_trade_candidates"] += 1
                     continue
 
-                # ── V19.8: Token state classification ──
+                # ── V19.8: Reference price computation (moved before token state) ──
+                spot_prices = {}
+                for a, p_list in all_prices.items():
+                    if p_list:
+                        spot_prices[a] = p_list[-1]
+                reference = rpe.get_reference_price(c, spot_prices)
+                if reference is None:
+                    state["blocked_by_missing_reference_price"] += 1
+                    state["reference_price_missing_count"] += 1
+                    state["blocked_trade_candidates"] += 1
+                    continue
+
+                # ── V19.8: Recoverability score (moved before token state) ──
+                current_spot = spot_prices.get(ak, reference["reference_price"])
+                recycl = rpe.compute_recoverability(
+                    ak, direction, current_spot, reference["reference_price"],
+                    time_to_expiry_sec, atr_short=None,
+                    candle_velocity=sig.get("candle_velocity", 0) if sig else 0
+                )
+                recycl_score = recycl["recoverability_score"]
+                dist_pct = recycl.get("needed_move_pct", 0)
+                state["recoverability_scores"].append(recycl_score)
+
+                # ── V19.8: Token state classification (with recoverability + market_phase) ──
                 up_p = c.get("up_price", 0.5)
                 down_p = c.get("down_price", 0.5)
                 spread_val = abs(up_p + down_p - 1.0)
-                token_state = rpe.classify_token_state(up_p, down_p, spread=spread_val)
+                is_dormant_book = (max(up_p, down_p) >= 0.95 or min(up_p, down_p) <= 0.05)
+                token_state = rpe.classify_token_state(
+                    up_p, down_p,
+                    recoverability_score=recycl_score,
+                    spread=spread_val,
+                    market_phase=market_phase,
+                    is_dormant_book=is_dormant_book,
+                    distance_to_reference_pct=dist_pct
+                )
                 ts_name = token_state[0]
-                if ts_name in state.get("token_states_seen", {}):
-                    state["token_states_seen"][ts_name] += 1
+                # Track false_dislocation as separate bucket
+                if ts_name not in state.get("token_states_seen", {}):
+                    state["token_states_seen"][ts_name] = 0
+                state["token_states_seen"][ts_name] += 1
 
                 # ── V19.8: Dislocation outcome audit ──
                 if ts_name == "live_dislocation":
@@ -1162,30 +1317,15 @@ def run_paper_cycle():
                     _update_last_dislocation(state, "dormant_longshot")
                     continue
 
-                # ── V19.8: Reference price computation ──
-                spot_prices = {}
-                for a, p_list in all_prices.items():
-                    if p_list:
-                        spot_prices[a] = p_list[-1]
-                reference = rpe.get_reference_price(c, spot_prices)
-                if reference is None:
-                    state["blocked_by_missing_reference_price"] += 1
-                    state["reference_price_missing_count"] += 1
+                # ── V19.8: False dislocation gate ──
+                if ts_name == "false_dislocation":
+                    state["blocked_by_false_dislocation"] += 1
                     state["blocked_trade_candidates"] += 1
-                    _update_last_dislocation(state, "missing_reference_price")
+                    _update_last_dislocation(state, "false_dislocation")
                     continue
 
-                # ── V19.8: Recoverability score ──
-                current_spot = spot_prices.get(ak, reference["reference_price"])
-                recycl = rpe.compute_recoverability(
-                    ak, direction, current_spot, reference["reference_price"],
-                    time_to_expiry_sec, atr_short=None,
-                    candle_velocity=sig.get("candle_velocity", 0) if sig else 0
-                )
-                state["recoverability_scores"].append(recycl["recoverability_score"])
-
-                # ── V19.8: Unrecoverable distance gate ──
-                if recycl["recoverability_score"] < rpe.MIN_RECOVERABILITY:
+                # ── V19.8: Unrecoverable distance gate (recycl already computed above) ──
+                if recycl_score < rpe.MIN_RECOVERABILITY:
                     state["blocked_by_unrecoverable_distance"] += 1
                     state["blocked_trade_candidates"] += 1
                     _update_last_dislocation(state, "unrecoverable")
@@ -1259,6 +1399,7 @@ def run_paper_cycle():
 
                 # ── Book check ──
                 state["book_checks_attempted"] += 1
+                _pending_maker = None  # V19.8 §7: set in book-available branch
                 token_ids_json = c.get("clobTokenIds") or c.get("token_ids") or ""
                 clob_token_id = None
                 opposite_token_id = None
@@ -1309,6 +1450,25 @@ def run_paper_cycle():
                     estimated_slippage = book.get("spread", 0)
                     # V19.7m: Count as executable if it also passes spread/depth/price/EV gates downstream
                     # We'll count actual executable after all gates pass, but mark successful here
+                    
+                    # ── V19.8 §7: Maker-opportunity diagnostic (p_win filled after EV calc) ──
+                    bid_ask_spread = book.get("spread", 0)
+                    best_bid = book.get("best_bid", 0)
+                    if best_bid > 0 and bid_ask_spread > 0.01 and not book.get("dormant"):
+                        if len(state.get("maker_diagnostics", [])) < 200:
+                            _pending_maker = {
+                                "slug": c.get("slug", ""),
+                                "asset": ak,
+                                "interval": timeframe,
+                                "best_bid": best_bid,
+                                "best_ask": fill_price,
+                                "spread": bid_ask_spread,
+                                "bid_depth": book.get("bid_depth_5c", 0),
+                                "ask_depth": book.get("ask_depth_5c", 0),
+                                "maker_edge": round(best_bid - fill_price + 1, 4),
+                                "liquidity_usd": book.get("liquidity_usd", 0),
+                                "timestamp": cycle_time.isoformat(),
+                            }
                 else:
                     fill_price = token_price
                     book_available = False
@@ -1333,6 +1493,13 @@ def run_paper_cycle():
                     state["blocked_trade_candidates"] += 1
                     _update_last_dislocation(state, "ev_calc_error")
                     continue
+
+                # ── V19.8 §7: Finalize maker diagnostic with p_win ──
+                if _pending_maker is not None:
+                    _pending_maker["estimated_probability"] = round(p_win, 4)
+                    _pending_maker["maker_ev_net"] = round(p_win - _pending_maker["best_bid"], 4)
+                    state.setdefault("maker_diagnostics", []).append(_pending_maker)
+                    _pending_maker = None
 
                 # ── V19.8: EV-over-WR buffered edge (§11) ──
                 break_even_prob = fill_price
@@ -1365,6 +1532,21 @@ def run_paper_cycle():
                     state["blocked_trade_candidates"] += 1
                     state["EV_gate_reject"] += 1
                     _update_last_dislocation(state, "EV_gate")
+                    # ── V19.8 §8: Diagnostic EV for blocked candidates ──
+                    if len(state.get("diagnostic_ev", [])) < 500:
+                        state.setdefault("diagnostic_ev", []).append({
+                            "slug": c.get("slug", ""),
+                            "asset": ak,
+                            "interval": timeframe,
+                            "side": token_side,
+                            "entry_ask": round(fill_price, 4),
+                            "estimated_probability": round(p_win, 4),
+                            "net_ev": round(net_ev, 4),
+                            "recoverability_score": round(recycl.get("recoverability_score", 0), 4),
+                            "blocked_by": "EV_gate",
+                            "ev_min_gate": profile_cfg["ev_min_gate"],
+                            "timestamp": cycle_time.isoformat(),
+                        })
                     continue
 
                 # ── V19.8: Recoverable cheap token FINAL check (with real EV + depth) ──
@@ -1751,6 +1933,39 @@ def run_paper_cycle():
                     }, default=str) + "\n")
     except Exception:
         pass  # Non-critical: tape is diagnostic only
+
+    # ── V19.8: Sync contract state to persistent cache + expire + save ──
+    for ak in eng.ASSETS:
+        for c in all_contracts.get(ak, [])[:3]:
+            _sync_contract_to_cache(c)
+    _expire_market_state_cache()
+    _save_market_state_cache()
+
+    # ── V19.8 §6: Liquidity availability report (per asset_interval) ──
+    try:
+        lr = state.setdefault("liquidity_report", {})
+        for ak in eng.ASSETS:
+            for c in all_contracts.get(ak, [])[:3]:
+                interval = c.get("interval", c.get("timeframe", "5m"))
+                key = f"{ak}_{interval}"
+                if key not in lr:
+                    lr[key] = {"markets_seen": 0, "book_dormant": 0, "books_executable": 0,
+                               "avg_spread": 0, "total_spread": 0, "total_liquidity": 0}
+                entry = lr[key]
+                entry["markets_seen"] += 1
+                up_p = float(c.get("up_price", 0) or 0)
+                dn_p = float(c.get("down_price", 0) or 0)
+                spread_val = abs(up_p - dn_p)
+                entry["total_spread"] += spread_val
+                entry["avg_spread"] = round(entry["total_spread"] / max(entry["markets_seen"], 1), 4)
+                liq = float(c.get("liquidity", c.get("liquidityNum", c.get("liquidityClob", 0))) or 0)
+                entry["total_liquidity"] += liq
+                if max(up_p, dn_p) >= 0.95 or min(up_p, dn_p) <= 0.05:
+                    entry["book_dormant"] += 1
+                else:
+                    entry["books_executable"] += 1
+    except Exception:
+        pass
 
     # ── Save combined cycle report ──
     ts = cycle_time.strftime("%Y%m%d_%H%M%S")

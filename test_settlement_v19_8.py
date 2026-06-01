@@ -456,6 +456,43 @@ def test_40_pbot_style():
     assert style2 == "late_window_dislocation"
     print("  ✅ PBot style classification works")
 
+def test_41_false_dislocation_zero_recoverability():
+    """28¢ token with recoverability_score=0.00 is NOT live_dislocation."""
+    ts = rpe.classify_token_state(0.28, 0.72, recoverability_score=0.0, distance_to_reference_pct=0.0)
+    assert ts[0] == "false_dislocation", f"Expected false_dislocation, got {ts[0]}"
+    print("  ✅ 28¢ token + recycl=0.00 → false_dislocation")
+
+def test_42_false_dislocation_zero_distance():
+    """34¢ token with distance_to_reference_pct=0 is NOT live_dislocation."""
+    ts = rpe.classify_token_state(0.34, 0.66, recoverability_score=0.7, distance_to_reference_pct=0.0)
+    assert ts[0] == "false_dislocation", f"Expected false_dislocation, got {ts[0]}"
+    print("  ✅ 34¢ token + dist_pct=0 → false_dislocation")
+
+def test_43_false_dislocation_dormant_book():
+    """10¢ token with dormant book is NOT live_dislocation."""
+    ts = rpe.classify_token_state(0.10, 0.90, recoverability_score=0.6, is_dormant_book=True)
+    assert ts[0] == "false_dislocation", f"Expected false_dislocation, got {ts[0]}"
+    print("  ✅ 10¢ token + dormant book → false_dislocation")
+
+def test_44_true_live_dislocation():
+    """10¢ token WITH recoverability > threshold AND non-zero distance AND non-dormant is live_dislocation."""
+    ts = rpe.classify_token_state(0.10, 0.90, recoverability_score=0.6, is_dormant_book=False,
+                                   distance_to_reference_pct=0.02, market_phase="MID_WINDOW")
+    assert ts[0] == "live_dislocation", f"Expected live_dislocation, got {ts[0]}"
+    print("  ✅ 10¢ token + recycl=0.6 + dist=2% + non-dormant → live_dislocation")
+
+def test_45_balanced_still_works():
+    """35-65¢ balanced markets remain balanced."""
+    ts = rpe.classify_token_state(0.50, 0.50, recoverability_score=0.0)
+    assert ts[0] == "balanced"
+    print("  ✅ 50/50 market stays balanced")
+
+def test_46_nearly_decided_still_works():
+    """95¢/5¢ remains nearly_decided."""
+    ts = rpe.classify_token_state(0.95, 0.05)
+    assert ts[0] == "nearly_decided"
+    print("  ✅ 95¢/5¢ stays nearly_decided")
+
 
 if __name__ == "__main__":
     print("=" * 60)
@@ -814,9 +851,10 @@ print(f"\n{'='*60}")
 print(f"V19.8 TOTAL: {TESTS_PASSED} passed, {TESTS_FAILED} failed")
 print(f"{'='*60}")
 
-# ── V19.8 Reference-Price / Recoverability Tests (32-40) ──
-print(f"\n── V19.8 RP Tests (32-40) ──")
-for t in [test_32_reference_price_infer, test_33_recoverability_in_the_money, test_34_recoverability_longshot, test_35_token_state_dormant, test_36_token_state_live_dislocation, test_37_market_phase, test_38_recoverable_gate, test_39_expensive_side_diag, test_40_pbot_style]:
+# ── V19.8 Reference-Price / Recoverability Tests (32-46) ──
+print(f"\n── V19.8 RP Tests (32-46) ──")
+for t in [test_32_reference_price_infer, test_33_recoverability_in_the_money, test_34_recoverability_longshot, test_35_token_state_dormant, test_36_token_state_live_dislocation, test_37_market_phase, test_38_recoverable_gate, test_39_expensive_side_diag, test_40_pbot_style,
+          test_41_false_dislocation_zero_recoverability, test_42_false_dislocation_zero_distance, test_43_false_dislocation_dormant_book, test_44_true_live_dislocation, test_45_balanced_still_works, test_46_nearly_decided_still_works]:
     try:
         t()
         TESTS_PASSED += 1

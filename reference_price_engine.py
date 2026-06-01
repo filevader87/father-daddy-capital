@@ -310,17 +310,21 @@ def compute_recoverability(asset, direction, current_price, reference_price,
 # §3: Token State Classification
 # ══════════════════════════════════════════════════════════════════════════════
 
-def classify_token_state(up_price, down_price, recoverability_score=None, spread=None):
+def classify_token_state(up_price, down_price, recoverability_score=None, spread=None,
+                          market_phase=None, is_dormant_book=False, distance_to_reference_pct=None):
     """Classify the current state of an UP/DOWN token pair.
     
     Returns (state, description) tuple.
     States:
-        balanced:        both sides roughly 35–65¢
-        live_dislocation: target token 8–35¢ and recoverability sufficient
-        dormant_longshot: target token 1–5¢ or required move too large
-        nearly_decided:  one side 95–99¢, other 1–5¢
-        wide_spread:     spread too large
-        untradeable:     missing/invalid prices
+        balanced:          both sides roughly 35–65¢
+        live_dislocation:  target token 8–35¢, recoverability_score > 0 and >= threshold,
+                           non-zero distance, not dormant book, not EXPIRY_DANGER
+        false_dislocation: target token 8–35¢ but recoverability_score = 0 or
+                           distance_to_reference = 0 or dormant book
+        dormant_longshot:  target token 1–5¢ or required move too large
+        nearly_decided:    one side 95–99¢, other 1–5¢
+        wide_spread:       spread too large
+        untradeable:       missing/invalid prices
     """
     if up_price is None or down_price is None or up_price <= 0 or down_price <= 0:
         return ("untradeable", "missing_prices")
@@ -345,12 +349,23 @@ def classify_token_state(up_price, down_price, recoverability_score=None, spread
     if cheap <= 0.05:
         return ("dormant_longshot", f"cheap={cheap:.3f}<=5¢")
     
-    # Dormant longshot: if recoverability is known and too low
+    # Dormant longshot: if recoverability is known and too low for sub-8¢ tokens
     if recoverability_score is not None and cheap < 0.08 and recoverability_score < 0.40:
         return ("dormant_longshot", f"cheap={cheap:.3f} recycl={recoverability_score:.2f}")
     
-    # Live dislocation: 8–35¢ cheap token with sufficient recoverability
+    # Live dislocation: 8–35¢ cheap token — now requires ALL conditions
     if 0.08 <= cheap <= 0.35:
+        # False dislocation checks: price in range but not actually recoverable
+        if recoverability_score is not None and recoverability_score == 0.0:
+            return ("false_dislocation", f"cheap={cheap:.3f} recycl=0.00 (no recovery needed/possible)")
+        if distance_to_reference_pct is not None and abs(distance_to_reference_pct) < 0.0001:
+            return ("false_dislocation", f"cheap={cheap:.3f} dist_pct≈0 (already decided)")
+        if is_dormant_book:
+            return ("false_dislocation", f"cheap={cheap:.3f} dormant_book (no real liquidity)")
+        if market_phase == "EXPIRY_DANGER":
+            return ("false_dislocation", f"cheap={cheap:.3f} expiry_danger (too late for recovery)")
+        
+        # Check recoverability threshold
         if recoverability_score is None or recoverability_score >= 0.40:
             return ("live_dislocation", f"cheap={cheap:.3f} recycl={recoverability_score}")
         else:
@@ -366,7 +381,8 @@ def classify_token_state(up_price, down_price, recoverability_score=None, spread
     
     # Everything else that's not balanced
     if cheap <= 0.35:
-        return ("live_dislocation", f"cheap={cheap:.3f}")
+        # Already covered by 8-35¢ block above, this is safety fallback
+        return ("false_dislocation", f"cheap={cheap:.3f} fallback_classification")
     
     return ("balanced", f"up={up_price:.3f} down={down_price:.3f}")
 
