@@ -1,0 +1,48 @@
+functionsDirectory = "/home/naq1987s/father-daddy-capital/deploy/netlify/functions"
+functionsDirectoryOrigin = "default"
+headersOrigin = "config"
+redirectsOrigin = "config"
+plugins = []
+
+[build]
+publish = "/home/naq1987s/father-daddy-capital/deploy"
+publishOrigin = "config"
+base = "/home/naq1987s/father-daddy-capital/deploy"
+functions = "/home/naq1987s/father-daddy-capital/deploy/netlify/functions"
+
+[build.environment]
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[functions]
+
+[functions."*"]
+
+[[headers]]
+for = "/*"
+
+[headers.values]
+X-Frame-Options = "DENY"
+X-Content-Type-Options = "nosniff"
+
+[[redirects]]
+from = "/api/*"
+to = "http://79.127.184.155:8197/api/:splat"
+status = 200.0
+force = true
+
+[redirects.query]
+
+[redirects.conditions]
+
+[redirects.headers]
