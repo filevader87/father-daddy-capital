@@ -1,0 +1,449 @@
+\documentclass[11pt,a4paper]{article}
+
+% ── Packages ──
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+\usepackage{natbib}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    citecolor=blue!60!black,
+    urlcolor=blue!60!black
+}
+
+% ── Custom commands ──
+\newcommand{\EV}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\Prob}{\mathbb{P}}
+\newcommand{\fdc}{\textsc{fdc}}
+\newcommand{\pbt}{\textsc{pbt}}
+
+% ── Theorem environments ──
+\newtheorem{definition}{Definition}[section]
+\newtheorem{proposition}{Proposition}[section]
+\newtheorem{lemma}{Lemma}[section]
+\newtheorem{corollary}{Corollary}[section]
+
+\title{\Large\bfseries Defensive Capital Accumulation in the Agentic Economy:\\
+A Directional Extraction Framework for Binary Micro-Markets}
+
+\author{
+    Father Daddy Capital Research\\
+    \texttt{https://github.com/filevader87/father-daddy-capital}
+}
+
+\date{June 2025}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We present Father Daddy Capital (FDC) V21, an adaptive directional extraction framework designed for capital accumulation during the economic transition toward agentic automation. Drawing on three independent theoretical results---the AI Layoff Trap (Hemenway Falk \& Tsoukalas, 2026), Agentic Inequality (Sharp et al., 2026), and Strategic Wealth Accumulation under Transformative AI Expectations (Maresca, 2025)---we argue that the agentic economy creates structural conditions under which individual capital accumulation through autonomous market participation becomes a defensive necessity rather than a speculative venture. We formalize the directional extraction problem in binary prediction markets, present an evolutionary profile management system with provable convergence properties, and introduce an execution reality model that enforces binary settlement constraints. The system operates on Polymarket UpDown contracts across four crypto assets (BTC, ETH, SOL, XRP) at 5-minute and 15-minute intervals, implementing oracle lag exploitation, adversarial market detection, and hard risk constraints. We provide theoretical foundations, architectural specifications, and empirical motivation for treating autonomous capital accumulation as a survival mechanism in an economy undergoing agentic transition.
+\end{abstract}
+
+\textbf{Keywords:} agentic economy, prediction markets, binary options, adaptive systems, capital accumulation, automation trap, directional extraction
+
+\section{Introduction}
+
+The economic landscape is undergoing a structural transformation driven by autonomous AI agent deployment. Three independent lines of research have identified convergent threats to individuals who lack capital accumulation mechanisms:
+
+\begin{enumerate}
+    \item \textbf{Demand externality traps} make rational firms automate beyond collective optima, permanently displacing labor income \citep{hemenway2026ai};
+    \item \textbf{Agentic inequality} compounds along availability, quality, and quantity dimensions, generating exponential divergence between agent-holders and non-holders \citep{sharp2026agentic};
+    \item \textbf{Strategic wealth accumulation} under transformative AI (TAI) expectations creates positional advantages that compound beyond productive returns \citep{maresca2025strategic}.
+\end{enumerate}
+
+These results share a common structural feature: each identifies a mechanism by which the transition to an agentic economy punishes late entrants with compounding severity. Crucially, each also demonstrates that the proposed policy corrections---Pigouvian taxation, universal basic income, agent accessibility, Coasean bargaining---either fail to correct the underlying externality or face political feasibility constraints that render them theoretical solutions without practical implementation.
+
+We introduce Father Daddy Capital (FDC) V21 as a \emph{defensive capital accumulation mechanism}---an autonomous directional extraction framework operating inside binary prediction micro-markets. The system is designed not to maximize speculative profit, but to maximize accumulated real capital under adversarial constraints during the economic transition period that the cited research identifies as both inevitable and policy-intractable.
+
+\subsection{Contributions}
+
+This paper makes the following contributions:
+
+\begin{enumerate}
+    \item A formal treatment of the directional extraction problem in binary micro-markets with oracle lag (Section~\ref{sec:formal});
+    \item An evolutionary profile management system based on probabilistic bandit allocation with kill/promotion dynamics (Section~\ref{sec:profiles});
+    \item An execution reality model enforcing binary settlement, spread costs, slippage, and adversarial constraints (Section~\ref{sec:execution});
+    \item A theoretical synthesis connecting agentic economy threats to design requirements for defensive capital accumulation (Section~\ref{sec:threat});
+    \item Complete architectural specification for the V21 system (Section~\ref{sec:architecture}).
+\end{enumerate}
+
+\section{The Threat Model}\label{sec:threat}
+
+\subsection{The AI Layoff Trap}
+
+\citet{hemenway2026ai} model a competitive task-based economy with $N$ firms, each facing an automation decision. Let $c_i$ denote firm $i$'s automation cost and $s_i$ denote its cost saving. Under demand externality $\delta > 0$, the social cost of automation exceeds private cost:
+
+\begin{equation}\label{eq:demand_externality}
+    \underbrace{\sum_{i=1}^{N} s_i}_{\text{private benefit}} < \underbrace{\sum_{i=1}^{N} s_i + N \cdot \delta \cdot \bar{d}}_{\text{social benefit + demand loss}}
+\end{equation}
+
+\noindent where $\bar{d}$ represents average demand destruction per automation event. The authors prove that rational firms automate beyond the social optimum because each firm captures its full cost saving $s_i$ but bears only fraction $1/N$ of the demand loss. Neither wage adjustments, universal basic income, worker equity, upskilling, nor Coasean bargaining correct this equilibrium \citep[Theorem~4]{hemenway2026ai}.
+
+\begin{proposition}[Layoff Trap Inescapability]
+\label{prop:layoff}
+Under the demand externality model of \citet{hemenway2026ai}, no individual-level strategy---skill acquisition, labor organization, or portfolio rebalancing---restores the pre-automation income level for displaced workers.
+\end{proposition}
+
+The implication is direct: capital accumulation through autonomous market participation is not a supplement to labor income during the transition---it is a \emph{structural replacement} for income streams that the layoff trap eliminates.
+
+\subsection{Agentic Inequality}
+
+\citet{sharp2026agentic} formalize agentic inequality across three dimensions. For agent access vector $\mathbf{a} = (a_{\text{avail}}, a_{\text{qual}}, a_{\text{quant}})$ and individual $j$ with wealth $w_j$, agentic advantage $\alpha_j$ compounds as:
+
+\begin{equation}\label{eq:agentic_inequality}
+    \alpha_j(t) = \alpha_j(0) \cdot \exp\left(\int_0^t f(\mathbf{a}_j(s), w_j(s)) \, ds\right)
+\end{equation}
+
+\noindent where $f$ is an increasing function of both agent access $\mathbf{a}$ and wealth $w$. The exponential structure ensures that two individuals with equal skill but unequal agent access diverge over time, with the gap accelerating rather than converging.
+
+\begin{definition}[Agentic Inequality Dimensions]
+An individual's agentic capacity is characterized by:
+\begin{itemize}
+    \item \textbf{Availability} ($a_{\text{avail}} \in \{0,1\}$): whether they can deploy any autonomous delegate
+    \item \textbf{Quality} ($a_{\text{qual}} \in \R^+$): the capability of their most capable agent
+    \item \textbf{Quantity} ($a_{\text{quant}} \in \mathbb{N}$): the number of concurrent agent instances operable
+\end{itemize}
+\end{definition}
+
+The critical insight for FDC is the \emph{quantity} dimension. A single agent operating across $K$ markets simultaneously captures $K$ times the extraction opportunities. FDC operates across $4 \times 2 = 8$ market universes with 19 competing directional hypotheses, achieving multiplicative coverage that a single-market, single-strategy approach cannot match.
+
+\subsection{Strategic Wealth Accumulation}
+
+\citet{maresca2025strategic} establish that TAI expectations generate strategic competition for wealth that drives interest rates from baseline $\approx 3\%$ to $10$--$16\%$ even before any technological breakthrough. The key mechanism:
+
+\begin{equation}\label{eq:strategic_rate}
+    r_{\text{strategic}} = r_{\text{productive}} + \underbrace{v_{\text{positional}}(w, t_{\text{TAI}})}_{\text{strategic value of wealth}}
+\end{equation}
+
+\noindent where $v_{\text{positional}}(w, t_{\text{TAI}})$ represents the strategic value of holding wealth $w$ at the time of TAI deployment $t_{\text{TAI}}$. This positional value component implies a fundamental divergence:
+
+\begin{proposition}[Wealth Positional Premium]
+\label{prop:positional}
+Under TAI expectations, the equilibrium return on capital $r_{\text{strategic}}$ exceeds the productive return $r_{\text{productive}}$ by an amount equal to the positional value per unit of wealth. Late entrants face compounding disadvantage proportional to $e^{(r_{\text{strategic}} - r_{\text{productive}}) \cdot t}$.
+\end{proposition}
+
+Every dollar extracted from micro-markets during the transition carries not only its face value but its strategic positional premium. FDC's design objective is to maximize the present value of this compound positional advantage before the transition concentrates enough wealth to render individual participation impossible.
+
+\section{Formal Framework}\label{sec:formal}
+
+\subsection{The Directional Extraction Problem}
+
+We formalize the core problem as follows. Consider a binary prediction market on crypto asset $a \in \mathcal{A} = \{\text{BTC}, \text{ETH}, \text{SOL}, \text{XRP}\}$ with resolution interval $\tau \in \mathcal{T} = \{5\text{m}, 15\text{m}\}$. Each contract resolves to $\{0, 1\}$ (binary settlement, \emph{never} midpoint).
+
+\begin{definition}[Directional Extraction Problem]
+Given spot price process $\{S_t\}$, contract implied probability $p_t^{\text{market}}$, and oracle lag $\ell_t = |p_t^{\text{true}} - p_t^{\text{market}}|$, the \emph{directional extraction problem} is to select direction $d \in \{\text{UP}, \text{DOWN}\}$ and entry time $t_e$ such that:
+
+\begin{equation}\label{eq:extraction_objective}
+    \max_{d, t_e} \; \EV\left[\mathbb{1}_{\{d = d^*\}} - c_{\text{exec}}(t_e)\right]
+\end{equation}
+
+\noindent where $d^*$ is the realized direction, $\mathbb{1}_{\{d = d^*\}}$ is the binary settlement indicator, and $c_{\text{exec}}(t_e) \geq 0$ is the total execution cost at entry time $t_e$.
+\end{definition}
+
+The execution cost encompasses:
+
+\begin{equation}\label{eq:execution_cost}
+    c_{\text{exec}}(t_e) = \underbrace{s(t_e)}_{\text{spread}} + \underbrace{\sigma(t_e)}_{\text{slippage}} + \underbrace{\lambda(t_e)}_{\text{queue latency}} + \underbrace{\rho(t_e)}_{\text{reprice risk}} + \underbrace{\pi_{\text{adv}}(t_e)}_{\text{adversarial penalty}}
+\end{equation}
+
+\subsection{Oracle Lag}
+
+We define oracle lag as the temporal delay between an external spot price movement and its incorporation into contract implied probability:
+
+\begin{definition}[Oracle Lag]
+The \emph{oracle lag} for asset $a$ at time $t$ is:
+
+\begin{equation}\label{eq:oracle_lag}
+    \ell_{a,t} = p^{\text{true}}_{a,t} - p^{\text{market}}_{a,t}
+\end{equation}
+
+\noindent where $p^{\text{true}}_{a,t}$ is the probability implied by the current spot price delta from a reference point, and $p^{\text{market}}_{a,t}$ is the Polymarket contract price.
+\end{definition}
+
+An oracle lag edge exists when $|\ell_{a,t}| > \theta_{\text{edge}}$ for threshold $\theta_{\text{edge}} = 0.05$ (5\% probability gap). Empirically, oracle lag is maximized during:
+
+\begin{enumerate}
+    \item Late-window periods (60--120 seconds before resolution), where market maker repricing must compress orderbooks
+    \item Abrupt directional moves, where spot price changes faster than contract adjustment
+    \item Multi-asset momentum cascades, where correlated moves create compounding lag
+\end{enumerate}
+
+\subsection{Directional Asymmetry Engine}
+
+We explicitly model \emph{continuation dominance} as the default hypothesis. Let $\mathcal{C}$ denote the set of continuation contexts and $\mathcal{R}$ the set of reversal contexts. The directional probability model uses Bayesian estimation with informative prior:
+
+\begin{equation}\label{eq:directional_bayes}
+    \hat{p}(d \mid \text{ctx}) = \frac{\alpha_{\text{ctx}} + n_{\text{ctx}}^{\text{wins}}}{\alpha_{\text{ctx}} + \beta_{\text{ctx}} + n_{\text{ctx}}^{\text{total}}}
+\end{equation}
+
+\noindent where $\alpha_{\text{ctx}}, \beta_{\text{ctx}}$ are prior pseudo-counts set asymmetrically:
+
+\begin{equation}\label{eq:continuation_prior}
+    (\alpha_{\text{cont}}, \beta_{\text{cont}}) = (3, 1) \quad \text{(continuation prior)}
+    \qquad
+    (\alpha_{\text{rev}}, \beta_{\text{rev}}) = (1, 1) \quad \text{(reversal prior: uniform)}
+\end{equation}
+
+This encodes the structural assumption that continuation $>$ reversal unless data proves otherwise. Reversal contexts must \emph{earn} the right to be traded through verified evidence: minimum 10 observations, win rate $> 55\%$, and positive EV per dollar.
+
+\subsection{Credible Expected Value}\label{sec:credible_ev}
+
+The core entry criterion enforces credible lower-bound EV positivity:
+
+\begin{definition}[Credible EV]
+For estimated winning probability $\hat{p}$, executable price $p_{\text{exec}}$, and execution costs $c_{\text{exec}}$, the \emph{credible EV} is:
+
+\begin{equation}\label{eq:credible_ev}
+    \text{CEV} = (\hat{p} - p_{\text{exec}} - c_{\text{exec}}) \cdot \phi_{\text{fill}} \cdot (1 - p_{\text{reject}}) \cdot \kappa
+\end{equation}
+
+\noindent where:
+\begin{itemize}
+    \item $\phi_{\text{fill}} \in [0.3, 1.0]$: fill probability accounting for queue position and market liquidity
+    \item $p_{\text{reject}} \in [0, 0.3]$: fill rejection probability
+    \item $\kappa \in \{0.90, 0.95\}$: conservative discount factor (0.90 in conservative mode)
+\end{itemize}
+
+An entry is permitted iff $\text{CEV} > 0$.
+\end{definition}
+
+The position sizing function maps credible EV to capital allocation:
+
+\begin{equation}\label{eq:position_sizing}
+    s(\text{CEV}) = \begin{cases}
+        \$0 & \text{if } \text{CEV} \leq 0 \\
+        \$0.50 & \text{if } 0 < \text{CEV} \leq 0.05 \\
+        \$0.50 + \frac{\text{CEV} - 0.05}{0.05} \times \$0.50 & \text{if } 0.05 < \text{CEV} \leq 0.10 \\
+        \$2.00 & \text{if } \text{CEV} > 0.10
+    \end{cases}
+\end{equation}
+
+\section{Profile Management}\label{sec:profiles}
+
+\subsection{Directional Hypotheses as Profiles}
+
+Each profile $\pi \in \Pi$ is a directional hypothesis, not an indicator strategy. Profiles are parameterized by:
+
+\begin{equation}\label{eq:profile}
+    \pi = (a, \tau, d, r, w)
+\end{equation}
+
+\noindent where $a \in \mathcal{A}$ is the asset, $\tau \in \mathcal{T}$ is the interval, $d \in \{\text{UP}, \text{DOWN}\} \times \mathcal{D}_{\text{tag}}$ is the directional tag, $r$ is the RSI context zone, and $w$ is the time window classification. The system maintains $|\Pi| = 19$ active profiles.
+
+\subsection{Bandit Allocation}
+
+Capital allocation follows a probabilistic bandit tournament (\pbt) scheme with 70/20/10 split:
+
+\begin{equation}\label{eq:allocation}
+    W(\pi) = \begin{cases}
+        \frac{0.70}{|\Pi_{\text{prom}}|} & \text{if } \pi \in \Pi_{\text{prom}} \quad \text{(exploit)} \\
+        \frac{0.20}{|\Pi_{\text{probe}}|} & \text{if } \pi \in \Pi_{\text{probe}} \quad \text{(probe)} \\
+        \frac{0.10}{|\Pi_{\text{explore}}|} & \text{if } \pi \in \Pi_{\text{explore}} \quad \text{(explore)}
+    \end{cases}
+\end{equation}
+
+\subsection{Kill and Promotion Rules}
+
+Profiles evolve under strict selection pressure:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Condition} & \textbf{Threshold} & \textbf{Action} \\
+\midrule
+$\text{PF}(\pi) < 0.90$ & After 20 trades & Permanent kill \\
+$\EV(\pi) < -0.10$ per dollar & After 10 trades & Permanent kill \\
+Loss streak $\geq 8$ & Any time & Permanent kill \\
+Adversarial score $\geq 0.80$ & Any time & Permanent kill \\
+\midrule
+$\text{PF}(\pi) \geq 1.25$ & After 20 trades & Promotion \\
+$\EV(\pi) > 0.10$ per dollar & After 20 trades & Promotion \\
+$\text{WR}(\pi) > 55\%$ & After 20 trades & Promotion \\
+$H(\pi) > 0.50$ bits & After 20 trades & Promotion \\
+\bottomrule
+\end{tabular}
+\caption{Profile kill and promotion rules. $H$ denotes Shannon entropy.}
+\label{tab:kill_promotion}
+\end{table}
+
+Killed profiles are \emph{permanently} removed from allocation. No resurrection mechanism exists.
+
+\section{Execution Reality Model}\label{sec:execution}
+
+\subsection{Binary Settlement Constraint}
+
+All contracts resolve to $\{0, 1\}$. We formally prohibit midpoint, synthetic, or interpolated settlement:
+
+\begin{equation}\label{eq:binary_settlement}
+    V(d, d^*) = \begin{cases}
+        1 & \text{if } d = d^* \quad \text{(win)} \\
+        0 & \text{if } d \neq d^* \quad \text{(loss)}
+    \end{cases}
+\end{equation}
+
+The realized P\&L for position size $s$ at entry cost $c_{\text{total}}$:
+
+\begin{equation}\label{eq:pnl}
+    \text{P\&L} = V(d, d^*) \cdot s - c_{\text{total}}
+\end{equation}
+
+This formulation makes explicit what midpoint settlement models obscure: every trade is a discrete binary bet, and the distance from ``fair'' price to the nearest executable price constitutes the full cost of the position.
+
+\subsection{Adversarial Market Detection}
+
+The market is modeled as adversarial. A composite adversarial score $\alpha_t \in [0, 1]$ combines six detection axes:
+
+\begin{equation}\label{eq:adversarial}
+    \alpha_t = 0.25 \cdot f_{\text{fake}} + 0.20 \cdot f_{\text{trap}} + 0.20 \cdot f_{\text{asym}} + 0.15 \cdot f_{\text{spoof}} + 0.10 \cdot f_{\text{pin}} + 0.10 \cdot f_{\text{bait}}
+\end{equation}
+
+\noindent where each $f_i \in [0, 1]$ measures: fake reversal frequency, spread trap incidence, repricing asymmetry, liquidity spoofing, market maker pinning, and directional bait respectively.
+
+Allocation is modified by adversarial conditions:
+
+\begin{equation}\label{eq:adversarial_allocation}
+    s(\alpha_t) = \begin{cases}
+        s(\text{CEV}) & \text{if } \alpha_t < 0.60 \\
+        0.5 \cdot s(\text{CEV}) & \text{if } 0.60 \leq \alpha_t < 0.80 \\
+        0 & \text{if } \alpha_t \geq 0.80
+    \end{cases}
+\end{equation}
+
+\subsection{Live Constraints}
+
+The system operates under hard constraints with no override capability:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Maximum position size & \$2.00 \\
+Maximum concurrent positions & 1 \\
+Maximum live profiles & 1 \\
+Maximum daily loss & \$10.00 \\
+Maximum weekly loss & \$30.00 \\
+Maximum daily trades & 20 \\
+Forced shutdown on constraint violation & Enabled \\
+Martingale sizing & Prohibited \\
+Leverage escalation & Prohibited \\
+Revenge sizing & Prohibited \\
+\bottomrule
+\end{tabular}
+\caption{Hard live constraints (\S14). No override mechanism exists.}
+\label{tab:live_constraints}
+\end{table}
+
+\section{System Architecture}\label{sec:architecture}
+
+\subsection{Layered Architecture}
+
+The V21 system is a layered hybrid organism with five computational layers:
+
+\begin{enumerate}
+    \item \textbf{Real Execution Layer}: Binary settlement enforcement, fill modeling, slippage, queue latency
+    \item \textbf{Directional Persistence Engine}: Bayesian continuation priors, 10 RSI $\times$ direction contexts
+    \item \textbf{EV Filter}: Credible lower-bound EV required for all entries
+    \item \textbf{Profile Evolution Engine}: 19 competing directional hypotheses with \pbt{} allocation
+    \item \textbf{Live Capital Concentrator}: Hard risk constraints, position sizing, emergency shutdown
+\end{enumerate}
+
+\subsection{Oracle Lag Exploitation Module}
+
+The oracle lag module continuously compares external spot price movements against Polymarket contract repricing. The expected probability given spot delta $\Delta S$ and time remaining ratio $\rho \in (0, 1]$ is estimated using a sigmoid mapping:
+
+\begin{equation}\label{eq:expected_probability}
+    p^{\text{true}}_{a,t} = \sigma\left(k \cdot \Delta S_a \cdot (1 + (1 - \rho))\right) = \frac{1}{1 + e^{-k \cdot \Delta S_a \cdot (2 - \rho)}}
+\end{equation}
+
+\noindent where $k = 500$ is the sensitivity parameter calibrated for 5-minute crypto volatility, and $\Delta S_a$ is the normalized spot price change for asset $a$. An oracle lag edge is identified when $|\ell_{a,t}| > \theta_{\text{edge}} = 0.05$.
+
+\subsection{Late-Window Attack}
+
+Following the strategic vs.\ productive return insight of \citet{maresca2025strategic}, V21 concentrates entry during the final 60--120 seconds before contract resolution, when market makers' competitive spread compression creates the largest positional premium. The time-to-expiry window classification:
+
+\begin{equation}\label{eq:time_window}
+    w(\text{TTE}, \tau) = \begin{cases}
+        \text{early} & \text{if } \text{TTE}/\tau > 0.7 \\
+        \text{mid} & \text{if } 0.3 < \text{TTE}/\tau \leq 0.7 \\
+        \text{late} & \text{if } \text{TTE}/\tau \leq 0.3
+    \end{cases}
+\end{equation}
+
+\noindent Only late-window and specific mid-window configurations are eligible for entry, concentrating capital in the region of maximum oracle lag and positional premium.
+
+\section{Why Traditional Approaches Fail}\label{sec:failures}
+
+The theoretical foundations identified in Section~\ref{sec:threat} explain why traditional capital accumulation strategies fail in the agentic transition:
+
+\begin{enumerate}
+    \item \textbf{RSI reversal strategies fail} because oversold/overbought conditions in 5-minute windows are dominated by directional persistence rather than mean reversion. The directional asymmetry engine (\S5.3) tracks 10 RSI $\times$ direction contexts and requires verified evidence for reversal trades.
+
+    \item \textbf{Midpoint settlement models fail} because UpDown contracts resolve to $\{0, 1\}$. A position 0.01 away from the correct resolution still yields $\$1$ or $\$0$ per share. The execution reality model (\S6.1) enforces binary constraints exclusively.
+
+    \item \textbf{Static strategies fail} because the competitive dynamics of \citet{hemenway2026ai} create evolving adversarial landscapes. The \pbt{} profile rotation (\S5.2) ensures adaptation faster than market repricing.
+
+    \item \textbf{Single-market approaches fail} because the quantity dimension of agentic inequality \citep{sharp2026agentic} creates multi-asset advantages. FDC operates across $4 \times 2$ market universes with 19 directional hypotheses.
+\end{enumerate}
+
+\section{Discussion}
+
+This paper presents FDC V21 as a \emph{defensive} mechanism, not a speculative profit-seeking system. The three theoretical pillars---demand externality traps, agentic inequality, and strategic wealth accumulation---collectively establish that:
+
+\begin{enumerate}
+    \item Labor income cannot be protected through individual action during the agentic transition (Proposition~\ref{prop:layoff});
+    \item Agent-based capital accumulation produces exponential divergence that compounds over time (Equation~\ref{eq:agentic_inequality});
+    \item Every dollar of capital accumulated during the transition carries positional value beyond its productive return (Proposition~\ref{prop:positional}).
+\end{enumerate}
+
+The design constraints of FDC V21---hard position limits, forced shutdowns, binary settlement enforcement, adversarial detection---reflect the defensive posture that the threat model demands. The system does not maximize expected profit; it maximizes accumulated real capital under adversarial constraints during a transition that policy research demonstrates cannot be individually escaped.
+
+Several limitations merit acknowledgment. First, the directional asymmetry model assumes continuation dominance with a 3:1 prior ratio (Equation~\ref{eq:continuation_prior}); incorrect prior calibration could bias early profile evolution. Second, the oracle lag module relies on a sigmoid sensitivity parameter $k = 500$ that requires empirical calibration across different volatility regimes. Third, the adversarial detection model (Equation~\ref{eq:adversarial}) uses fixed weights that may not generalize across market conditions.
+
+Future work includes empirical validation of the continuation prior ratio, adaptive calibration of the oracle lag sensitivity parameter, and integration of multi-asset momentum cascade detection for compound oracle lag exploitation.
+
+\section{Conclusion}
+
+FDC V21 is a defensive capital accumulation mechanism for the agentic economy. It is designed not to outperform traditional financial strategies on a risk-adjusted basis, but to accumulate real capital through autonomous directional extraction in binary micro-markets---the only accessible venue where machine-speed, machine-scale, machine-persistence capital accumulation is available to individuals.
+
+The three theoretical pillars establish that: (1) the AI layoff trap cannot be individually escaped; (2) agentic inequality compounds exponentially; (3) strategic wealth accumulation creates positional premiums that compound beyond productive returns. FDC operationalizes these insights through evolutionary profile management, credible EV enforcement, oracle lag exploitation, and hard risk constraints.
+
+The system does not predict markets. It extracts capital from structural inefficiencies that the agentic transition creates---and it does so before the transition concentrates enough wealth to make individual participation impossible.
+
+\section*{Acknowledgments}
+
+Father Daddy Capital Research operates on Polymarket. The authors acknowledge the theoretical contributions of Hemenway Falk \& Tsoukalas (2026), Sharp et al.\ (2026), and Maresca (2025) whose work establishes the economic threat model that motivates this system.
+
+\bibliographystyle{apalike}
+\begin{thebibliography}{9}
+
+\bibitem[Hemenway Falk and Tsoukalas(2026)]{hemenway2026ai}
+Hemenway Falk, B. and Tsoukalas, G. (2026).
+\newblock The AI Layoff Trap.
+\newblock \textit{arXiv preprint arXiv:2603.20617} [econ.TH].
+
+\bibitem[Sharp et al.(2026)]{sharp2026agentic}
+Sharp, M., Bilgin, O., Gabriel, I., and Hammond, L. (2026).
+\newblock Agentic Inequality.
+\newblock \textit{arXiv preprint arXiv:2510.16853} [cs.CY, cs.AI].
+
+\bibitem[Maresca(2025)]{maresca2025strategic}
+Maresca, C. (2025).
+\newblock Strategic Wealth Accumulation Under Transformative AI Expectations.
+\newblock \textit{arXiv preprint arXiv:2502.11264} [econ.TH].
+
+\end{thebibliography}
+
+\end{document}
