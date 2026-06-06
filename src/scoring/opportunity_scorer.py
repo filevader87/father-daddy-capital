@@ -1,10 +1,9 @@
 """V21.5 Opportunity Scoring Engine — Soft Probabilistic Ranking
 ================================================================
 Every market receives a weighted opportunity score. No hard gates.
-Components: directional (25%), momentum (20%), lag (15%), volatility (10%),
-time-to-expiry (10%), execution (10%), cross-asset (5%), RSI (5%).
+Oracle lag is ONE component, not a gate.
+Both UP and DOWN scored independently — score decides side.
 """
-
 from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
@@ -25,12 +24,25 @@ class OpportunityScore:
     # Component scores (0.0–1.0)
     directional_score: float = 0.0    # 25% weight
     momentum_score: float = 0.0       # 20% weight
-    lag_score: float = 0.0             # 15% weight
+    lag_score: float = 0.0             # 10% weight (reduced from 15% — not a gate)
     volatility_score: float = 0.0      # 10% weight
     tte_score: float = 0.0            # 10% weight
     execution_score: float = 0.0      # 10% weight
-    cross_asset_score: float = 0.0     # 5% weight
+    cross_asset_score: float = 0.0     # 10% weight (increased from 5%)
     rsi_context_score: float = 0.0    # 5% weight
+
+    # Side selection
+    relative_side_advantage: float = 0.0  # UP_score - DOWN_score for this market
+    is_top_side: bool = False              # True if this is the higher-scored side
+
+    # Directional persistence (§6)
+    spot_velocity_15s: float = 0.0
+    spot_velocity_30s: float = 0.0
+    spot_velocity_60s: float = 0.0
+    candle_direction: str = "NEUTRAL"  # UP, DOWN, NEUTRAL
+    consecutive_directional_moves: int = 0
+    distance_from_reference: float = 0.0
+    price_approach: str = "NEUTRAL"  # TOWARD, AWAY, NEUTRAL
 
     # Raw inputs
     estimated_probability: float = 0.5
@@ -44,17 +56,17 @@ class OpportunityScore:
     ranking_position: int = 0
     profile_id: str = ""
     cell_id: str = ""
-    execution_decision: str = "SKIP"  # SKIP, QUEUE, EXECUTE
+    execution_decision: str = "SKIP"  # SKIP, QUEUE, EXECUTE, FORCED_TOP_RANKED_PAPER
 
-    # Weights
+    # Weights — oracle lag reduced, cross-asset increased
     WEIGHTS = {
         'directional': 0.25,
         'momentum': 0.20,
-        'lag': 0.15,
+        'lag': 0.10,
         'volatility': 0.10,
         'tte': 0.10,
         'execution': 0.10,
-        'cross_asset': 0.05,
+        'cross_asset': 0.10,
         'rsi_context': 0.05,
     }
 
@@ -82,12 +94,48 @@ class OpportunityScore:
         self.credible_ev = max(0.0, (raw_ev - cost) * (1.0 - self.adversarial_score))
         return self.credible_ev
 
+    def to_dict(self) -> dict:
+        """Serialize for JSONL output."""
+        return {
+            'slug': self.market_slug,
+            'asset': self.asset,
+            'interval': self.interval,
+            'direction': self.direction,
+            'tte': round(self.time_to_expiry, 1),
+            'composite': round(self.composite_score, 4),
+            'ev': round(self.credible_ev, 6),
+            'dir_score': round(self.directional_score, 4),
+            'mom_score': round(self.momentum_score, 4),
+            'lag_score': round(self.lag_score, 4),
+            'vol_score': round(self.volatility_score, 4),
+            'tte_score': round(self.tte_score, 4),
+            'exec_score': round(self.execution_score, 4),
+            'cross_score': round(self.cross_asset_score, 4),
+            'rsi_score': round(self.rsi_context_score, 4),
+            'side_adv': round(self.relative_side_advantage, 4),
+            'is_top_side': self.is_top_side,
+            'entry_price': round(self.entry_price, 4),
+            'spread': round(self.spread, 4),
+            'adv_score': round(self.adversarial_score, 4),
+            'rank': self.ranking_position,
+            'decision': self.execution_decision,
+            'spot_vel_15s': round(self.spot_velocity_15s, 6),
+            'spot_vel_30s': round(self.spot_velocity_30s, 6),
+            'spot_vel_60s': round(self.spot_velocity_60s, 6),
+            'candle_dir': self.candle_direction,
+            'consec_moves': self.consecutive_directional_moves,
+            'dist_from_ref': round(self.distance_from_reference, 6),
+            'price_approach': self.price_approach,
+            'profile': self.profile_id,
+        }
+
 
 class OpportunityRanker:
     """Scores and ranks all market opportunities every scan cycle.
 
     V21.5 philosophy: score almost everything, reject very little,
     rank aggressively, execute selectively.
+    Side selection: score decides, no directional ideology.
     """
 
     def __init__(self, config: dict | None = None):
@@ -97,20 +145,71 @@ class OpportunityRanker:
         self.adversarial_kill_threshold = self.config.get('adversarial_kill', 0.80)
         self.adversarial_halve_threshold = self.config.get('adversarial_halve', 0.60)
 
+        # Track per-market side winners for side selection (§7)
+        self._market_best_side: dict[str, tuple[str, float]] = {}  # slug → (direction, score)
+
     def score_directional(self, spot_delta: float, direction: str,
-                         continuation_stats: dict | None = None) -> float:
+                          continuation_stats: dict | None = None,
+                          persistence: dict | None = None) -> float:
         """Directional persistence score (25% weight).
 
-        Uses spot price movement and continuation statistics.
+        Uses spot velocity, candle direction, consecutive moves,
+        distance from reference, price approach — not just spot delta.
         No hard rejection — soft contribution.
         """
         base = 0.0
 
-        # Spot delta contribution
+        # Spot delta contribution (weaker, blended)
         if direction == "UP":
-            base = max(0.0, min(1.0, spot_delta * 500))
+            delta_signal = max(0.0, min(1.0, spot_delta * 500))
         else:  # DOWN
-            base = max(0.0, min(1.0, -spot_delta * 500))
+            delta_signal = max(0.0, min(1.0, -spot_delta * 500))
+
+        # Directional persistence contribution (§6)
+        persistence_signal = 0.0
+        if persistence:
+            # Candle direction alignment
+            candle_dir = persistence.get('candle_direction', 'NEUTRAL')
+            aligns = (direction == "UP" and candle_dir == "UP") or \
+                      (direction == "DOWN" and candle_dir == "DOWN") or \
+                      (candle_dir == "NEUTRAL")
+            candle_score = 0.7 if aligns else 0.2
+
+            # Consecutive directional moves (exponential scoring)
+            consec = persistence.get('consecutive_moves', 0)
+            consec_score = min(1.0, consec * 0.15 + 0.1)
+
+            # Velocity at multiple horizons
+            vel_15 = abs(persistence.get('velocity_15s', 0.0))
+            vel_30 = abs(persistence.get('velocity_30s', 0.0))
+            vel_60 = abs(persistence.get('velocity_60s', 0.0))
+            # If velocity aligns with direction
+            raw_vel = persistence.get('velocity_30s', 0.0)
+            if direction == "UP":
+                vel_align = max(0.0, min(1.0, raw_vel * 500))
+            else:
+                vel_align = max(0.0, min(1.0, -raw_vel * 500))
+            vel_score = 0.4 * vel_align + 0.3 * min(1.0, (vel_15 + vel_30 + vel_60) * 300) + 0.3
+
+            # Price approach (toward reference = continuation, away = reversal attempt)
+            approach = persistence.get('price_approach', 'NEUTRAL')
+            approach_score = 0.7 if approach == 'TOWARD' else (0.3 if approach == 'AWAY' else 0.5)
+
+            # Distance from reference (further = stronger direction)
+            dist = abs(persistence.get('distance_from_reference', 0.0))
+            dist_score = min(1.0, dist * 500 + 0.2)
+
+            persistence_signal = (0.25 * candle_score +
+                                 0.20 * consec_score +
+                                 0.25 * vel_score +
+                                 0.15 * approach_score +
+                                 0.15 * dist_score)
+
+        # Blend: 40% delta, 60% persistence (if available)
+        if persistence:
+            base = 0.4 * delta_signal + 0.6 * persistence_signal
+        else:
+            base = delta_signal
 
         # Continuation stats boost if available
         if continuation_stats:
@@ -118,37 +217,32 @@ class OpportunityRanker:
             total = continuation_stats.get('total', 0)
             if total >= 3:
                 wr = wins / total
-                # Blend observed WR with spot signal
                 base = 0.6 * base + 0.4 * wr
 
-        return base
+        return max(0.0, min(1.0, base))
 
     def score_momentum(self, price_velocity: float, volume_trend: float = 0.0) -> float:
-        """Momentum score (20% weight).
-        Price velocity + volume trend.
-        """
+        """Momentum score (20% weight)."""
         velocity_score = max(0.0, min(1.0, abs(price_velocity) * 200))
         volume_score = max(0.0, min(1.0, volume_trend * 10))
         return 0.7 * velocity_score + 0.3 * volume_score
 
     def score_lag(self, oracle_lag: float) -> float:
-        """Repricing lag score (15% weight).
-        Higher lag = higher opportunity.
+        """Repricing lag score (10% weight — reduced, NOT a gate).
+        Higher lag = higher opportunity. Zero lag = neutral, not zero.
         """
         if oracle_lag < 0:
             oracle_lag = abs(oracle_lag)
+        # Zero lag = 0.2 (neutral, not 0 — oracle lag is ONE component)
         # 0.05 lag = 0.5, 0.10 lag = 1.0
-        return min(1.0, oracle_lag * 10)
+        return 0.2 + min(0.8, oracle_lag * 8)
 
     def score_volatility(self, recent_volatility: float,
                          avg_volatility: float = 0.01) -> float:
-        """Volatility expansion score (10% weight).
-        Recent vol exceeding average = expansion = opportunity.
-        """
+        """Volatility expansion score (10% weight)."""
         if avg_volatility <= 0:
-            return 0.3  # neutral
+            return 0.3
         ratio = recent_volatility / avg_volatility
-        # ratio < 1 = contraction, 1-2 = normal, >2 = expansion
         if ratio < 0.5:
             return 0.1
         elif ratio < 1.0:
@@ -160,36 +254,38 @@ class OpportunityRanker:
         else:
             return 1.0
 
-    def score_tte(self, time_to_expiry: float, interval: str) -> float:
-        """Time-to-expiry acceleration score (10% weight).
-        Priority increases mid-to-late market. Decreases early.
-        """
-        # Convert interval to seconds
-        interval_secs = 300 if interval == "5m" else 900
-        pct_elapsed = 1.0 - (time_to_expiry / interval_secs)
+    def score_tte(self, time_to_expiry: float, interval: str,
+                  pct_elapsed: float = 0.0) -> float:
+        """Time-to-expiry with market phase weighting (10% weight).
 
+        §5: Increase priority for 40-80% elapsed and final 120s.
+        Decrease priority for first 20% and no-movement periods.
+        """
+        interval_secs = 300 if interval == "5m" else 900
+        if pct_elapsed <= 0:
+            pct_elapsed = 1.0 - (time_to_expiry / interval_secs)
+
+        # Base TTE scoring
         if pct_elapsed < 0.20:
-            # First 20% — least information, low priority
-            return 0.1
+            base = 0.10  # §5: decreased priority for first 20%
         elif pct_elapsed < 0.40:
-            # 20-40% — structure formation window
-            return 0.4
+            base = 0.40  # structure formation
         elif pct_elapsed < 0.80:
-            # 40-80% — momentum exploitation window
-            return 0.75
+            base = 0.75  # §5: increased priority for 40-80%
         elif pct_elapsed < 0.90:
-            # 80-90% — late window, repricing lag exploitation
-            return 0.95
+            base = 0.95  # late window
         else:
-            # Final 10% — maximum lag, but execution risk increases
-            return 0.85
+            base = 0.85  # final 10%
+
+        # §5: Boost for final 120 seconds
+        if time_to_expiry <= 120 and time_to_expiry > 0:
+            base = min(1.0, base + 0.15)
+
+        return min(1.0, base)
 
     def score_execution(self, effective_spread: float,
                         fill_probability: float = 1.0) -> float:
-        """Execution quality score (10% weight).
-        Lower spread + higher fill probability = better execution.
-        """
-        # Spread contribution (inverted — lower is better)
+        """Execution quality score (10% weight). Lower spread = better."""
         if effective_spread <= 0.05:
             spread_score = 1.0
         elif effective_spread <= 0.10:
@@ -205,16 +301,14 @@ class OpportunityRanker:
 
     def score_cross_asset(self, asset: str,
                           cross_asset_deltas: dict | None = None) -> float:
-        """Cross-asset confirmation score (5% weight).
-        If BTC moves UP and ETH also moves UP, confirmation is higher.
-        """
+        """Cross-asset confirmation score (10% weight — increased from 5%)."""
         if not cross_asset_deltas:
-            return 0.3  # neutral without data
+            return 0.3
 
         direction = cross_asset_deltas.get('direction', 'NONE')
         confirming = sum(1 for a, d in cross_asset_deltas.get('assets', {}).items()
                         if a != asset and d == direction)
-        total_other = len(cross_asset_deltas.get('assets', {})) - 1  # exclude self
+        total_other = len(cross_asset_deltas.get('assets', {})) - 1
 
         if total_other <= 0:
             return 0.3
@@ -222,44 +316,27 @@ class OpportunityRanker:
         return min(1.0, (confirming / total_other) * 0.8 + 0.2)
 
     def score_rsi_context(self, rsi: float, direction: str,
-                          direction_stats: dict | None = None) -> float:
-        """RSI context contribution (5% weight).
-        RSI is context only, NOT primary authority.
-        """
-        base = 0.5  # neutral
+                           direction_stats: dict | None = None) -> float:
+        """RSI context contribution (5% weight). Context only, NOT authority."""
+        base = 0.5
 
         if direction == "UP":
-            if rsi < 25:
-                base = 0.85  # deep oversold, UP continuation likely
-            elif rsi < 35:
-                base = 0.7   # oversold context
-            elif rsi < 45:
-                base = 0.55  # slight oversold
-            elif rsi < 55:
-                base = 0.5   # neutral
-            elif rsi < 65:
-                base = 0.45  # slight overbought
-            elif rsi < 75:
-                base = 0.35  # overbought — UP less likely but not rejected
-            else:
-                base = 0.25  # deep overbought — UP continuation still possible
+            if rsi < 25:    base = 0.85
+            elif rsi < 35:  base = 0.7
+            elif rsi < 45:  base = 0.55
+            elif rsi < 55:  base = 0.5
+            elif rsi < 65:  base = 0.45
+            elif rsi < 75:  base = 0.35
+            else:           base = 0.25
         else:  # DOWN
-            if rsi > 75:
-                base = 0.85  # deep overbought, DOWN continuation likely
-            elif rsi > 65:
-                base = 0.7
-            elif rsi > 55:
-                base = 0.55
-            elif rsi > 45:
-                base = 0.5
-            elif rsi > 35:
-                base = 0.45
-            elif rsi > 25:
-                base = 0.35
-            else:
-                base = 0.25  # deep oversold — DOWN still possible
+            if rsi > 75:    base = 0.85
+            elif rsi > 65:  base = 0.7
+            elif rsi > 55:  base = 0.55
+            elif rsi > 45:  base = 0.5
+            elif rsi > 35:  base = 0.45
+            elif rsi > 25:  base = 0.35
+            else:           base = 0.25
 
-        # Blend with observed direction stats if available
         if direction_stats:
             wins = direction_stats.get('wins', 0)
             total = direction_stats.get('total', 0)
@@ -269,22 +346,66 @@ class OpportunityRanker:
 
         return base
 
-    def rank_opportunities(self, candidates: list[OpportunityScore]) -> tuple[list[OpportunityScore], list[OpportunityScore]]:
+    def select_side(self, candidates: list[OpportunityScore]) -> list[OpportunityScore]:
+        """§7: Side selection — let score decide, no ideology.
+
+        For each market, mark which direction has the higher composite score.
+        """
+        # Group by market slug
+        by_market: dict[str, list[OpportunityScore]] = {}
+        for c in candidates:
+            slug_key = f"{c.asset}-{c.interval}-{c.time_to_expiry:.0f}"
+            if slug_key not in by_market:
+                by_market[slug_key] = []
+            by_market[slug_key].append(c)
+
+        # For each market, identify the top side
+        for slug_key, sides in by_market.items():
+            if len(sides) < 2:
+                # Only one side available
+                for c in sides:
+                    c.is_top_side = True
+                    c.relative_side_advantage = c.composite_score
+                continue
+
+            up_score = 0.0
+            down_score = 0.0
+            for c in sides:
+                if c.direction == "UP":
+                    up_score = c.composite_score
+                else:
+                    down_score = c.composite_score
+
+            for c in sides:
+                if c.direction == "UP":
+                    c.relative_side_advantage = up_score - down_score
+                    c.is_top_side = (up_score >= down_score)
+                else:
+                    c.relative_side_advantage = down_score - up_score
+                    c.is_top_side = (down_score > up_score)
+
+        return candidates
+
+    def rank_opportunities(self, candidates: list[OpportunityScore]
+                           ) -> tuple[list[OpportunityScore], list[OpportunityScore]]:
         """Rank all candidates by composite score, filter by minimum thresholds.
 
         V21.5: Score almost everything, reject very little,
         rank aggressively, execute selectively.
+        Side selection applied before ranking.
         """
         # Compute EV for each
         for c in candidates:
             c.compute_ev()
+
+        # §7: Side selection
+        candidates = self.select_side(candidates)
 
         # Soft adversarial filter — not hard rejection
         for c in candidates:
             if c.adversarial_score >= self.adversarial_kill_threshold:
                 c.credible_ev = 0.0
                 c.execution_decision = "SKIP"
-                c.composite_score  # ensure computed
             elif c.adversarial_score >= self.adversarial_halve_threshold:
                 c.credible_ev *= 0.5
 
@@ -308,15 +429,28 @@ class OpportunityRanker:
                 c.execution_decision = "SKIP"
                 continue
 
-            # If we have positive EV and decent composite, queue for execution
             if c.credible_ev > self.min_ev:
                 c.execution_decision = "EXECUTE"
                 executable.append(c)
             elif c.composite_score >= 0.30:
-                # High composite but low EV — still queue as opportunity
                 c.execution_decision = "QUEUE"
                 executable.append(c)
             else:
                 c.execution_decision = "SKIP"
 
         return ranked, executable
+
+    def get_top_per_market(self, ranked: list[OpportunityScore],
+                           n: int = 1) -> dict[str, list[OpportunityScore]]:
+        """Get top-n opportunities per market."""
+        by_market: dict[str, list[OpportunityScore]] = {}
+        for c in ranked:
+            key = f"{c.asset}-{c.interval}"
+            if key not in by_market:
+                by_market[key] = []
+            by_market[key].append(c)
+
+        result = {}
+        for key, opps in by_market.items():
+            result[key] = opps[:n]
+        return result

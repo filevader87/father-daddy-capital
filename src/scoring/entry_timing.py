@@ -1,10 +1,9 @@
-"""V21.5 Entry Timing Engine — §4, §12
-=========================================
+"""V21.5 Entry Timing Engine — §4, §5, §12
+=============================================
 Observes structure formation, waits for asymmetry emergence,
 enters AFTER directional commitment is revealed.
-Primary windows: 20-40% (structure), 40-80% (momentum), final 60-120s (lag).
+§5: Boost 40-80% elapsed and final 120s. Decrease first 20%.
 """
-
 from __future__ import annotations
 import logging
 from dataclasses import dataclass
@@ -15,219 +14,136 @@ logger = logging.getLogger(__name__)
 
 
 class EntryWindow(Enum):
-    """Market lifecycle phases with different entry priority."""
-    EARLY = "early"          # 0-20% elapsed — LEAST information, low priority
-    FORMATION = "formation"  # 20-40% — structure forming, moderate priority
-    MOMENTUM = "momentum"   # 40-80% — directional commitment revealed, HIGH priority
-    LATE = "late"           # 80-90% — repricing lag exploitation, highest priority
-    FINAL = "final"         # 90-100% — execution risk rises, high but declining
+    EARLY = "EARLY"           # 0-20% elapsed — least info, avoid
+    FORMATION = "FORMATION"   # 20-40% — structure forming
+    MOMENTUM = "MOMENTUM"     # 40-80% — directional commitment, HIGH
+    LATE = "LATE"             # 80-90% — repricing lag exploitation
+    FINAL = "FINAL"           # 90-100% — execution risk rises
 
 
 @dataclass
 class TimingAssessment:
-    """Full timing assessment for a market at current moment."""
+    """Entry timing assessment for a candidate."""
     window: EntryWindow
-    pct_elapsed: float           # 0.0–1.0 how far into the market lifecycle
-    time_to_expiry: float        # seconds remaining
-    structure_score: float       # 0.0–1.0 how much directional structure has formed
-    momentum_acceleration: float # 0.0–1.0 is momentum accelerating or fading
-    entry_priority: float       # 0.0–1.0 overall timing priority
-    should_enter: bool           # composite timing decision
-    reason: str                  # human-readable explanation
-
-    @property
-    def window_name(self) -> str:
-        return self.window.value
+    window_name: str
+    pct_elapsed: float
+    entry_priority: float   # 0.0-1.0
+    should_enter: bool
+    reason: str
+    time_to_expiry: float
+    final_120s: bool = False
+    no_movement_penalty: bool = False
 
 
 class EntryTimingEngine:
-    """Determines optimal entry timing based on market lifecycle position.
-
-    V21.5 philosophy: the beginning contains the least information.
-    The edge develops after participants reveal directional commitment.
-
-    Priority curve:
-    - First 20%: minimal priority (least structure)
-    - 20-40%: rising priority (structure formation)
-    - 40-80%: high priority (momentum exploitation)
-    - 80-90%: peak priority (repricing lag exploitation)
-    - Final 10%: declining priority (execution risk dominates)
+    """§4: Enter AFTER structure reveals itself, not at creation.
+    §5: Boost 40-80% and final 120s, decrease first 20%.
     """
 
     def __init__(self, config: dict | None = None):
         self.config = config or {}
-        # Minimum structure score required for early entry
-        self.min_structure_early = self.config.get('min_structure_early', 0.3)
-        # Minimum entry priority to proceed
-        self.min_entry_priority = self.config.get('min_entry_priority', 0.15)
-
-    def classify_window(self, time_to_expiry: float,
-                        interval: str) -> EntryWindow:
-        """Classify which entry window the market is currently in."""
-        interval_secs = 300 if interval == "5m" else 900
-        pct_elapsed = 1.0 - (time_to_expiry / interval_secs)
-
-        if pct_elapsed < 0.20:
-            return EntryWindow.EARLY
-        elif pct_elapsed < 0.40:
-            return EntryWindow.FORMATION
-        elif pct_elapsed < 0.80:
-            return EntryWindow.MOMENTUM
-        elif pct_elapsed < 0.90:
-            return EntryWindow.LATE
-        else:
-            return EntryWindow.FINAL
-
-    def compute_structure_score(self, pct_elapsed: float,
-                                 price_directional_delta: float,
-                                 orderbook_asymmetry: float = 0.0,
-                                 volume_commitment: float = 0.0) -> float:
-        """How much directional structure has formed.
-
-        Early markets have low structure. Structure builds as participants
-        commit to directions.
-        """
-        # Time contribution — structure builds with time
-        time_factor = min(1.0, pct_elapsed * 2.0)  # reaches 1.0 at 50% elapsed
-
-        # Price directional commitment
-        direction_factor = min(1.0, abs(price_directional_delta) * 500)
-
-        # Orderbook asymmetry — if bids >> asks or vice versa, structure exists
-        ob_factor = min(1.0, abs(orderbook_asymmetry) * 5.0)
-
-        # Volume commitment — trades happening means commitment
-        vol_factor = min(1.0, volume_commitment * 10.0)
-
-        # Weighted blend
-        score = (0.3 * time_factor +
-                 0.3 * direction_factor +
-                 0.2 * ob_factor +
-                 0.2 * vol_factor)
-
-        return min(1.0, max(0.0, score))
-
-    def compute_momentum_acceleration(self, recent_deltas: list[float]) -> float:
-        """Whether momentum is accelerating or fading.
-
-        Accelerating momentum = higher entry priority.
-        Fading momentum = lower priority (direction may be exhausted).
-        """
-        if len(recent_deltas) < 2:
-            return 0.5  # neutral
-
-        # Check if absolute deltas are increasing (acceleration)
-        abs_deltas = [abs(d) for d in recent_deltas]
-        accelerations = [abs_deltas[i] - abs_deltas[i-1]
-                         for i in range(1, len(abs_deltas))]
-
-        if not accelerations:
-            return 0.5
-
-        avg_accel = sum(accelerations) / len(accelerations)
-
-        # Normalize: positive acceleration → higher score
-        # Maps typical accelerations to 0-1 range
-        score = 0.5 + min(0.5, max(-0.5, avg_accel * 5000))
-        return score
-
-    def compute_entry_priority(self, window: EntryWindow,
-                                structure_score: float,
-                                momentum_acceleration: float,
-                                oracle_lag: float = 0.0,
-                                adversarial_score: float = 0.0) -> float:
-        """Composite entry priority combining all timing factors.
-
-        Higher priority = better entry timing.
-        """
-        # Base priority from window
-        window_priority = {
-            EntryWindow.EARLY: 0.10,
-            EntryWindow.FORMATION: 0.40,
-            EntryWindow.MOMENTUM: 0.75,
-            EntryWindow.LATE: 0.95,
-            EntryWindow.FINAL: 0.70,  # execution risk rises
+        # §5: Phase-specific priorities
+        self.phase_priorities = {
+            EntryWindow.EARLY: 0.10,       # §5: decreased — least info
+            EntryWindow.FORMATION: 0.40,   # structure forming
+            EntryWindow.MOMENTUM: 0.75,    # §5: increased — directional commitment
+            EntryWindow.LATE: 0.95,        # repricing lag exploitation
+            EntryWindow.FINAL: 0.70,       # execution risk rises
         }
-        base = window_priority[window]
-
-        # Boost from structure (high structure = more confidence)
-        structure_boost = structure_score * 0.15
-
-        # Boost from momentum acceleration
-        momentum_boost = momentum_acceleration * 0.10
-
-        # Boost from oracle lag (lag = opportunity)
-        lag_boost = min(1.0, oracle_lag * 10) * 0.15
-
-        # Reduce from adversarial conditions
-        adversarial_penalty = adversarial_score * 0.30
-
-        priority = base + structure_boost + momentum_boost + lag_boost - adversarial_penalty
-        return max(0.0, min(1.0, priority))
 
     def assess(self, time_to_expiry: float, interval: str,
                price_directional_delta: float = 0.0,
-               orderbook_asymmetry: float = 0.0,
-               volume_commitment: float = 0.0,
-               recent_deltas: list[float] | None = None,
                oracle_lag: float = 0.0,
-               adversarial_score: float = 0.0) -> TimingAssessment:
-        """Full timing assessment for a market.
+               adversarial_score: float = 0.0,
+               spot_velocity: float = 0.0,
+               no_movement: bool = False) -> TimingAssessment:
+        """Assess entry timing for a market candidate.
 
-        Returns TimingAssessment with window, scores, and entry decision.
+        Args:
+            time_to_expiry: seconds until market resolution
+            interval: '5m' or '15m'
+            price_directional_delta: recent price change (%)
+            oracle_lag: seconds of repricing delay
+            adversarial_score: 0.0-1.0 adversarial risk
+            spot_velocity: recent price velocity
+            no_movement: True if market is stagnant/flat
         """
         interval_secs = 300 if interval == "5m" else 900
-        pct_elapsed = 1.0 - (time_to_expiry / interval_secs)
-        window = self.classify_window(time_to_expiry, interval)
+        total_time = interval_secs
+        pct_elapsed = 1.0 - (time_to_expiry / total_time)
+        pct_elapsed = max(0.0, min(1.0, pct_elapsed))
 
-        # Structure score
-        structure = self.compute_structure_score(
-            pct_elapsed, price_directional_delta,
-            orderbook_asymmetry, volume_commitment
-        )
-
-        # Momentum acceleration
-        momentum = self.compute_momentum_acceleration(
-            recent_deltas if recent_deltas else []
-        )
-
-        # Entry priority
-        priority = self.compute_entry_priority(
-            window, structure, momentum,
-            oracle_lag, adversarial_score
-        )
-
-        # Entry decision
-        should_enter = priority >= self.min_entry_priority
-
-        # Early window requires minimum structure
-        if window == EntryWindow.EARLY and structure < self.min_structure_early:
-            should_enter = False
-
-        # Build reason string
-        if window == EntryWindow.EARLY:
-            reason = f"EARLY ({pct_elapsed:.0%} elapsed) — waiting for structure"
-        elif window == EntryWindow.FORMATION:
-            reason = f"FORMATION ({pct_elapsed:.0%} elapsed) — structure forming"
-        elif window == EntryWindow.MOMENTUM:
-            reason = f"MOMENTUM ({pct_elapsed:.0%} elapsed) — directional commitment"
-        elif window == EntryWindow.LATE:
-            reason = f"LATE ({pct_elapsed:.0%} elapsed) — repricing lag window"
+        # Determine window
+        if pct_elapsed < 0.20:
+            window = EntryWindow.EARLY
+        elif pct_elapsed < 0.40:
+            window = EntryWindow.FORMATION
+        elif pct_elapsed < 0.80:
+            window = EntryWindow.MOMENTUM
+        elif pct_elapsed < 0.90:
+            window = EntryWindow.LATE
         else:
-            reason = f"FINAL ({pct_elapsed:.0%} elapsed) — execution risk zone"
+            window = EntryWindow.FINAL
 
-        if not should_enter and priority < self.min_entry_priority:
-            reason += f" [priority {priority:.2f} < {self.min_entry_priority:.2f}]"
-        elif should_enter:
-            reason += f" [ENTER priority={priority:.2f}]"
+        # Base priority from phase
+        priority = self.phase_priorities[window]
+
+        # §5: Boost for final 120 seconds
+        final_120s = False
+        if time_to_expiry <= 120 and time_to_expiry > 0:
+            priority = min(1.0, priority + 0.15)
+            final_120s = True
+
+        # §5: Decrease priority for no structure / no movement
+        no_movement_penalty = False
+        if no_movement or abs(price_directional_delta) < 0.0001:
+            priority *= 0.5
+            no_movement_penalty = True
+
+        # Directional delta boost — more movement = more info
+        if abs(price_directional_delta) > 0.001:
+            priority = min(1.0, priority + 0.05)
+
+        # Oracle lag boost — lag = opportunity
+        if oracle_lag > 0.05:
+            priority = min(1.0, priority + 0.10)
+
+        # Spot velocity boost
+        if abs(spot_velocity) > 0.0005:
+            priority = min(1.0, priority + 0.05)
+
+        # Adversarial penalty
+        if adversarial_score > 0.60:
+            priority *= 0.5
+        if adversarial_score > 0.80:
+            priority = 0.0
+
+        # Build reason
+        reasons = []
+        if window == EntryWindow.EARLY:
+            reasons.append("early_market_low_info")
+        if final_120s:
+            reasons.append("final_120s_boost")
+        if no_movement_penalty:
+            reasons.append("no_movement_penalty")
+        if abs(price_directional_delta) > 0.001:
+            reasons.append("directional_delta_boost")
+        if oracle_lag > 0.05:
+            reasons.append("oracle_lag_boost")
+        if adversarial_score > 0.60:
+            reasons.append("adversarial_penalty")
+
+        # Should enter?
+        should_enter = priority >= 0.30 and adversarial_score < 0.80
 
         return TimingAssessment(
             window=window,
+            window_name=window.value,
             pct_elapsed=pct_elapsed,
-            time_to_expiry=time_to_expiry,
-            structure_score=structure,
-            momentum_acceleration=momentum,
             entry_priority=priority,
             should_enter=should_enter,
-            reason=reason,
+            reason="+".join(reasons) if reasons else "normal",
+            time_to_expiry=time_to_expiry,
+            final_120s=final_120s,
+            no_movement_penalty=no_movement_penalty,
         )
