@@ -1,5 +1,5 @@
 # Why FDC: Capital Accumulation in the Agentic Economy
-## Father Daddy Capital V21 — Defensive Extraction in a Hostile Economic Transition
+## Father Daddy Capital V21.7.1 — Execution-Survivable Convex Continuation
 
 ---
 
@@ -71,25 +71,178 @@ FDC is designed to **be the machine**, not to compete against it.
 
 ---
 
-### 4. FDC V21 as Defensive Capital Accumulation
+### 4. V21.7.1: From Prediction to Extraction
 
-FDC V21 is not designed to maximize profit. It is designed to **maximize accumulated capital under adversarial constraints** during the economic transition the three papers describe.
+V21.7.1 is the first version deployed from research to live execution. It embodies a complete paradigm shift from all prior versions:
 
-Key design decisions that reflect this defensive posture:
+**The reversal thesis is dead.** V18 through V21 attempted to predict *reversals* — buying cheap tokens on the hypothesis that prices would bounce. Markets consistently rejected this thesis. 88.6% of cheap-token trades lose under binary settlement. Markets systematically overprice reversal probability, which means the *continuation* side of cheap tokens is structurally underpriced. This is the edge.
 
-**Hard risk limits (§14).** $2 maximum position. $10 daily loss limit. $30 weekly loss limit. Forced shutdown on errors. No martingale, no leverage escalation, no revenge sizing. These limits exist because capital preservation during accumulation is more important than capital growth rate. Maresca's model shows that the strategic value of any capital exceeds its productive return — losing capital is not just a setback, it is a positional disadvantage that compounds.
+**Continuation convexity is the edge.** A cheap DOWN token at 7¢ costs $0.07. If the market continues declining, it settles at $0.00 and we lose $0.07. If it reverses, it settles at $1.00 and we gain $0.93. The payout ratio is 13.3:1. At a 13.9% win rate, realized EV is $0.74 per trade. We do not need to predict outcomes. We need to survive long enough for the convexity to deliver.
 
-**Binary settlement enforcement (§6).** No synthetic midpoints. No interpolated closes. No fantasy fills. If FDC cannot extract real capital from real binary outcomes, it accumulates nothing. The system's honesty about execution reality is not academic rigor — it is survival discipline.
+**Execution survivability over prediction accuracy.** Three critical bugs were discovered and fixed during V21.5→V21.7.1 development:
 
-**Adversarial market detection (§13).** Hemenway Falk & Tsoukalas prove that competitive dynamics create demand externalities. In prediction markets, this manifests as fake reversals, spread traps, and liquidity spoofing. FDC assumes the market is hostile and continuously measures adversarial behavior, halving allocation at 0.60 adversarial score and disabling profiles at 0.80.
+1. **`higher_highs` used `<` instead of `>`** — identical logic to `lower_lows`, making direction detection symmetric and destroying the DOWN_MOMENTUM signal
+2. **Spread trap `price * 2 > 0.05`** — blocked ALL tokens above 2.5¢, killing the entire PRIMARY bucket
+3. **Duplicate `classify_state()` with walrus typo** — `consec := conesc` created a runtime error that silently suppressed trades
 
-**Evolutionary profile management.** Sharp et al.'s quantity dimension is operationalized through 19 competing directional hypotheses. Profiles that accumulate capital survive. Profiles that lose capital die permanently. This is not optimization — it is natural selection applied to capital extraction strategies.
-
-**Late-window attacks (§7.C).** Maresca's insight about strategic vs. productive returns is implemented directly: FDC concentrates entry in the final 60-120 seconds before contract resolution, where market makers' competitive spread compression creates the largest oracle lag. FDC captures the positional premium, not the productive return.
+These bugs together meant earlier versions were functionally trading blind. Their removal in V21.7.1 is not an optimization — it is a correction of fundamentally broken code.
 
 ---
 
-### 5. Conclusion
+### 5. V21.7.1 Architecture
+
+#### 5.1 Entry Conditions (All Must Pass)
+
+| Gate | Rule |
+|---|---|
+| Side | DOWN only. UP blocked. |
+| State | MOMENTUM or CONTINUATION. FLAT = no trade. |
+| Route | TAKER (immediate fill, no queue risk) |
+| Bucket | 3–12¢ PRIMARY. Outside = skipped. |
+| Preferred | 5–8¢ (weight=1.00). 3–5¢ (0.85), 8–10¢ (0.65), 10–12¢ (0.40) |
+| Timing | MOMENTUM window preferred (40–80% market lifetime). Not hard-gated for Phase 1. |
+| Expiry | >30s remaining. Skip near-expiry. |
+| Survivability | Score ≥ 0.25 required |
+| Duplicate | Block if active position for same condition |
+
+#### 5.2 Survivability Score
+
+$$S = w_p \cdot P_{\text{persist}} + w_a \cdot P_{\text{accel}} + w_l \cdot P_{\text{lag}} + w_v \cdot P_{\text{vol}} + w_t \cdot P_{\text{tte}} + w_e \cdot P_{\text{exec}} + w_r \cdot P_{\text{rsi}}$$
+
+| Component | Weight | Description |
+|---|---|---|
+| Directional persistence | 30% | Consecutive lower-lows + velocity confirmation |
+| Momentum acceleration | 25% | Δvelocity negative = accelerating decline |
+| Oracle/market lag | 15% | Neutral in PMXT simulation |
+| Volatility expansion | 15% | abs(velocity) > threshold |
+| Time-to-expiry | 10% | Neutral in simulation |
+| Execution quality | 5% | Spread tightness |
+| RSI | 5% | Context only, never dominates |
+
+RSI is capped at 5% weight per directive §11, ensuring the signal model is dominated by momentum and persistence factors, not oscillator overfitting.
+
+#### 5.3 Kill Switches (§4)
+
+The V21.5 and earlier kill switch used `max_loss_streak=8`. V21.7.1 replaces this with `MAX_CONSECUTIVE_LOSSES=60`. The reason: the PMXT simulation produced a 29-trade maximum loss streak inside a regime with PF=2.10 and ROI=+267.6%. An 8-loss kill switch would have terminated a profitable strategy during what is structurally normal variance for a low-WR, high-payout extraction system.
+
+| Switch | Threshold | Rationale |
+|---|---|---|
+| Max daily loss | $15 | 15% of $100 bankroll. Hard circuit breaker. |
+| Max weekly loss | $50 | 50% of bankroll. Forces cooldown. |
+| Max consecutive losses | 60 | ~2× the observed max (29). Prevents spiral. |
+| Max daily trades | 30 | Prevents overtrading. |
+| Max total trades (Phase 1) | 100 | Hard cap until promotion criteria met. |
+
+#### 5.4 Fill Model
+
+All simulations and live execution use realistic execution friction:
+
+| Factor | Value | Source |
+|---|---|---|
+| Spread cost | 1¢ flat | Polymarket CLOB typical spread |
+| Slippage | 0.5% of price | TAKER route slippage |
+| Fill rejection | 5% | Queue/liquidity failures |
+| Partial fill | 10% (50-80% fill) | Incomplete fills |
+| Stale quote abort | 3% | Stale orderbook data |
+
+Binary settlement only. Cheap tokens settle to $0.00, rich tokens to $1.00. No synthetic midpoints, no interpolated closes, no fantasy fills.
+
+#### 5.5 Position Sizing
+
+Fixed $1.00 per trade × bucket weight. No Kelly criterion, no martingale, no pyramiding. The system extracts convexity through volume and payout asymmetry, not through sizing optimization.
+
+---
+
+### 6. V21.7.1 PMXT Simulation Results
+
+The PMXT (Polymarket Orderbook Time-series eXtraction) backtest was conducted on real orderbook data from May 25, 2026, using binary settlement against actual market outcomes.
+
+| Metric | V21 Baseline | V21.5 Convex | V21.7.1 Survivable |
+|---|---|---|---|
+| Trades | 1,961 | 2,353 | 360 |
+| Win Rate | 11.4% | 32.9% | 13.9% |
+| ROI | +1,162% | +8,887% | +267.6% |
+| Profit Factor | 1.35 | 5.00 | **2.10** |
+| Realized EV | — | $3.78/trade | **$0.74/trade** |
+| Payout Ratio | — | 10.21x | **12.99x** |
+| Sharpe | 1.20 | 6.15 | **2.77** |
+| Max Drawdown | — | 7.8% | **10.4%** |
+| Max Consec Losses | — | — | **29** |
+| MC Profitable | — | 99.8% | **99.8%** |
+| Monte Carlo Bust | — | 0% | **0%** |
+
+#### Bucket Performance (V21.7.1)
+
+| Bucket | Weight | Trades | WR | P&L | EV/trade |
+|---|---|---|---|---|---|
+| 3–5¢ | 0.85 | 105 | 6.7% | +$36.66 | $0.35 |
+| **5–8¢ PREFERRED** | **1.00** | **143** | **16.8%** | **+$194.68** | **$1.36** |
+| 8–10¢ | 0.65 | 68 | 13.2% | +$18.35 | $0.27 |
+| 10–12¢ | 0.40 | 44 | 22.7% | +$17.95 | $0.41 |
+
+The 5–8¢ PREFERRED bucket dominates all extraction: 39.7% of trades, 72.7% of P&L, $1.36 EV/trade. This validates the directive's bucket weighting schema — the survivable zone is where convexity meets execution reliability.
+
+#### State Performance
+
+| State | Trades | WR | P&L |
+|---|---|---|---|
+| DOWN_CONTINUATION | 313 | 14.7% | +$258.69 |
+| DOWN_MOMENTUM | 47 | 8.5% | +$8.94 |
+
+DOWN_CONTINUATION generates the majority of P&L due to signal frequency, while DOWN_MOMENTUM's lower WR reflects tighter entry conditions that select for higher payout at the cost of more frequent whipsaws.
+
+#### Side Verification
+
+- DOWN trades: 360 (100%)
+- UP trades: 0 (0%)
+
+The system executes only on the structurally underpriced side. UP extraction is blocked entirely.
+
+---
+
+### 7. Live Deployment
+
+V21.7.1 was deployed to live Polymarket on June 6, 2026, as Phase 1 micro-live:
+
+- **Asset**: BTC 5m/15m UpDown binaries
+- **Side**: DOWN only
+- **Route**: TAKER
+- **Position**: $1.00 fixed
+- **Bankroll**: $70 (confirmed tradeable)
+- **Max concurrent**: 1 position
+- **Mode**: Live (not paper)
+
+The runner (`src/v217_live/v2171_live_runner.py`) continuously scans BTC 5m and 15m markets at 5-second intervals, evaluating DOWN token orderbooks for entry into the 3–12¢ bucket with MOMENTUM/CONTINUATION signal confirmation. It exits only via binary settlement — no synthetic take-profit or midpoint closes.
+
+**Phase 1 promotion criteria** (all must be met before scaling):
+
+| Requirement | Status |
+|---|---|
+| ≥50 live settlements with positive realized EV | 0/50 |
+| Profit factor ≥ 1.25 | Pending |
+| Binary settlement verified | Pending |
+| Real friction modeled (fills, slippage, rejects) | Modeled |
+| ≥500 resolved live trades for scaling | 0/500 |
+
+Scaling is blocked until all criteria are satisfied. No exceptions.
+
+---
+
+### 8. Hard Failure Conditions (§11)
+
+The system reverts to paper mode immediately if any of the following occur:
+
+1. **Realized EV < 0 over 100 trades**: The edge has disappeared or was never real
+2. **Profit factor < 1.0 over 100 trades**: Losses exceed gains
+3. **Any settlement or accounting errors**: Cannot trust the system's own reporting
+4. **Execution drift exceeds tolerance**: Live fills diverge from simulation expectations
+5. **Maximum drawdown > 30%**: Capital preservation override
+
+These are not soft limits. They are hard reversion triggers that require manual review and re-authorization before live trading resumes.
+
+---
+
+### 9. Conclusion
 
 FDC exists because the agentic economy is coming and the papers prove that neither policy, nor skill, nor traditional finance will protect individuals without autonomous capital accumulation mechanisms.
 
@@ -97,9 +250,11 @@ FDC exists because the agentic economy is coming and the papers prove that neith
 - Sharp et al. prove that agent access inequality compounds exponentially along quality and quantity dimensions
 - Maresca proves that strategic wealth accumulation under TAI expectations creates positional advantages that late entrants cannot match
 
-FDC V21 is a capital accumulation defense mechanism — an adaptive directional extraction organism that operates inside adversarial binary micro-markets to accumulate real capital at machine speed, under hard risk constraints, with evolutionary profile management that kills weak strategies permanently.
+FDC V21.7.1 is a capital accumulation defense mechanism — an execution-survivable convex continuation organism that operates inside adversarial binary micro-markets to accumulate real capital at machine speed, under hard risk constraints, with binary settlement enforcement and kill switches calibrated to the statistical reality of low-WR, high-payout extraction.
 
 The system does not predict markets. It **extracts capital from structural inefficiencies that the agentic transition creates** — and it does so before the transition concentrates enough wealth to make individual participation impossible.
+
+V21.7.1 represents the transition from research to execution. The bugs that suppressed earlier versions have been corrected. The reversal thesis that failed under binary settlement has been replaced with continuation convexity. The kill switches have been recalibrated to the actual distribution of losses (60 consecutive, not 8). And the system is now live, extracting.
 
 FDC is not a trading strategy. It is a **survival mechanism for the agentic economy**.
 
@@ -113,6 +268,6 @@ FDC is not a trading strategy. It is a **survival mechanism for the agentic econ
 
 ---
 
-*FDC V21 — Adaptive Directional Extraction Organism*
+*FDC V21.7.1 — Execution-Survivable Convex Continuation Organism*
 *Father Daddy Capital — DEFENSIVE CAPITAL ACCUMULATION FOR THE AGENTIC ECONOMY*
-*PRE-LIVE HYBRID RECONSTRUCTION*
+*LIVE DEPLOYMENT PHASE 1 — BTC DOWN_MOMENTUM — $1 FIXED — TAKER ONLY*
