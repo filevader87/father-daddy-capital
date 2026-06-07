@@ -44,6 +44,7 @@ from fdc_pm_live import (
     CLOB_URL, GAMMA_URL, CHAIN_ID, FUNDER,
 )
 import urllib.request
+import csv
 
 # ═══════════════════════════════════════════════════════════════════════
 # V21.7.1 CONFIGURATION — LOCKED PER DIRECTIVE
@@ -142,6 +143,9 @@ LOG_FILE = OUTPUT_DIR / "v2171_live.log"
 TRADES_FILE = OUTPUT_DIR / "trades.jsonl"
 INCIDENT_FILE = OUTPUT_DIR / "incident_report.json"
 STATE_FILE = OUTPUT_DIR / "state.json"
+FORENSICS_FILE = OUTPUT_DIR / "state_gate_forensics.json"
+ELIGIBLE_AUDIT_CSV = OUTPUT_DIR / "eligible_bucket_state_audit.csv"
+SHADOW_COUNTERFACTUAL_FILE = OUTPUT_DIR / "spot_momentum_shadow_counterfactual.json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -252,6 +256,159 @@ def fetch_orderbook_depth(token_id: str, depth: int = 10) -> Optional[dict]:
     except Exception as e:
         log.warning(f"Orderbook fetch failed for {token_id[:16]}...: {e}")
         return None
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# BTC SPOT PRICE FEED — Binance API
+# ═══════════════════════════════════════════════════════════════════════
+
+SPOT_PRICE_BUFFER: List[dict] = []  # [{timestamp, price}, ...]
+SPOT_BUFFER_MAX = 120  # Keep last 120 readings (~10 min at 5s intervals)
+
+
+def fetch_btc_spot() -> Optional[float]:
+    """Fetch current BTC/USDT price from Binance."""
+    try:
+        url = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+        req = urllib.request.Request(url, headers={"User-Agent": "fdc/2.0"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        return float(data["price"])
+    except Exception as e:
+        log.debug(f"BTC spot fetch failed: {e}")
+        return None
+
+
+def record_spot(price: float):
+    """Record spot price with timestamp."""
+    now = time.time()
+    SPOT_PRICE_BUFFER.append({"timestamp": now, "price": price})
+    # Trim to max
+    while len(SPOT_PRICE_BUFFER) > SPOT_BUFFER_MAX:
+        SPOT_PRICE_BUFFER.pop(0)
+
+
+def compute_spot_velocity() -> dict:
+    """Compute BTC spot velocities from historical buffer."""
+    result = {
+        "spot_now": 0.0,
+        "spot_15s": 0.0,
+        "spot_30s": 0.0,
+        "spot_60s": 0.0,
+        "velocity_15s": 0.0,
+        "velocity_30s": 0.0,
+        "velocity_60s": 0.0,
+        "has_spot": False,
+    }
+    if len(SPOT_PRICE_BUFFER) < 2:
+        return result
+
+    now = SPOT_PRICE_BUFFER[-1]
+    result["spot_now"] = now["price"]
+    result["has_spot"] = True
+    now_t = now["timestamp"]
+
+    # Find closest reading at each horizon
+    for horizon, key in [(15, "spot_15s"), (30, "spot_30s"), (60, "spot_60s")]:
+        target_t = now_t - horizon
+        # Binary-ish search for closest reading
+        best = None
+        best_delta = float('inf')
+        for entry in SPOT_PRICE_BUFFER:
+            delta = abs(entry["timestamp"] - target_t)
+            if delta < best_delta:
+                best = entry
+                best_delta = delta
+        if best and best_delta < horizon * 0.5:  # Within 50% of target horizon
+            result[key] = best["price"]
+            velocity = (now["price"] - best["price"]) / best["price"] * 100  # % change
+            vel_key = f"velocity_{horizon}s"
+            result[vel_key] = round(velocity, 6)
+
+    # Reference price: oldest reading in buffer (up to 60s ago)
+    ref_candidates = [e for e in SPOT_PRICE_BUFFER if now_t - e["timestamp"] >= 30]
+    if ref_candidates:
+        result["reference_price"] = ref_candidates[0]["price"]
+        result["distance_from_ref"] = round(
+            (now["price"] - ref_candidates[0]["price"]) / ref_candidates[0]["price"] * 100, 6
+        )
+
+    return result
+
+
+def compute_spot_momentum_shadow(spot_vel: dict, down_mid: float, expires_in: float) -> dict:
+    """
+    §3: SPOT_MOMENTUM_SHADOW — shadow state model.
+    Classifies MOMENTUM if:
+      - BTC spot velocity is negative over 15s/30s/60s (price declining)
+      - Price is moving away from reference in DOWN direction
+      - time_to_expiry > 30s
+      - DOWN ask is 3-12¢
+    PAPER-ONLY. Never trades live.
+    """
+    result = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "shadow_state": "NO_SIGNAL",
+        "shadow_momentum": False,
+        "reason": "",
+        "checks": {},
+    }
+
+    # Check each criterion
+    vel_15_neg = spot_vel.get("velocity_15s", 0) < 0
+    vel_30_neg = spot_vel.get("velocity_30s", 0) < 0
+    vel_60_neg = spot_vel.get("velocity_60s", 0) < 0
+    direction_down = spot_vel.get("distance_from_ref", 0) < 0  # price dropping = negative
+    in_bucket = 0.03 <= down_mid < 0.12
+    not_expired = expires_in > 30
+
+    result["checks"] = {
+        "vel_15s_negative": vel_15_neg,
+        "vel_30s_negative": vel_30_neg,
+        "vel_60s_negative": vel_60_neg,
+        "direction_from_ref_down": direction_down,
+        "in_primary_bucket": in_bucket,
+        "not_expired": not_expired,
+        "any_velocity_negative": vel_15_neg or vel_30_neg or vel_60_neg,
+    }
+
+    # Shadow classifies MOMENTUM if:
+    # - At least one velocity horizon is negative AND
+    # - Direction from reference is down AND
+    # - In 3-12¢ bucket AND
+    # - Not expired
+    if not spot_vel.get("has_spot", False):
+        result["shadow_state"] = "NO_SPOT_DATA"
+        result["reason"] = "no_btc_spot_feed"
+        return result
+
+    if not in_bucket:
+        result["shadow_state"] = "OUTSIDE_BUCKET"
+        result["reason"] = f"down_mid={down_mid:.4f} outside 0.03-0.12"
+        return result
+
+    if not not_expired:
+        result["shadow_state"] = "EXPIRING"
+        result["reason"] = f"expires_in={expires_in:.0f}s < 30s"
+        return result
+
+    if not (vel_15_neg or vel_30_neg or vel_60_neg):
+        result["shadow_state"] = "NO_DECLINE"
+        result["reason"] = "no_negative_velocity_horizon"
+        result["shadow_momentum"] = False
+        return result
+
+    if not direction_down:
+        result["shadow_state"] = "RALLYING"
+        result["reason"] = "spot_rallying_from_reference"
+        result["shadow_momentum"] = False
+        return result
+
+    # All shadow criteria met
+    result["shadow_state"] = "SPOT_MOMENTUM"
+    result["shadow_momentum"] = True
+    result["reason"] = "velocity_negative_and_declining_and_in_bucket"
+    return result
 
 
 def compute_continuation_from_orderbook(ob: dict, side: str = "DOWN") -> Tuple[str, float, dict]:
@@ -385,6 +542,41 @@ class V2171LiveRunner:
 
         # §7: Scarcity report output
         self.scarcity_report_path = OUTPUT_DIR / "bucket_scarcity_report.json"
+
+        # ═══════════════════════════════════════════════════════════════
+        # §2-6: SPOT FEED + SHADOW FORENSICS
+        # ═══════════════════════════════════════════════════════════════
+        self.shadow_counterfactual = {
+            "total_eligible_scans": 0,
+            "current_state_momentum": 0,
+            "shadow_momentum": 0,
+            "both_momentum": 0,
+            "current_only": 0,
+            "shadow_only": 0,
+            "neither": 0,
+            "disagreement_rate": 0.0,
+        }
+        self.forensics_log_path = FORENSICS_FILE
+        self.audit_csv_path = ELIGIBLE_AUDIT_CSV
+        self.shadow_cf_path = SHADOW_COUNTERFACTUAL_FILE
+
+        # Initialize CSV audit file with header
+        try:
+            with open(self.audit_csv_path, "w", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    "timestamp", "market_slug", "interval", "down_ask", "down_bid", "down_mid",
+                    "bucket", "state_current", "state_shadow", "survivability_score",
+                    "spot_now", "spot_15s_ago", "spot_30s_ago", "spot_60s_ago",
+                    "velocity_15s_pct", "velocity_30s_pct", "velocity_60s_pct",
+                    "reference_price", "distance_from_ref_pct",
+                    "vol_imbalance", "ask_heavy", "spread_pct",
+                    "time_to_expiry", "near_miss_criteria_met",
+                    "would_trade_current", "would_trade_shadow",
+                ])
+            log.info(f"Audit CSV initialized: {self.audit_csv_path}")
+        except Exception as e:
+            log.warning(f"Failed to init audit CSV: {e}")
 
     def initialize(self) -> bool:
         """Check wallet, auth, and discover markets."""
@@ -539,6 +731,119 @@ class V2171LiveRunner:
 
         return True, "OK"
 
+    def _write_eligible_forensics(self, slug_key, contract, down_mid, down_ob,
+                                    state, survivability, sig_info, spot_vel,
+                                    shadow_result, expires_in, has_position):
+        """§2: Write full state computation forensics when DOWN ask is in eligible bucket (3–12¢)."""
+        try:
+            ts = datetime.now(timezone.utc).isoformat()
+            interval = slug_key.split("_")[-1] if "_" in slug_key else "unknown"
+
+            # Full forensics JSON (append)
+            forensics_entry = {
+                "timestamp": ts,
+                "market_slug": slug_key,
+                "interval": interval,
+                "down_ask": down_ob.get("best_ask", 0),
+                "down_bid": down_ob.get("best_bid", 0),
+                "down_mid": down_mid,
+                "bucket": f"{down_mid:.3f}",
+                "state_current": state,
+                "survivability_score": survivability,
+                "survivability_components": {
+                    "expected_ev": sig_info.get("expected_ev", 0),
+                    "fill_probability": sig_info.get("fill_probability", 0),
+                    "slippage_survival": sig_info.get("slippage_survival", 0),
+                    "payout_asymmetry": sig_info.get("payout_asymmetry", 0),
+                    "bucket_weight": sig_info.get("bucket_weight", 0),
+                },
+                "why_momentum_failed": "",
+                "orderbook_signal": {
+                    "vol_imbalance": sig_info.get("vol_imbalance", 0),
+                    "ask_heavy": sig_info.get("total_ask_vol", 0) > sig_info.get("total_bid_vol", 0) * 1.2,
+                    "spread_pct": sig_info.get("spread_pct", 0),
+                    "total_bid_vol": sig_info.get("total_bid_vol", 0),
+                    "total_ask_vol": sig_info.get("total_ask_vol", 0),
+                },
+                "spot_data": {
+                    "btc_spot_now": spot_vel.get("spot_now", 0),
+                    "btc_spot_15s": spot_vel.get("spot_15s", 0),
+                    "btc_spot_30s": spot_vel.get("spot_30s", 0),
+                    "btc_spot_60s": spot_vel.get("spot_60s", 0),
+                    "velocity_15s_pct": spot_vel.get("velocity_15s", 0),
+                    "velocity_30s_pct": spot_vel.get("velocity_30s", 0),
+                    "velocity_60s_pct": spot_vel.get("velocity_60s", 0),
+                    "reference_price": spot_vel.get("reference_price", 0),
+                    "distance_from_ref_pct": spot_vel.get("distance_from_ref", 0),
+                },
+                "shadow_state": shadow_result.get("shadow_state", ""),
+                "shadow_momentum": shadow_result.get("shadow_momentum", False),
+                "shadow_reason": shadow_result.get("reason", ""),
+                "shadow_checks": shadow_result.get("checks", {}),
+                "time_to_expiry": expires_in,
+                "near_miss_criteria_met": self._count_near_miss_criteria(
+                    down_mid, state, survivability, expires_in,
+                    down_ob is not None, has_position
+                ),
+                "would_trade_current": state in ("DOWN_MOMENTUM", "DOWN_CONTINUATION") and survivability >= 0.05,
+                "would_trade_shadow": shadow_result.get("shadow_momentum", False),
+            }
+
+            # Determine why MOMENTUM failed
+            if state not in ("DOWN_MOMENTUM", "DOWN_CONTINUATION"):
+                reasons = []
+                if not (sig_info.get("in_primary", False)):
+                    reasons.append("not_in_primary_bucket")
+                if sig_info.get("spread_pct", 1) >= 0.25:
+                    reasons.append("spread_too_wide")
+                ask_vol = sig_info.get("total_ask_vol", 0)
+                bid_vol = sig_info.get("total_bid_vol", 0)
+                if not (ask_vol > bid_vol * 1.2):
+                    reasons.append("ask_not_heavy")
+                if sig_info.get("vol_imbalance", 0) > -0.1:
+                    reasons.append("vol_imbalance_not_bearish")
+                if survivability < 0.05:
+                    reasons.append(f"low_survivability={survivability:.4f}")
+                forensics_entry["why_momentum_failed"] = " | ".join(reasons) if reasons else "unknown"
+
+            with open(self.forensics_log_path, "a") as f:
+                f.write(json.dumps(forensics_entry) + "\n")
+
+            # CSV audit (append)
+            try:
+                with open(self.audit_csv_path, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow([
+                        ts, slug_key, interval,
+                        f"{down_ob.get('best_ask', 0):.4f}",
+                        f"{down_ob.get('best_bid', 0):.4f}",
+                        f"{down_mid:.4f}",
+                        f"{down_mid:.3f}",
+                        state, shadow_result.get("shadow_state", ""),
+                        f"{survivability:.4f}",
+                        spot_vel.get("spot_now", 0),
+                        spot_vel.get("spot_15s", 0),
+                        spot_vel.get("spot_30s", 0),
+                        spot_vel.get("spot_60s", 0),
+                        f"{spot_vel.get('velocity_15s', 0):.6f}",
+                        f"{spot_vel.get('velocity_30s', 0):.6f}",
+                        f"{spot_vel.get('velocity_60s', 0):.6f}",
+                        spot_vel.get("reference_price", 0),
+                        f"{spot_vel.get('distance_from_ref', 0):.6f}",
+                        f"{sig_info.get('vol_imbalance', 0):.4f}",
+                        sig_info.get("total_ask_vol", 0) > sig_info.get("total_bid_vol", 0) * 1.2,
+                        f"{sig_info.get('spread_pct', 0):.4f}",
+                        f"{expires_in:.0f}",
+                        forensics_entry["near_miss_criteria_met"],
+                        forensics_entry["would_trade_current"],
+                        forensics_entry["would_trade_shadow"],
+                    ])
+            except Exception as e:
+                log.debug(f"CSV write failed: {e}")
+
+        except Exception as e:
+            log.warning(f"Forensics write failed: {e}")
+
     def _classify_no_trade(self, slug_key: str, contract: dict, down_mid: float,
                             state: str, survivability: float, expires_in: float,
                             has_orderbook: bool, has_position: bool, kill_allowed: bool,
@@ -599,6 +904,19 @@ class V2171LiveRunner:
             self.eligible_bucket_seconds += self.scan_interval
             if 0.05 <= down_mid < 0.08:
                 self.preferred_bucket_seconds += self.scan_interval
+
+    def _count_near_miss_criteria(self, down_mid, state, survivability, expires_in,
+                                    has_orderbook, has_position) -> int:
+        """Count how many near-miss criteria are met (for forensics)."""
+        criteria = 0
+        if True: criteria += 1  # BTC
+        if state in ("DOWN_MOMENTUM", "DOWN_CONTINUATION", "NO_MOMENTUM"): criteria += 1
+        if 0.03 <= down_mid < 0.12: criteria += 1
+        if survivability >= 0.25 * 0.80: criteria += 1  # within 20% of threshold
+        if expires_in > 30: criteria += 1
+        if has_orderbook: criteria += 1
+        if not has_position: criteria += 1
+        return criteria
 
     def _check_near_miss(self, slug_key: str, contract: dict, down_mid: float,
                           state: str, survivability: float, expires_in: float,
@@ -729,10 +1047,15 @@ class V2171LiveRunner:
             "scan_frequency": f"{self.scan_interval}s",
             "classification": "NO_TRADE_DUE_TO_BUCKET_SCARCITY_SUSPECTED"
                 if self.eligible_bucket_seconds < 300 else "MONITORING",
+            "shadow_counterfactual": dict(self.shadow_counterfactual),
         }
 
         with open(self.scarcity_report_path, 'w') as f:
             json.dump(report, f, indent=2, default=str)
+
+        # Save shadow counterfactual separately
+        with open(self.shadow_cf_path, 'w') as f:
+            json.dump(self.shadow_counterfactual, f, indent=2, default=str)
 
         log.info(f"📊 Scarcity Report: {runtime_minutes:.0f}min | {total_scans} scans | "
                  f"eligible={self.eligible_bucket_seconds:.0f}s | preferred={self.preferred_bucket_seconds:.0f}s | "
@@ -783,6 +1106,47 @@ class V2171LiveRunner:
 
         # Compute continuation signal ALWAYS (for telemetry even when outside bucket)
         state, survivability, sig_info = compute_continuation_from_orderbook(down_ob, side="DOWN")
+
+        # ─── §2: Fetch BTC spot price and compute velocities ───
+        btc_spot = fetch_btc_spot()
+        if btc_spot:
+            record_spot(btc_spot)
+        spot_vel = compute_spot_velocity()
+
+        # ─── §3: Compute SPOT_MOMENTUM_SHADOW ───
+        shadow_result = compute_spot_momentum_shadow(spot_vel, down_mid, expires_in)
+        shadow_state = shadow_result["shadow_state"]
+        shadow_momentum = shadow_result["shadow_momentum"]
+
+        # ─── §2: Write forensics when in eligible bucket (3–12¢) ───
+        in_eligible = 0.03 <= down_mid < 0.12
+        if in_eligible:
+            self._write_eligible_forensics(
+                slug_key, contract, down_mid, down_ob, state, survivability,
+                sig_info, spot_vel, shadow_result, expires_in, has_position
+            )
+
+        # ─── §3: Update shadow counterfactual ───
+        if in_eligible and spot_vel.get("has_spot", False):
+            current_momentum = state in ("DOWN_MOMENTUM", "DOWN_CONTINUATION")
+            self.shadow_counterfactual["total_eligible_scans"] += 1
+            if current_momentum:
+                self.shadow_counterfactual["current_state_momentum"] += 1
+            if shadow_momentum:
+                self.shadow_counterfactual["shadow_momentum"] += 1
+            if current_momentum and shadow_momentum:
+                self.shadow_counterfactual["both_momentum"] += 1
+            elif current_momentum and not shadow_momentum:
+                self.shadow_counterfactual["current_only"] += 1
+            elif not current_momentum and shadow_momentum:
+                self.shadow_counterfactual["shadow_only"] += 1
+            else:
+                self.shadow_counterfactual["neither"] += 1
+            total = max(self.shadow_counterfactual["total_eligible_scans"], 1)
+            self.shadow_counterfactual["disagreement_rate"] = round(
+                (self.shadow_counterfactual["current_only"] + self.shadow_counterfactual["shadow_only"])
+                / total, 4
+            )
 
         # Check for duplicate position
         cid = contract.get("conditionId", "")
