@@ -143,9 +143,13 @@ LOG_FILE = OUTPUT_DIR / "v2171_live.log"
 TRADES_FILE = OUTPUT_DIR / "trades.jsonl"
 INCIDENT_FILE = OUTPUT_DIR / "incident_report.json"
 STATE_FILE = OUTPUT_DIR / "state.json"
-FORENSICS_FILE = OUTPUT_DIR / "state_gate_forensics.json"
+FORENSICS_FILE = OUTPUT_DIR / "state_gate_forensics.jsonl"
 ELIGIBLE_AUDIT_CSV = OUTPUT_DIR / "eligible_bucket_state_audit.csv"
 SHADOW_COUNTERFACTUAL_FILE = OUTPUT_DIR / "spot_momentum_shadow_counterfactual.json"
+LATENCY_TELEMETRY_FILE = OUTPUT_DIR / "latency_telemetry.jsonl"
+LATENCY_REPORT_FILE = OUTPUT_DIR / "latency_report.json"
+STATE_FORENSICS_REPORT_FILE = OUTPUT_DIR / "state_gate_forensics_report.json"
+ARMED_SCANNER_REPORT_FILE = OUTPUT_DIR / "armed_scanner_report.json"
 
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -263,7 +267,9 @@ def fetch_orderbook_depth(token_id: str, depth: int = 10) -> Optional[dict]:
 # ═══════════════════════════════════════════════════════════════════════
 
 SPOT_PRICE_BUFFER: List[dict] = []  # [{timestamp, price}, ...]
+TOKEN_ASK_BUFFER: Dict[str, List[dict]] = {}  # token_id -> [{timestamp, ask}, ...]
 SPOT_BUFFER_MAX = 120  # Keep last 120 readings (~10 min at 5s intervals)
+TOKEN_BUFFER_MAX = 60  # Keep last 60 token ask readings (~5 min)
 
 
 def fetch_btc_spot() -> Optional[float]:
@@ -279,6 +285,19 @@ def fetch_btc_spot() -> Optional[float]:
         return None
 
 
+def fetch_btc_perp_price() -> Optional[float]:
+    """Fetch BTC/USDT perpetual futures price from Binance."""
+    try:
+        url = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT"
+        req = urllib.request.Request(url, headers={"User-Agent": "fdc/2.0"})
+        with urllib.request.urlopen(req, timeout=5) as r:
+            data = json.loads(r.read())
+        return float(data["price"])
+    except Exception as e:
+        log.debug(f"BTC perp fetch failed: {e}")
+        return None
+
+
 def record_spot(price: float):
     """Record spot price with timestamp."""
     now = time.time()
@@ -286,6 +305,34 @@ def record_spot(price: float):
     # Trim to max
     while len(SPOT_PRICE_BUFFER) > SPOT_BUFFER_MAX:
         SPOT_PRICE_BUFFER.pop(0)
+
+
+def record_token_ask(token_id: str, ask: float):
+    """Record token ask price for delta tracking."""
+    now = time.time()
+    if token_id not in TOKEN_ASK_BUFFER:
+        TOKEN_ASK_BUFFER[token_id] = []
+    TOKEN_ASK_BUFFER[token_id].append({"timestamp": now, "ask": ask})
+    while len(TOKEN_ASK_BUFFER[token_id]) > TOKEN_BUFFER_MAX:
+        TOKEN_ASK_BUFFER[token_id].pop(0)
+
+
+def compute_token_ask_delta(token_id: str) -> dict:
+    """Compute token ask price deltas over 15s and 30s horizons."""
+    result = {"ask_delta_15s": 0.0, "ask_delta_30s": 0.0, "has_delta": False}
+    buf = TOKEN_ASK_BUFFER.get(token_id, [])
+    if len(buf) < 2:
+        return result
+    now = buf[-1]
+    now_t = now["timestamp"]
+    now_ask = now["ask"]
+    for horizon, key in [(15, "ask_delta_15s"), (30, "ask_delta_30s")]:
+        target_t = now_t - horizon
+        best = min(buf, key=lambda e: abs(e["timestamp"] - target_t))
+        if abs(best["timestamp"] - target_t) < horizon * 0.5:
+            result[key] = now_ask - best["ask"]
+    result["has_delta"] = True
+    return result
 
 
 def compute_spot_velocity() -> dict:
@@ -299,6 +346,11 @@ def compute_spot_velocity() -> dict:
         "velocity_30s": 0.0,
         "velocity_60s": 0.0,
         "has_spot": False,
+        "perp_now": 0.0,
+        "perp_velocity_15s": 0.0,
+        "perp_velocity_30s": 0.0,
+        "perp_velocity_60s": 0.0,
+        "has_perp": False,
     }
     if len(SPOT_PRICE_BUFFER) < 2:
         return result
@@ -311,7 +363,6 @@ def compute_spot_velocity() -> dict:
     # Find closest reading at each horizon
     for horizon, key in [(15, "spot_15s"), (30, "spot_30s"), (60, "spot_60s")]:
         target_t = now_t - horizon
-        # Binary-ish search for closest reading
         best = None
         best_delta = float('inf')
         for entry in SPOT_PRICE_BUFFER:
@@ -319,9 +370,9 @@ def compute_spot_velocity() -> dict:
             if delta < best_delta:
                 best = entry
                 best_delta = delta
-        if best and best_delta < horizon * 0.5:  # Within 50% of target horizon
+        if best and best_delta < horizon * 0.5:
             result[key] = best["price"]
-            velocity = (now["price"] - best["price"]) / best["price"] * 100  # % change
+            velocity = (now["price"] - best["price"]) / best["price"] * 100
             vel_key = f"velocity_{horizon}s"
             result[vel_key] = round(velocity, 6)
 
@@ -329,21 +380,59 @@ def compute_spot_velocity() -> dict:
     ref_candidates = [e for e in SPOT_PRICE_BUFFER if now_t - e["timestamp"] >= 30]
     if ref_candidates:
         result["reference_price"] = ref_candidates[0]["price"]
-        result["distance_from_ref"] = round(
-            (now["price"] - ref_candidates[0]["price"]) / ref_candidates[0]["price"] * 100, 6
-        )
+        current_dist = (now["price"] - ref_candidates[0]["price"]) / ref_candidates[0]["price"] * 100
+        result["distance_from_ref"] = round(current_dist, 6)
+
+        # Distance deltas: how distance to reference is changing over 15s/30s
+        for delta_key, horizon in [("distance_delta_15s", 15), ("distance_delta_30s", 30)]:
+            target_t = now_t - horizon
+            best = None
+            best_delta = float('inf')
+            for entry in SPOT_PRICE_BUFFER:
+                delta = abs(entry["timestamp"] - target_t)
+                if delta < best_delta:
+                    best = entry
+                    best_delta = delta
+            if best and best_delta < horizon * 0.5:
+                past_dist = (best["price"] - ref_candidates[0]["price"]) / ref_candidates[0]["price"] * 100
+                result[delta_key] = round(current_dist - past_dist, 6)
+
+    # §6: Compute perp velocity from buffer entries with perp field
+    perp_entries = [e for e in SPOT_PRICE_BUFFER if "perp" in e and e["perp"] > 0]
+    if len(perp_entries) >= 2:
+        now_perp = perp_entries[-1]
+        result["perp_now"] = now_perp.get("perp", 0)
+        now_pt = now_perp["timestamp"]
+        for horizon, key in [(15, "perp_velocity_15s"), (30, "perp_velocity_30s"), (60, "perp_velocity_60s")]:
+            target_t = now_pt - horizon
+            best = None
+            best_delta = float('inf')
+            for entry in perp_entries:
+                delta = abs(entry["timestamp"] - target_t)
+                if delta < best_delta:
+                    best = entry
+                    best_delta = delta
+            if best and best_delta < horizon * 0.5 and "perp" in best:
+                v = (now_perp.get("perp", 0) - best.get("perp", 0)) / best.get("perp", 1) * 100
+                result[key] = round(v, 6)
+        result["has_perp"] = result["perp_now"] > 0
 
     return result
 
 
-def compute_spot_momentum_shadow(spot_vel: dict, down_mid: float, expires_in: float) -> dict:
+def compute_spot_momentum_shadow(spot_vel: dict, down_mid: float, expires_in: float,
+                                    sig_info: dict = None, token_delta: dict = None) -> dict:
     """
-    §3: SPOT_MOMENTUM_SHADOW — shadow state model.
+    §3+§7: SPOT_MOMENTUM_SHADOW — shadow state model.
     Classifies MOMENTUM if:
       - BTC spot velocity is negative over 15s/30s/60s (price declining)
       - Price is moving away from reference in DOWN direction
       - time_to_expiry > 30s
       - DOWN ask is 3-12¢
+    Strengthening features (§7):
+      - Perp velocity confirms spot velocity
+      - Distance to reference is worsening for UP
+      - Token ask delta is rising (DOWN token getting more expensive = market pricing in decline)
     PAPER-ONLY. Never trades live.
     """
     result = {
@@ -352,62 +441,100 @@ def compute_spot_momentum_shadow(spot_vel: dict, down_mid: float, expires_in: fl
         "shadow_momentum": False,
         "reason": "",
         "checks": {},
+        "shadow_entry_price": 0.0,
+        "shadow_expected_ev": 0.0,
+        "shadow_block_reason": "",
+        "strengthening": {},
     }
 
     # Check each criterion
     vel_15_neg = spot_vel.get("velocity_15s", 0) < 0
     vel_30_neg = spot_vel.get("velocity_30s", 0) < 0
     vel_60_neg = spot_vel.get("velocity_60s", 0) < 0
+    perp_vel_15_neg = spot_vel.get("perp_velocity_15s", 0) < 0
+    perp_vel_30_neg = spot_vel.get("perp_velocity_30s", 0) < 0
+    perp_confirms = (perp_vel_15_neg or perp_vel_30_neg) if spot_vel.get("has_perp", False) else None
     direction_down = spot_vel.get("distance_from_ref", 0) < 0  # price dropping = negative
     in_bucket = 0.03 <= down_mid < 0.12
     not_expired = expires_in > 30
+
+    # Token ask delta: rising ask = market pricing in decline (strengthening)
+    ask_rising_15 = token_delta and token_delta.get("ask_delta_15s", 0) > 0
+    ask_rising_30 = token_delta and token_delta.get("ask_delta_30s", 0) > 0
+
+    # Vol expansion check (strengthening)
+    spread_pct = sig_info.get("spread_pct", 1.0) if sig_info else 1.0
+    vol_expanding = spread_pct > 0.05  # spread > 5% = volatility expansion
 
     result["checks"] = {
         "vel_15s_negative": vel_15_neg,
         "vel_30s_negative": vel_30_neg,
         "vel_60s_negative": vel_60_neg,
+        "perp_vel_15s_negative": perp_vel_15_neg,
+        "perp_vel_30s_negative": perp_vel_30_neg,
+        "perp_confirms_spot": perp_confirms,
         "direction_from_ref_down": direction_down,
         "in_primary_bucket": in_bucket,
         "not_expired": not_expired,
         "any_velocity_negative": vel_15_neg or vel_30_neg or vel_60_neg,
+        "ask_rising_15s": ask_rising_15,
+        "ask_rising_30s": ask_rising_30,
+        "vol_expanding": vol_expanding,
     }
 
-    # Shadow classifies MOMENTUM if:
-    # - At least one velocity horizon is negative AND
-    # - Direction from reference is down AND
-    # - In 3-12¢ bucket AND
-    # - Not expired
+    result["strengthening"] = {
+        "perp_confirms": perp_confirms,
+        "ask_rising": ask_rising_15 or ask_rising_30,
+        "vol_expanding": vol_expanding,
+        "strengthening_count": int(sum([
+            1 if perp_confirms else 0,
+            1 if (ask_rising_15 or ask_rising_30) else 0,
+            1 if vol_expanding else 0,
+        ])),
+    }
+
+    # Gate sequence
     if not spot_vel.get("has_spot", False):
         result["shadow_state"] = "NO_SPOT_DATA"
         result["reason"] = "no_btc_spot_feed"
+        result["shadow_block_reason"] = "no_spot"
         return result
 
     if not in_bucket:
         result["shadow_state"] = "OUTSIDE_BUCKET"
         result["reason"] = f"down_mid={down_mid:.4f} outside 0.03-0.12"
+        result["shadow_block_reason"] = "bucket"
         return result
 
     if not not_expired:
         result["shadow_state"] = "EXPIRING"
         result["reason"] = f"expires_in={expires_in:.0f}s < 30s"
+        result["shadow_block_reason"] = "expiry"
         return result
 
     if not (vel_15_neg or vel_30_neg or vel_60_neg):
         result["shadow_state"] = "NO_DECLINE"
         result["reason"] = "no_negative_velocity_horizon"
         result["shadow_momentum"] = False
+        result["shadow_block_reason"] = "no_decline_velocity"
         return result
 
     if not direction_down:
         result["shadow_state"] = "RALLYING"
         result["reason"] = "spot_rallying_from_reference"
         result["shadow_momentum"] = False
+        result["shadow_block_reason"] = "rallying"
         return result
 
     # All shadow criteria met
     result["shadow_state"] = "SPOT_MOMENTUM"
     result["shadow_momentum"] = True
     result["reason"] = "velocity_negative_and_declining_and_in_bucket"
+    result["shadow_block_reason"] = ""
+    # Shadow would trade at current ask
+    result["shadow_entry_price"] = down_mid
+    # Shadow EV: probability of DOWN = 1 - down_mid, payout = 1 - down_mid, loss = down_mid
+    result["shadow_expected_ev"] = round((1 - down_mid) * (1 - down_mid) - down_mid * down_mid, 6)
     return result
 
 
@@ -569,7 +696,10 @@ class V2171LiveRunner:
                     "bucket", "state_current", "state_shadow", "survivability_score",
                     "spot_now", "spot_15s_ago", "spot_30s_ago", "spot_60s_ago",
                     "velocity_15s_pct", "velocity_30s_pct", "velocity_60s_pct",
+                    "perp_velocity_15s", "perp_velocity_30s", "perp_velocity_60s",
                     "reference_price", "distance_from_ref_pct",
+                    "distance_delta_15s", "distance_delta_30s",
+                    "token_down_ask_delta_15s", "token_down_ask_delta_30s",
                     "vol_imbalance", "ask_heavy", "spread_pct",
                     "time_to_expiry", "near_miss_criteria_met",
                     "would_trade_current", "would_trade_shadow",
@@ -577,6 +707,28 @@ class V2171LiveRunner:
             log.info(f"Audit CSV initialized: {self.audit_csv_path}")
         except Exception as e:
             log.warning(f"Failed to init audit CSV: {e}")
+
+        # ═══════════════════════════════════════════════════════════════
+        # §4: ARMED SCANNER STATE
+        # ═══════════════════════════════════════════════════════════════
+        self.armed = False
+        self.armed_since = 0.0
+        self.armed_expire = 0.0
+        self.armed_activations = 0
+        self.armed_total_seconds = 0.0
+        self.armed_scans = 0
+        self.near_entry_events = 0
+        self.eligible_flashes_seen = 0
+        self.eligible_flashes_missed = 0
+
+        # ═══════════════════════════════════════════════════════════════
+        # §4: LATENCY TELEMETRY
+        # ═══════════════════════════════════════════════════════════════
+        self.latency_records: List[dict] = []
+        self.latency_report_path = LATENCY_REPORT_FILE
+        self.last_latency_report = time.time()
+        self.last_forensics_report = time.time()
+        self.last_armed_report = time.time()
 
     def initialize(self) -> bool:
         """Check wallet, auth, and discover markets."""
@@ -733,8 +885,9 @@ class V2171LiveRunner:
 
     def _write_eligible_forensics(self, slug_key, contract, down_mid, down_ob,
                                     state, survivability, sig_info, spot_vel,
-                                    shadow_result, expires_in, has_position):
-        """§2: Write full state computation forensics when DOWN ask is in eligible bucket (3–12¢)."""
+                                    shadow_result, expires_in, has_position,
+                                    token_delta=None, latency_info=None):
+        """§2+§6: Write full state computation forensics when DOWN ask is in eligible bucket (3–12¢)."""
         try:
             ts = datetime.now(timezone.utc).isoformat()
             interval = slug_key.split("_")[-1] if "_" in slug_key else "unknown"
@@ -773,9 +926,16 @@ class V2171LiveRunner:
                     "velocity_15s_pct": spot_vel.get("velocity_15s", 0),
                     "velocity_30s_pct": spot_vel.get("velocity_30s", 0),
                     "velocity_60s_pct": spot_vel.get("velocity_60s", 0),
+                    "perp_velocity_15s": spot_vel.get("perp_velocity_15s", 0),
+                    "perp_velocity_30s": spot_vel.get("perp_velocity_30s", 0),
+                    "perp_velocity_60s": spot_vel.get("perp_velocity_60s", 0),
                     "reference_price": spot_vel.get("reference_price", 0),
                     "distance_from_ref_pct": spot_vel.get("distance_from_ref", 0),
+                    "distance_delta_15s": spot_vel.get("distance_delta_15s", 0),
+                    "distance_delta_30s": spot_vel.get("distance_delta_30s", 0),
                 },
+                "token_delta": token_delta or {},
+                "latency_ms": latency_info or {},
                 "shadow_state": shadow_result.get("shadow_state", ""),
                 "shadow_momentum": shadow_result.get("shadow_momentum", False),
                 "shadow_reason": shadow_result.get("reason", ""),
@@ -828,8 +988,15 @@ class V2171LiveRunner:
                         f"{spot_vel.get('velocity_15s', 0):.6f}",
                         f"{spot_vel.get('velocity_30s', 0):.6f}",
                         f"{spot_vel.get('velocity_60s', 0):.6f}",
+                        f"{spot_vel.get('perp_velocity_15s', 0):.6f}",
+                        f"{spot_vel.get('perp_velocity_30s', 0):.6f}",
+                        f"{spot_vel.get('perp_velocity_60s', 0):.6f}",
                         spot_vel.get("reference_price", 0),
                         f"{spot_vel.get('distance_from_ref', 0):.6f}",
+                        f"{spot_vel.get('distance_delta_15s', 0):.6f}",
+                        f"{spot_vel.get('distance_delta_30s', 0):.6f}",
+                        f"{(token_delta or {}).get('ask_delta_15s', 0):.6f}",
+                        f"{(token_delta or {}).get('ask_delta_30s', 0):.6f}",
                         f"{sig_info.get('vol_imbalance', 0):.4f}",
                         sig_info.get("total_ask_vol", 0) > sig_info.get("total_bid_vol", 0) * 1.2,
                         f"{sig_info.get('spread_pct', 0):.4f}",
@@ -1064,11 +1231,191 @@ class V2171LiveRunner:
 
         return report
 
+    # ═══════════════════════════════════════════════════════════════════
+    # §3-4: ARMED SCANNER + LATENCY + ROLLING REPORTS
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _check_armed_mode(self, down_mid: float, spot_vel: dict, expires_in: float,
+                           shadow_result: dict) -> bool:
+        """§3: Check if armed scanner mode should activate.
+        Armed mode triggers when any near-entry condition is met:
+        - DOWN ask enters 2-15¢ (within 20% of bucket)
+        - BTC spot velocity turns sharply negative
+        - time_to_expiry < 120s
+        - Near-miss cluster detected (3+ near-misses in last 60s)
+        """
+        now = time.time()
+        should_arm = False
+
+        # 1. DOWN ask within 20% of entry bucket
+        if 0.02 <= down_mid <= 0.15:
+            should_arm = True
+
+        # 2. BTC spot velocity sharply negative (< -0.05% on any horizon)
+        if spot_vel.get("has_spot", False):
+            for key in ("velocity_15s", "velocity_30s", "velocity_60s"):
+                if spot_vel.get(key, 0) < -0.05:
+                    should_arm = True
+                    break
+
+        # 3. Time to expiry < 120s
+        if 0 < expires_in < 120:
+            should_arm = True
+
+        # 4. Shadow model signals momentum
+        if shadow_result.get("shadow_momentum", False):
+            should_arm = True
+
+        if should_arm and not self.armed:
+            self.armed = True
+            self.armed_since = now
+            self.armed_activations += 1
+            log.info(f"🔴 ARMED mode activated: down_mid={down_mid:.4f} spot_vel={spot_vel.get('velocity_15s',0):.6f}")
+        elif should_arm:
+            # Renew armed mode
+            self.armed_expire = now + 60  # Extend by 60s
+        elif self.armed and now > self.armed_expire + 60:
+            # Expire armed mode after 60s without near-entry
+            armed_duration = now - self.armed_since
+            self.armed_total_seconds += armed_duration
+            self.armed = False
+            log.info(f"⚪ ARMED mode expired: lasted {armed_duration:.0f}s")
+
+        if self.armed:
+            self.armed_scans += 1
+            self.near_entry_events += 1
+
+        return self.armed
+
+    def _record_latency(self, phase_timings: dict):
+        """§4: Record latency timings for a scan cycle."""
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **phase_timings,
+        }
+
+        # Write to JSONL
+        try:
+            with open(LATENCY_TELEMETRY_FILE, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception:
+            pass
+
+        # Keep in-memory for rolling report (last 3600 entries = ~5h at 5s)
+        self.latency_records.append(entry)
+        if len(self.latency_records) > 3600:
+            self.latency_records.pop(0)
+
+    def _generate_latency_report(self) -> dict:
+        """§10: Generate rolling latency report."""
+        if not self.latency_records:
+            return {}
+
+        def pct(data, p):
+            if not data:
+                return 0
+            s = sorted(data)
+            idx = int(len(s) * p / 100)
+            return round(s[min(idx, len(s)-1)], 1)
+
+        scan_times = [r.get("scan_latency_ms", 0) for r in self.latency_records if r.get("scan_latency_ms")]
+        signal_times = [r.get("signal_to_submit_ms", 0) for r in self.latency_records if r.get("signal_to_submit_ms")]
+        quote_ages = [r.get("quote_age_at_submit_ms", 0) for r in self.latency_records if r.get("quote_age_at_submit_ms")]
+        book_times = [r.get("book_fetch_latency_ms", 0) for r in self.latency_records if r.get("book_fetch_latency_ms")]
+        spot_times = [r.get("spot_fetch_latency_ms", 0) for r in self.latency_records if r.get("spot_fetch_latency_ms")]
+        signal_compute = [r.get("signal_compute_latency_ms", 0) for r in self.latency_records if r.get("signal_compute_latency_ms")]
+
+        slow_count = sum(1 for r in self.latency_records if r.get("execution_too_slow", False))
+
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "total_records": len(self.latency_records),
+            "avg_scan_latency_ms": round(sum(scan_times) / max(len(scan_times), 1), 1),
+            "p50_scan_latency_ms": pct(scan_times, 50),
+            "p95_scan_latency_ms": pct(scan_times, 95),
+            "avg_book_fetch_latency_ms": round(sum(book_times) / max(len(book_times), 1), 1),
+            "avg_spot_fetch_latency_ms": round(sum(spot_times) / max(len(spot_times), 1), 1),
+            "avg_signal_compute_latency_ms": round(sum(signal_compute) / max(len(signal_compute), 1), 1),
+            "avg_signal_to_submit_ms": round(sum(signal_times) / max(len(signal_times), 1), 1),
+            "p95_signal_to_submit_ms": pct(signal_times, 95),
+            "avg_quote_age_at_submit_ms": round(sum(quote_ages) / max(len(quote_ages), 1), 1),
+            "p95_quote_age_at_submit_ms": pct(quote_ages, 95),
+            "execution_too_slow_count": slow_count,
+        }
+
+        with open(LATENCY_REPORT_FILE, 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+
+        return report
+
+    def _generate_forensics_report(self) -> dict:
+        """§10: Generate rolling state forensics report."""
+        total_eligible = self.shadow_counterfactual.get("total_eligible_scans", 0)
+        current_mom = self.shadow_counterfactual.get("current_state_momentum", 0)
+        shadow_mom = self.shadow_counterfactual.get("shadow_momentum", 0)
+        both = self.shadow_counterfactual.get("both_momentum", 0)
+        current_only = self.shadow_counterfactual.get("current_only", 0)
+        shadow_only = self.shadow_counterfactual.get("shadow_only", 0)
+        neither = self.shadow_counterfactual.get("neither", 0)
+
+        # Build momentum failure top reasons from recent no-trade counts
+        momentum_failures = {
+            "no_momentum": self.notrade_reason_counts.get("no_momentum", 0),
+            "wrong_state": self.notrade_reason_counts.get("wrong_state", 0),
+            "low_survivability": self.notrade_reason_counts.get("low_survivability", 0),
+            "spread_too_wide": self.notrade_reason_counts.get("spread_too_wide", 0),
+            "ask_not_heavy": 0,  # tracked in forensics logs
+        }
+
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "eligible_bucket_scans": total_eligible,
+            "current_model_momentum_count": current_mom,
+            "spot_shadow_momentum_count": shadow_mom,
+            "state_model_disagreement_count": shadow_only,
+            "state_model_agreement_count": both,
+            "neither_model_count": neither,
+            "current_only_count": current_only,
+            "shadow_only_count": shadow_only,
+            "disagreement_rate": round(shadow_only / max(total_eligible, 1) * 100, 2),
+            "top_momentum_failed_reasons": momentum_failures,
+        }
+
+        with open(STATE_FORENSICS_REPORT_FILE, 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+
+        return report
+
+    def _generate_armed_report(self) -> dict:
+        """§10: Generate rolling armed scanner report."""
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "armed_mode_active": self.armed,
+            "armed_mode_activations": self.armed_activations,
+            "armed_mode_total_seconds": round(self.armed_total_seconds, 1),
+            "armed_mode_scans": self.armed_scans,
+            "near_entry_events_seen": self.near_entry_events,
+            "eligible_bucket_flashes_seen": self.eligible_flashes_seen,
+            "eligible_bucket_flashes_missed": self.eligible_flashes_missed,
+            "trade_count": self.state.total_trades,
+        }
+
+        with open(ARMED_SCANNER_REPORT_FILE, 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+
+        return report
+
     def evaluate_and_trade(self, slug_key: str, contract: dict) -> Optional[dict]:
-        """§6: Evaluate a market for DOWN_MOMENTUM entry with full telemetry."""
+        """§6: Evaluate a market for DOWN_MOMENTUM entry with full telemetry + latency."""
         self.cycle_id += 1
+        scan_started_at = time.time()
+        phase_timings = {}
+
         expires_in = contract.get("expires_in_sec", 0) if contract else 0
         has_position = False
+
+        # ─── §4: Latency Phase — Book Fetch ───
+        book_request_started_at = time.time()
 
         # Get both tokens, find DOWN (cheaper) token
         tokens = contract.get("tokens", []) if contract else []
@@ -1091,6 +1438,8 @@ class V2171LiveRunner:
             ob["mid"] = mid
             token_orderbooks[tid] = (mid, ob)
 
+        phase_timings["book_fetch_latency_ms"] = round((time.time() - book_request_started_at) * 1000, 1)
+
         if len(token_orderbooks) < 1:
             log.info(f"No orderbook data for {slug_key}")
             self._classify_no_trade(slug_key, contract, 0.0, "NO_SIGNAL", 0.0,
@@ -1104,26 +1453,55 @@ class V2171LiveRunner:
         down_ob = sorted_tokens[0][1][1]
         has_orderbook = True
 
+        # ─── §4: Record token ask for delta tracking ───
+        record_token_ask(down_tid, down_ob.get("best_ask", 0))
+
+        # ─── §4: Latency Phase — Spot Fetch ───
+        spot_request_started_at = time.time()
+
         # Compute continuation signal ALWAYS (for telemetry even when outside bucket)
         state, survivability, sig_info = compute_continuation_from_orderbook(down_ob, side="DOWN")
 
+        phase_timings["signal_compute_latency_ms"] = round((time.time() - spot_request_started_at) * 1000, 1)
+
         # ─── §2: Fetch BTC spot price and compute velocities ───
         btc_spot = fetch_btc_spot()
+        btc_perp = fetch_btc_perp_price()
         if btc_spot:
             record_spot(btc_spot)
+            # §6: Also record perp price alongside spot
+            if btc_perp:
+                # Append perp to the latest spot buffer entry
+                if SPOT_PRICE_BUFFER:
+                    SPOT_PRICE_BUFFER[-1]["perp"] = btc_perp
         spot_vel = compute_spot_velocity()
 
-        # ─── §3: Compute SPOT_MOMENTUM_SHADOW ───
-        shadow_result = compute_spot_momentum_shadow(spot_vel, down_mid, expires_in)
+        phase_timings["spot_fetch_latency_ms"] = round((time.time() - spot_request_started_at) * 1000, 1)
+
+        # ─── §6: Compute token ask delta ───
+        token_delta = compute_token_ask_delta(down_tid)
+
+        # ─── §3+§7: Compute SPOT_MOMENTUM_SHADOW ───
+        shadow_result = compute_spot_momentum_shadow(spot_vel, down_mid, expires_in,
+                                                        sig_info=sig_info, token_delta=token_delta)
         shadow_state = shadow_result["shadow_state"]
         shadow_momentum = shadow_result["shadow_momentum"]
+
+        # ─── §4: Check armed mode ───
+        self._check_armed_mode(down_mid, spot_vel, expires_in, shadow_result)
+
+        # ─── §4: Complete latency timings ───
+        phase_timings["scan_latency_ms"] = round((time.time() - scan_started_at) * 1000, 1)
+        self._record_latency(phase_timings)
 
         # ─── §2: Write forensics when in eligible bucket (3–12¢) ───
         in_eligible = 0.03 <= down_mid < 0.12
         if in_eligible:
+            self.eligible_flashes_seen += 1
             self._write_eligible_forensics(
                 slug_key, contract, down_mid, down_ob, state, survivability,
-                sig_info, spot_vel, shadow_result, expires_in, has_position
+                sig_info, spot_vel, shadow_result, expires_in, has_position,
+                token_delta=token_delta, latency_info=phase_timings
             )
 
         # ─── §3: Update shadow counterfactual ───
@@ -1371,8 +1749,24 @@ class V2171LiveRunner:
                 self._generate_scarcity_report()
                 self.last_scarcity_report = now
 
-            # Sleep
-            sleep_time = self.scan_interval
+            # §10: Rolling reports every 30 minutes
+            if now - self.last_latency_report >= SCARCITY_REPORT_INTERVAL:
+                self._generate_latency_report()
+                self.last_latency_report = now
+
+            if now - self.last_forensics_report >= SCARCITY_REPORT_INTERVAL:
+                self._generate_forensics_report()
+                self.last_forensics_report = now
+
+            if now - self.last_armed_report >= SCARCITY_REPORT_INTERVAL:
+                self._generate_armed_report()
+                self.last_armed_report = now
+
+            # §3: Armed mode → faster scan interval
+            if self.armed:
+                sleep_time = 1.0  # §3: Armed scan at 1s
+            else:
+                sleep_time = self.scan_interval
             time.sleep(sleep_time)
             iteration += 1
 
@@ -1397,6 +1791,9 @@ class V2171LiveRunner:
 
         # Final scarcity report
         self._generate_scarcity_report()
+        self._generate_latency_report()
+        self._generate_forensics_report()
+        self._generate_armed_report()
         self._save_state()
 
     def _save_trade(self, trade: dict):
