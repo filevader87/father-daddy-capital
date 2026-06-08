@@ -1212,7 +1212,7 @@ class V2171LiveRunner:
             "primary_bottleneck": primary_bottleneck,
             "status": "LIVE_RUNNING",
             "scan_frequency": f"{self.scan_interval}s",
-            "classification": "NO_TRADE_DUE_TO_BUCKET_SCARCITY_SUSPECTED"
+            "classification": "STATE_GATE_PROTECTIVE_SHADOW_REJECTED"
                 if self.eligible_bucket_seconds < 300 else "MONITORING",
             "shadow_counterfactual": dict(self.shadow_counterfactual),
         }
