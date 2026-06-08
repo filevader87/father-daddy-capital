@@ -146,7 +146,16 @@ class MCPRouter:
                 results[name] = False
                 continue
             conn = MCPServerConnection(name, MCP_SERVERS[name])
-            connected = await conn.connect()
+            try:
+                connected = await asyncio.wait_for(conn.connect(), timeout=30)
+            except (asyncio.TimeoutError, Exception) as e:
+                log.warning(f"MCP [{name}] boot timeout/error: {e}")
+                connected = False
+                try:
+                    await conn.disconnect()
+                except Exception:
+                    pass
+                conn._session = None
             if connected:
                 self._connections[name] = conn
             results[name] = connected
@@ -199,7 +208,7 @@ class MCPRouter:
 class CryptoMCP(MCPRouter):
     """Router pre-configured for crypto/trading servers only."""
     
-    CRYPTO_SERVERS = ["polymarket", "ccxt", "codex", "onchain", "evmscope"]
+    CRYPTO_SERVERS = ["polymarket", "ccxt"]  # Boot these first; others lazy
     
     def __init__(self):
         super().__init__(servers=self.CRYPTO_SERVERS)
