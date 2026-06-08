@@ -111,7 +111,7 @@ Poll every 10–30 seconds until `COMPLETED` or `FAILED`.
     "fromTokenAddress": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     "fromAmountBaseUnit": "1000000000",
     "toChainId": "137",
-    "toTokenAddress": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+    "toTokenAddress": "[REDACTED_USDCe]",
     "status": "COMPLETED",
     "txHash": "0x...",
     "createdTimeMs": 1697875200000

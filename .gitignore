@@ -217,3 +217,13 @@ shadow_validation/
 *.jsonl
 pbot_research.jsonl
 pbot_benchmark.jsonl
+
+# Weather bot runtime outputs
+output/weather_bot/
+
+# Shadow counterfactual runtime outputs
+output/v2171_live/shadow_counterfactual_*
+output/v2171_live/shadow_cf_console.log
+
+# PMXT data (large parquet files)
+pmxt_data/

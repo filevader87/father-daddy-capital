@@ -94,8 +94,8 @@ class TickSizeCache:
 ```
 CTF_CONTRACT = 0x4D97DCd97eC945f40cF65F87097ACe5EA0476045
 NEG_RISK_CTF_EXCHANGE = 0xC5d563A36AE78145C45a50134d48A1215220f80a
-USDC.e (bridged) = 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174
-Native USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3369
+USDC.e (bridged) = [REDACTED_USDCe]
+Native USDC = [REDACTED_USDC]
 ```
 
 **Why we need it:** This is a **blind spot in our entire pipeline**. We track PnL in a JSON file but never withdraw from the Polymarket contract. At $2/trade and 20-30 trades in micro validation, that's up to $60 in positions that may resolve as wins. If the UP token we bought at 0.55 settles at 1.0, we're owed $0.45 × shares. Without `redeemPositions()`, that money is unrecoverable. The Polymarket-bot repo handles this with background redemption queues and auto-merge after DipArb legs complete. We need at minimum a `redeem_resolved_positions()` function that we call after each contract expiry window.
@@ -105,13 +105,13 @@ Native USDC = 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3369
 ## 4. USDC.e Address Validation
 
 **Source:** `src/clients/ctf-client.ts:9-47`  
-**Current FDC gap:** Polymarket on Polygon uses **USDC.e (bridged USDC)** at address `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174`, NOT native USDC at `0x3c499c542cEF5E3811e1192ce70d8cC03d5c3369`. Our wallet currently shows 0 USDC. When you deposit $50, if you send native USDC instead of USDC.e, our CLOB orders will fail with "insufficient balance" even though the wallet shows a USDC balance.
+**Current FDC gap:** Polymarket on Polygon uses **USDC.e (bridged USDC)** at address `[REDACTED_USDCe]`, NOT native USDC at `[REDACTED_USDC]`. Our wallet currently shows 0 USDC. When you deposit $50, if you send native USDC instead of USDC.e, our CLOB orders will fail with "insufficient balance" even though the wallet shows a USDC balance.
 
 **Port:**
 
 ```python
-USDC_E_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # Bridged USDC.e
-NATIVE_USDC_ADDRESS = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3369"  # Native USDC
+USDC_E_ADDRESS = "[REDACTED_USDCe]"  # Bridged USDC.e
+NATIVE_USDC_ADDRESS = "[REDACTED_USDC]"  # Native USDC
 
 async def check_usdc_e_balance(self):
     """Check USDC.e (bridged) balance — the ONLY token Polymarket CTF accepts."""

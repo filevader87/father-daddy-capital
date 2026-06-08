@@ -27,8 +27,8 @@ CHAIN_ID = 137
 POLYGON_RPC = "https://rpc-mainnet.matic.quiknode.pro"
 
 # Contract addresses (Polygon)
-USDC_E_ADDR    = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
-USDC_NATIVE_ADDR = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+USDC_E_ADDR    = "[REDACTED_USDCe]"
+USDC_NATIVE_ADDR = "[REDACTED_USDC]"
 CTF_EXCHANGE   = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
 NEGRISK_EXCHANGE = "0xC5d563A36AE78145C45a50134d48A1215220f80a"
 CONDITIONAL_TOKENS = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045"
@@ -59,7 +59,7 @@ def _load_env() -> dict:
 
 env = _load_env()
 PK = env.get("PM_WALLET_PRIVATE_KEY", "")
-FUNDER = env.get("PM_WALLET_ADDRESS", "0xD4a39D33b8CcB46a08378e426BaEE3591463f090")
+FUNDER = env.get("PM_WALLET_ADDRESS", "[REDACTED_EOA]")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -117,7 +117,7 @@ def check_wallet() -> dict:
     result["usdc_total"] = round(result["usdc_total"], 2)
 
     # Allowances — USDC (native 0x...3359) to CTF Exchange and NegRisk Exchange
-    # Polymarket uses native USDC (0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359) as collateral
+    # Polymarket uses native USDC ([REDACTED_USDC]) as collateral
     try:
         result["allowance_exchange"] = round(_erc20_allowance(USDC_NATIVE_ADDR, FUNDER, CTF_EXCHANGE), 2)
     except Exception as e:

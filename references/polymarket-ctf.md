@@ -30,7 +30,7 @@ $100 USDC.e → 100 Yes tokens + 100 No tokens
 
 | Parameter | Type | Value |
 |-----------|------|-------|
-| `collateralToken` | IERC20 | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` (USDC.e) |
+| `collateralToken` | IERC20 | `[REDACTED_USDCe]` (USDC.e) |
 | `parentCollectionId` | bytes32 | `0x0000...0000` (32 zero bytes) |
 | `conditionId` | bytes32 | Market's condition ID |
 | `partition` | uint[] | `[1, 2]` for binary (Yes=1, No=2) |
@@ -91,7 +91,7 @@ Redemption burns your **entire** token balance for the condition — no amount p
 | Contract | Address | Purpose |
 |----------|---------|---------|
 | CTF | `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045` | Token storage and operations |
-| USDC.e (Bridged USDC) | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | Collateral token |
+| USDC.e (Bridged USDC) | `[REDACTED_USDCe]` | Collateral token |
 | CTF Exchange | `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` | Standard market trading |
 | Neg Risk CTF Exchange | `0xC5d563A36AE78145C45a50134d48A1215220f80a` | Neg risk market trading |
 | Neg Risk Adapter | `0xd91E80cF2E7be2e162c6513ceD06f1dD0dA35296` | Neg risk conversions |

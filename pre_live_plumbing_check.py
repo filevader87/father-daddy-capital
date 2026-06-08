@@ -401,8 +401,8 @@ Preloads next round before expiry.
 ## Contract Addresses (Polygon)
 | Contract | Address |
 |----------|---------|
-| USDC.e (collateral) | 0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174 |
-| USDC (native) | 0x3c499c542cEF5E3811e1192ce70d8cC03d5c3369 |
+| USDC.e (collateral) | [REDACTED_USDCe] |
+| USDC (native) | [REDACTED_USDC] |
 | CTF Exchange | 0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E |
 | NegRisk CTF Exchange | 0xC5d563A36AE78145C45a50134d48A1215220f80a |
 | Our wallet | {w['address']} |

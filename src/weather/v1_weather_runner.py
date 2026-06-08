@@ -52,9 +52,9 @@ CONSOLE_LOG = OUTPUT_DIR / "v1_weather_console.log"
 
 # ─── CLOB / Wallet config (shared with crypto bot) ───
 ENV_FILE = Path("/mnt/c/Users/12035/father_daddy_capital/.env")
-DERIVED_DW = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
-EOA = "0xD4a39D33b8CcB46a08378e426BaEE3591463f090"
-USDC_CONTRACT = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
+DERIVED_DW = "[REDACTED_DW]"
+EOA = "[REDACTED_EOA]"
+USDC_CONTRACT = "[REDACTED_USDC]"
 POLYGON_RPC = "https://polygon-bor-rpc.publicnode.com"
 
 # ─── City config ───

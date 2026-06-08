@@ -167,7 +167,7 @@ const result = await response.wait();
 ```typescript
 import { encodeFunctionData, maxUint256 } from "viem";
 
-const USDC = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174";
+const USDC = "[REDACTED_USDCe]";
 const CTF = "0x4D97DCd97eC945f40cF65F87097ACe5EA0476045";
 
 const approveTx = {
@@ -222,7 +222,7 @@ await response.wait();
 
 | Contract | Address | Approval Needed |
 |----------|---------|-----------------|
-| USDC.e (Bridged USDC) | `0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174` | — |
+| USDC.e (Bridged USDC) | `[REDACTED_USDCe]` | — |
 | CTF | `0x4D97DCd97eC945f40cF65F87097ACe5EA0476045` | USDC.e |
 | CTF Exchange | `0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E` | USDC.e, Tokens |
 | Neg Risk CTF Exchange | `0xC5d563A36AE78145C45a50134d48A1215220f80a` | USDC.e, Tokens |
