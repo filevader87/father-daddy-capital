@@ -30,6 +30,7 @@ Hard revert to PAPER if:
 """
 
 import json, os, time, sys, logging, traceback
+import numpy as np
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field, asdict
@@ -665,6 +666,8 @@ class V2171LiveRunner:
 
         # §6: Near-miss tracking
         self.near_miss_count = 0
+        self.protective_gate_blocks = 0
+        self.protective_gate_log = []
         self.near_miss_log_path = OUTPUT_DIR / "near_miss_log.jsonl"
 
         # §7: Scarcity report output
@@ -1054,6 +1057,37 @@ class V2171LiveRunner:
 
         return primary, secondary
 
+    def _record_protective_gate(self, slug_key: str, contract: dict, down_mid: float,
+                                block_reason: str, spot_vel: dict, regime: str,
+                                expires_in: float):
+        """§V21.7.2: Record protective gate events for accounting.
+        
+        Tracks every blocked eligible event that the state gate vetoes,
+        enabling measurement of protective gate value over time.
+        """
+        self.protective_gate_blocks += 1
+        entry = {
+            "blocked_event_id": f"PG-{slug_key}-{int(time.time())}",
+            "market_slug": contract.get("slug", slug_key) if contract else slug_key,
+            "condition_id": contract.get("conditionId", "") if contract else "",
+            "entry_price": down_mid,
+            "blocked_reason": block_reason,
+            "would_have_entered_side": "DOWN",
+            "v15": spot_vel.get("velocity_15s", 0),
+            "v30": spot_vel.get("velocity_30s", 0),
+            "v60": spot_vel.get("velocity_60s", 0),
+            "perp_v15": spot_vel.get("perp_velocity_15s", 0),
+            "perp_v30": spot_vel.get("perp_velocity_30s", 0),
+            "regime": regime,
+            "expires_in": expires_in,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        self.protective_gate_log.append(entry)
+        # Write to JSONL file
+        gate_path = OUTPUT_DIR / "protective_gate_accounting.jsonl"
+        with open(gate_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
     def _update_bucket_occupancy(self, down_mid: float, state: str, survivability: float):
         """§4: Track how much time BTC DOWN spends in each bucket."""
         for bucket_name, (lo, hi) in BUCKET_RANGES.items():
@@ -1208,6 +1242,7 @@ class V2171LiveRunner:
             "bucket_distribution": bucket_distribution,
             "no_trade_reason_counts": dict(self.notrade_reason_counts),
             "near_miss_count": self.near_miss_count,
+            "protective_gate_blocks": self.protective_gate_blocks,
             "trade_count": self.state.total_trades,
             "primary_bottleneck": primary_bottleneck,
             "status": "LIVE_RUNNING",
@@ -1554,6 +1589,61 @@ class V2171LiveRunner:
                                      expires_in, has_orderbook, has_position, True, "")
             self._check_near_miss(slug_key, contract, down_mid, state, survivability,
                                    expires_in, has_orderbook, has_position)
+            return None
+
+        # ─── §V21.7.2: Gate 2a — Uptrend Regime Filter ───
+        # Block fake short-term DOWN velocity inside a broader BTC uptrend.
+        # Shadow CF showed 95.3% of blocked DOWN entries resolved UP during
+        # an uptrend. This gate prevents entering contra-trend during trending_up.
+        regime = "unknown"
+        if len(SPOT_PRICE_BUFFER) >= 20:
+            recent_prices = [e["price"] for e in SPOT_PRICE_BUFFER[-20:]]
+            recent_std = np.std(recent_prices)
+            recent_mean = abs(np.mean(recent_prices))
+            trend = (recent_prices[-1] - recent_prices[0]) / max(abs(recent_prices[0]), 1e-9)
+            if trend > 0.02:
+                regime = "trending_up"
+            elif trend < -0.02:
+                regime = "trending_down"
+            elif recent_std / max(recent_mean, 1e-9) > 0.05:
+                regime = "volatile"
+            else:
+                regime = "ranging"
+
+        if regime == "trending_up":
+            log.info(f"UPTREND_REGIME_FILTER blocks {slug_key}: regime={regime} v15={spot_vel.get('velocity_15s',0):.6f} v60={spot_vel.get('velocity_60s',0):.6f}")
+            self._classify_no_trade(slug_key, contract, down_mid, state, survivability,
+                                     expires_in, has_orderbook, has_position, True, "")
+            self._record_protective_gate(slug_key, contract, down_mid, "uptrend_regime_filter",
+                                          spot_vel, regime, expires_in)
+            return None
+
+        # ─── §V21.7.2: Gate 2b — Fake Short-Term Dip Veto ───
+        # v15 < 0 (brief dip) AND |v60| < 0.05 (no sustained move) = fake DOWN.
+        # 70.7% of shadow losses had |v60| < 0.05. This pattern is noise inside
+        # an uptrend, not genuine continuation.
+        v15 = spot_vel.get("velocity_15s", 0)
+        v30 = spot_vel.get("velocity_30s", 0)
+        v60 = spot_vel.get("velocity_60s", 0)
+
+        if v15 < 0 and abs(v60) < 0.05:
+            log.info(f"FAKE_DIP veto blocks {slug_key}: v15={v15:.6f} v60={v60:.6f} — no sustained downtrend")
+            self._classify_no_trade(slug_key, contract, down_mid, state, survivability,
+                                     expires_in, has_orderbook, has_position, True, "")
+            self._record_protective_gate(slug_key, contract, down_mid, "fake_short_term_dip_no_sustained_downtrend",
+                                          spot_vel, regime, expires_in)
+            return None
+
+        # ─── §V21.7.2: Gate 2c — Insufficient Sustained Down-Velocity ───
+        # PMXT DOWN_MOMENTUM required |v60| > 0.3. Live shadow had |v60| mean = 0.03.
+        # Zero shadow events had |v60| > 0.3. Require minimum |v60| > threshold.
+        MIN_SUSTAINED_VELOCITY = 0.03  # conservative floor — PMXT used 0.3 but live v60 is raw % change
+        if abs(v60) <= MIN_SUSTAINED_VELOCITY:
+            log.info(f"INSUFFICIENT_VELOCITY blocks {slug_key}: |v60|={abs(v60):.6f} <= {MIN_SUSTAINED_VELOCITY}")
+            self._classify_no_trade(slug_key, contract, down_mid, state, survivability,
+                                     expires_in, has_orderbook, has_position, True, "")
+            self._record_protective_gate(slug_key, contract, down_mid, "insufficient_sustained_down_velocity",
+                                          spot_vel, regime, expires_in)
             return None
 
         # Gate 3: Survivability
