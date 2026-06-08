@@ -1064,13 +1064,41 @@ class V2171LiveRunner:
         
         Tracks every blocked eligible event that the state gate vetoes,
         enabling measurement of protective gate value over time.
+        Settlement tracking: after market expires, resolve blocked events
+        to compute protective gate value (§7).
         """
         self.protective_gate_blocks += 1
+        
+        # Extract interval from slug (e.g., btc-updown-5m-xxx → 5m)
+        interval = "unknown"
+        slug = contract.get("slug", slug_key) if contract else slug_key
+        if "-5m-" in slug:
+            interval = "5m"
+        elif "-15m-" in slug:
+            interval = "15m"
+        
+        # Extract down ask from orderbook if available
+        down_ask = 0.0
+        
+        # Bucket classification
+        if 0.05 <= down_mid < 0.08:
+            entry_bucket = "PREFERRED"
+        elif 0.03 <= down_mid < 0.12:
+            entry_bucket = "PRIMARY"
+        else:
+            entry_bucket = "OUTSIDE"
+        
+        cid = contract.get("conditionId", "") if contract else ""
+        expiry_ts = time.time() + expires_in if expires_in > 0 else 0
+        
         entry = {
             "blocked_event_id": f"PG-{slug_key}-{int(time.time())}",
-            "market_slug": contract.get("slug", slug_key) if contract else slug_key,
-            "condition_id": contract.get("conditionId", "") if contract else "",
+            "market_slug": slug,
+            "interval": interval,
+            "condition_id": cid,
+            "down_ask": down_ask,
             "entry_price": down_mid,
+            "entry_bucket": entry_bucket,
             "blocked_reason": block_reason,
             "would_have_entered_side": "DOWN",
             "v15": spot_vel.get("velocity_15s", 0),
@@ -1078,8 +1106,12 @@ class V2171LiveRunner:
             "v60": spot_vel.get("velocity_60s", 0),
             "perp_v15": spot_vel.get("perp_velocity_15s", 0),
             "perp_v30": spot_vel.get("perp_velocity_30s", 0),
-            "regime": regime,
-            "expires_in": expires_in,
+            "higher_timeframe_regime": regime,
+            "time_to_expiry": expires_in,
+            "expiry_timestamp": expiry_ts,
+            "resolved": False,
+            "would_have_won": None,
+            "hypothetical_pnl": None,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         self.protective_gate_log.append(entry)
@@ -1088,6 +1120,133 @@ class V2171LiveRunner:
         with open(gate_path, "a") as f:
             f.write(json.dumps(entry) + "\n")
 
+    def _resolve_protective_gate_events(self):
+        """§7: Resolve expired blocked events via CLOB market API.
+        
+        For each unresolved protective gate event whose market has expired,
+        query the market outcome (binary settlement) and compute
+        whether the bot would have won or lost.
+        """
+        now = time.time()
+        resolved_count = 0
+        for entry in self.protective_gate_log:
+            if entry.get("resolved", False):
+                continue
+            expiry_ts = entry.get("expiry_timestamp", 0)
+            if expiry_ts <= 0 or now < expiry_ts:
+                continue  # not yet expired
+            
+            slug = entry.get("market_slug", "")
+            cid = entry.get("condition_id", "")
+            entry_price = entry.get("entry_price", 0)
+            
+            # Query CLOB/Gamma API for market outcome
+            winner = None
+            try:
+                url = f"{GAMMA_URL}/markets?limit=1&slug={slug}"
+                req = urllib.request.Request(url, headers={"User-Agent": "FDC-V21.7.2"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read())
+                if data and len(data) > 0:
+                    market = data[0]
+                    outcome = market.get("outcome", "")
+                    outcomePrices = market.get("outcomePrices", "")
+                    if outcome == "down" or (outcomePrices and isinstance(outcomePrices, str)):
+                        prices = outcomePrices.split(",") if isinstance(outcomePrices, str) else []
+                        if len(prices) >= 2:
+                            # DOWN is index 1 (0=UP, 1=DOWN typically)
+                            down_final = float(prices[1]) if prices[1] else 0.0
+                            winner = "DOWN" if down_final > 0.5 else "UP"
+                    if not winner:
+                        # Fallback: check if market is closed
+                        closed = market.get("closed", False)
+                        active = market.get("active", True)
+                        if closed or not active:
+                            # Check resolution from outcome field
+                            if outcome.lower() == "down":
+                                winner = "DOWN"
+                            elif outcome.lower() == "up":
+                                winner = "UP"
+            except Exception as e:
+                log.warning(f"Protective gate resolution failed for {slug}: {e}")
+                continue
+            
+            if winner is None:
+                # Market might not be resolved yet, try condition_id fallback
+                continue
+            
+            # Binary settlement
+            would_have_won = winner == "DOWN"
+            if would_have_won:
+                hypothetical_pnl = (1.0 - entry_price) * 1.0  # $1 position, win payout
+            else:
+                hypothetical_pnl = -entry_price * 1.0  # $1 position, lose
+            
+            entry["resolved"] = True
+            entry["resolved_winner"] = winner
+            entry["would_have_won"] = would_have_won
+            entry["hypothetical_pnl"] = round(hypothetical_pnl, 4)
+            entry["resolved_at"] = datetime.now(timezone.utc).isoformat()
+            resolved_count += 1
+        
+        if resolved_count > 0:
+            log.info(f"✓ Protective gate: resolved {resolved_count} blocked events")
+            # Rewrite the JSONL with updated entries
+            gate_path = OUTPUT_DIR / "protective_gate_accounting.jsonl"
+            with open(gate_path, "w") as f:
+                for entry in self.protective_gate_log:
+                    f.write(json.dumps(entry) + "\n")
+    
+    def _generate_protective_gate_summary(self):
+        """§8: Rolling protective gate summary every 30 min."""
+        resolved = [e for e in self.protective_gate_log if e.get("resolved", False)]
+        unresolved = [e for e in self.protective_gate_log if not e.get("resolved", False)]
+        
+        protected_losses = sum(1 for e in resolved if not e.get("would_have_won", True))
+        missed_wins = sum(1 for e in resolved if e.get("would_have_won", False))
+        
+        # PnL avoided: sum of hypothetical losses avoided (positive = good)
+        loss_avoided = sum(-e["hypothetical_pnl"] for e in resolved 
+                         if not e.get("would_have_won", True) and e.get("hypothetical_pnl") is not None)
+        win_missed = sum(e["hypothetical_pnl"] for e in resolved 
+                        if e.get("would_have_won", False) and e.get("hypothetical_pnl") is not None)
+        net_avoided_pnl = loss_avoided - win_missed
+        
+        # Block reason counts
+        reason_counts = {}
+        for e in self.protective_gate_log:
+            reason = e.get("blocked_reason", "unknown")
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+        
+        top_reason = max(reason_counts, key=reason_counts.get) if reason_counts else "none"
+        
+        runtime_s = (time.time() - self.start_time.timestamp()) if hasattr(self, 'start_time') else 0
+        
+        summary = {
+            "runtime_minutes": round(runtime_s / 60, 1),
+            "eligible_bucket_flashes": self.eligible_flashes_seen,
+            "protective_gate_blocks": self.protective_gate_blocks,
+            "protected_losses": protected_losses,
+            "missed_wins": missed_wins,
+            "pending_blocked_events": len(unresolved),
+            "net_avoided_pnl": round(net_avoided_pnl, 4),
+            "top_block_reason": top_reason,
+            "uptrend_regime_filter_count": reason_counts.get("uptrend_regime_filter", 0),
+            "fake_short_term_dip_count": reason_counts.get("fake_short_term_dip_no_sustained_downtrend", 0),
+            "insufficient_sustained_velocity_count": reason_counts.get("insufficient_sustained_down_velocity", 0),
+            "low_survivability_count": reason_counts.get("low_survivability", 0),
+            "spread_block_count": reason_counts.get("spread_too_wide", 0),
+            "classification": "STATE_GATE_PROTECTIVE_SHADOW_REJECTED",
+        }
+        
+        summary_path = OUTPUT_DIR / "protective_gate_summary.json"
+        with open(summary_path, "w") as f:
+            json.dump(summary, f, indent=2, default=str)
+        
+        log.info(f"🛡️ Protective Gate Summary: {self.protective_gate_blocks} blocked | "
+                 f"{protected_losses}L/{missed_wins}W resolved | "
+                 f"net_avoided=${net_avoided_pnl:.2f} | top={top_reason}")
+    
     def _update_bucket_occupancy(self, down_mid: float, state: str, survivability: float):
         """§4: Track how much time BTC DOWN spends in each bucket."""
         for bucket_name, (lo, hi) in BUCKET_RANGES.items():
@@ -1837,6 +1996,8 @@ class V2171LiveRunner:
             # §7: Scarcity report every 30 minutes
             if now - self.last_scarcity_report >= SCARCITY_REPORT_INTERVAL:
                 self._generate_scarcity_report()
+                self._resolve_protective_gate_events()
+                self._generate_protective_gate_summary()
                 self.last_scarcity_report = now
 
             # §10: Rolling reports every 30 minutes
