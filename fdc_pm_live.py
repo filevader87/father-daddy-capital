@@ -8,11 +8,14 @@ Author: Hugh (3rd of 5)
 Date: 2026-06-04
 """
 
-import json, os, time, urllib.request, hashlib, logging, re, math
+import json, os, sys, time, urllib.request, hashlib, logging, re, math
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+# §MCP: Add v217_live to path for MCP bridge
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src" / "v217_live"))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Configuration
@@ -74,7 +77,29 @@ def _rpc_call(method: str, params: list) -> dict:
         return json.loads(r.read())
 
 def _erc20_balance(token_addr: str, wallet: str) -> float:
-    """Read ERC20 balanceOf via eth_call."""
+    """Read ERC20 balanceOf via eth_call. MCP onchain first, raw RPC fallback."""
+    # §MCP: Try Bankless onchain MCP for richer data
+    try:
+        from mcp_client_bridge import _mcp_crypto, _init_mcp_bridge
+        if _mcp_crypto is None:
+            _init_mcp_bridge()
+        if _mcp_crypto is not None:
+            import asyncio
+            loop = asyncio.new_event_loop()
+            result = loop.run_until_complete(
+                _mcp_crypto.call("onchain", "get_token_balances_on_network",
+                                 {"address": wallet, "network": "polygon"})
+            )
+            loop.close()
+            if isinstance(result, dict):
+                # Try to extract USDC balance from result
+                for token in result.get("tokens", result.get("balances", [])):
+                    if isinstance(token, dict) and token.get("address", "").lower() == token_addr.lower():
+                        return float(token.get("balance", 0)) / 1e6
+    except Exception:
+        pass  # Fall through to raw RPC
+    
+    # Fallback: raw RPC eth_call
     data = "0x70a08231" + wallet[2:].lower().zfill(64)
     resp = _rpc_call("eth_call", [{"to": token_addr, "data": data}, "latest"])
     raw = resp.get("result", "0x0")

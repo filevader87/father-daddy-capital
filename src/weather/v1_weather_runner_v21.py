@@ -44,6 +44,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+# §MCP: Add v217_live to path for MCP bridge
+sys.path.insert(0, str(PROJECT_ROOT / "src" / "v217_live"))
 try:
     from v1_weather_runner_v2 import (
         CITY_REGISTRY, CITY_ALIASES, RISK_PROFILES,
