@@ -392,14 +392,99 @@ class ShadowCounterfactualTracker:
 
         self._save_state()
 
-    def run_tracker(self, duration_hours: float = 5.0):
+    def _replay_pending_settlements(self):
+        """Replay settlement for any previously-unresolved shadow events.
+        
+        Imports and runs shadow_cf_replay_settlements.py to resolve expired
+        markets that the tracker logged but never settled.
+        Updates self.total_resolved, self.total_wins, self.total_losses, self.total_pnl.
+        """
+        import sys
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        
+        replay_path = Path(__file__).resolve().parent / "shadow_cf_replay_settlements.py"
+        if not replay_path.exists():
+            log.warning(f"Replay script not found: {replay_path}")
+            return
+        
+        # Check if there are unresolved events
+        events = []
+        if SHADOW_EVENTS_LOG.exists():
+            with open(SHADOW_EVENTS_LOG) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            e = json.loads(line)
+                            events.append(e)
+                        except json.JSONDecodeError:
+                            pass
+        
+        unresolved = [e for e in events if not e.get("resolved", False)]
+        if not unresolved:
+            log.info(f"All {len(events)} shadow events already resolved")
+            return
+        
+        log.info(f"Replaying settlement for {len(unresolved)} unresolved events")
+        
+        # Run replay script
+        try:
+            import subprocess
+            result = subprocess.run(
+                [sys.executable, str(replay_path)],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode != 0:
+                log.error(f"Replay script failed: {result.stderr[:500]}")
+                return
+            
+            # Load settlement results
+            settlements = []
+            if SHADOW_SETTLEMENTS_LOG.exists():
+                with open(SHADOW_SETTLEMENTS_LOG) as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                settlements.append(json.loads(line))
+                            except json.JSONDecodeError:
+                                pass
+            
+            # Update totals from settlements
+            self.total_resolved = len(settlements)
+            self.total_wins = sum(1 for s in settlements if s.get("win_loss") == "WIN")
+            self.total_losses = sum(1 for s in settlements if s.get("win_loss") == "LOSS")
+            self.total_pnl = sum(s.get("slippage_adjusted_pnl", 0) for s in settlements)
+            
+            # Mark events as resolved
+            for e in events:
+                e["resolved"] = True
+            
+            log.info(f"Replay complete: {self.total_resolved} resolved, "
+                     f"{self.total_wins}W/{self.total_losses}L, "
+                     f"PnL=${self.total_pnl:.2f}")
+            
+        except Exception as exc:
+            log.error(f"Replay failed: {exc}")
+            traceback.print_exc()
+
+    def run_tracker(self, duration_hours: float = 24.0):
         """
         Main loop: scan markets, detect shadow-only events, log, settle.
         PASSIVE — never trades.
+        
+        Stop conditions (directive §14):
+          - resolved_shadow_events >= 25  →  evaluate immediately
+          - runtime >= duration_hours     →  stop and classify sample
+          - default duration now 24h (was 5h)
         """
         self._init_modules()
         log.info(f"Shadow CF Tracker starting | duration={duration_hours}h | "
-                 f"existing_events={self.total_shadow_events}")
+                 f"existing_events={self.total_shadow_events} | "
+                 f"existing_resolved={self.total_resolved}")
+
+        # Replay settlement for any previously-unresolved events
+        self._replay_pending_settlements()
 
         start_time = datetime.now(timezone.utc)
         end_time = start_time + timedelta(hours=duration_hours)
@@ -600,6 +685,11 @@ class ShadowCounterfactualTracker:
 
                 time.sleep(self.scan_interval)
 
+                # §14: early exit when >=25 resolved
+                if self.total_resolved >= 25:
+                    log.info(f"§14: {self.total_resolved} resolved events — stopping for evaluation")
+                    break
+
         except KeyboardInterrupt:
             log.info("Shadow CF Tracker interrupted — saving state")
 
@@ -608,12 +698,14 @@ class ShadowCounterfactualTracker:
             return self.evaluate_shadow_events()
         log.info(f"Shadow CF Tracker done: {self.total_shadow_events} events, "
                  f"{self.total_resolved} resolved, ${self.total_pnl:.2f} PnL")
+        log.info(f"§14 classification: INSUFFICIENT_SHADOW_RESOLUTION_SAMPLE "
+                 f"({self.total_resolved}/25 resolved, {duration_hours}h elapsed)")
         return {}
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="SPOT_MOMENTUM_SHADOW_COUNTERFACTUAL Tracker")
-    parser.add_argument("--duration", type=float, default=5.0, help="Duration in hours (default: 5)")
+    parser.add_argument("--duration", type=float, default=24.0, help="Duration in hours (default: 24)")
     parser.add_argument("--scan-interval", type=float, default=5.0, help="Scan interval in seconds (default: 5)")
     parser.add_argument("--evaluate", action="store_true", help="Run evaluation only (no tracking)")
     args = parser.parse_args()
