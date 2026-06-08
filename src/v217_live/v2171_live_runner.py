@@ -274,41 +274,59 @@ TOKEN_BUFFER_MAX = 60  # Keep last 60 token ask readings (~5 min)
 
 # ── §MCP: Multi-exchange spot feed via MCP CCXT ──
 _mcp_crypto = None  # Lazy-initialized CryptoMCP instance
+_mcp_booted = False
 
 
 def _init_mcp_bridge():
-    """Initialize MCP bridge in background thread. Called once on first use."""
-    global _mcp_crypto
-    if _mcp_crypto is not None:
+    """Initialize MCP bridge in a daemon thread. Non-blocking after first call."""
+    global _mcp_crypto, _mcp_booted
+    if _mcp_booted:
         return _mcp_crypto
+    _mcp_booted = True  # Mark as attempted even on failure
     try:
         import asyncio
         from mcp_client_bridge import CryptoMCP
         _mcp_crypto = CryptoMCP()
-        # Boot in a new event loop (background thread safe)
+        # Boot in a dedicated event loop — avoids conflicts with runner's main thread
         loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
         loop.run_until_complete(_mcp_crypto.boot())
+        # Don't close the loop — MCP needs it for future calls
         log.info("§MCP: CryptoMCP bridge booted")
-        return _mcp_crypto
     except Exception as e:
         log.warning(f"§MCP: Bridge init failed, falling back to urllib: {e}")
-        _mcp_crypto = None  # type: ignore[assignment]
+        _mcp_crypto = None
+    return _mcp_crypto
+
+
+def _mcp_call_sync(coro):
+    """Run an async MCP call synchronously using the bridge's event loop."""
+    import asyncio
+    if _mcp_crypto is None or not _mcp_booted:
+        return None
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    except RuntimeError:
+        # No current loop — create one
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coro)
+    except Exception as e:
+        log.debug(f"§MCP sync call failed: {e}")
         return None
 
 
 def fetch_btc_spot() -> Optional[float]:
     """Fetch current BTC/USDT price. MCP CCXT first, Binance urllib fallback."""
-    # Try MCP CCXT (multi-exchange, normalized)
     if _mcp_crypto is None:
         _init_mcp_bridge()
     if _mcp_crypto is not None:
         try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            result = loop.run_until_complete(
-                _mcp_crypto.spot_price("BTC/USDT", "binance")
-            )
-            loop.close()
+            result = _mcp_call_sync(_mcp_crypto.spot_price("BTC/USDT", "binance"))
             if isinstance(result, dict) and "last" in result:
                 return float(result["last"])
             elif isinstance(result, (int, float)):
@@ -342,20 +360,13 @@ def fetch_btc_perp_price() -> Optional[float]:
 
 
 def fetch_multi_exchange_spot(symbol: str = "BTC/USDT") -> Optional[Dict[str, float]]:
-    """§MCP: Fetch spot price from multiple exchanges via CCXT MCP.
-    Returns {exchange: price} dict for oracle/market lag computation.
-    """
+    """§MCP: Fetch spot price from multiple exchanges via CCXT MCP."""
     if _mcp_crypto is None:
         _init_mcp_bridge()
     if _mcp_crypto is None:
         return None
     try:
-        import asyncio
-        loop = asyncio.new_event_loop()
-        results = loop.run_until_complete(
-            _mcp_crypto.spot_prices_multi([symbol], "binance")
-        )
-        loop.close()
+        results = _mcp_call_sync(_mcp_crypto.spot_prices_multi([symbol], "binance"))
         if results and symbol in results:
             data = results[symbol]
             if isinstance(data, dict) and "last" in data:
@@ -367,16 +378,13 @@ def fetch_multi_exchange_spot(symbol: str = "BTC/USDT") -> Optional[Dict[str, fl
 
 
 def fetch_pm_markets_mcp(slug: str) -> Optional[dict]:
-    """§MCP: Fetch Polymarket market data via MCP server (richer than Gamma API)."""
+    """§MCP: Fetch Polymarket market data via MCP server."""
     if _mcp_crypto is None:
         _init_mcp_bridge()
     if _mcp_crypto is None:
         return None
     try:
-        import asyncio
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(_mcp_crypto.pm_markets(slug))
-        loop.close()
+        result = _mcp_call_sync(_mcp_crypto.pm_markets(slug))
         return result if isinstance(result, dict) else None
     except Exception as e:
         log.debug(f"§MCP PM markets failed: {e}")
@@ -390,13 +398,10 @@ def fetch_onchain_balance(address: str, chain: str = "polygon") -> Optional[dict
     if _mcp_crypto is None:
         return None
     try:
-        import asyncio
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(
+        result = _mcp_call_sync(
             _mcp_crypto.call("onchain", "get_token_balances_on_network",
                              {"address": address, "network": chain})
         )
-        loop.close()
         return result if isinstance(result, dict) else None
     except Exception as e:
         log.debug(f"§MCP onchain balance failed: {e}")
