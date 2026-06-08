@@ -668,6 +668,13 @@ class V2171LiveRunner:
         self.near_miss_count = 0
         self.protective_gate_blocks = 0
         self.protective_gate_log = []
+        # §V21.7.3: Adjacent bucket shadow diagnostics
+        self.adjacent_bucket_shadow_count = 0
+        self.adjacent_bucket_resolved = 0
+        self.adjacent_bucket_ev = {}
+        self.bucket_flash_log = []  # track near-primary bucket flash durations
+        self.current_bucket_flash = {}  # active flash tracking per slug
+        self.bucket_flash_missed_latency = 0
         self.near_miss_log_path = OUTPUT_DIR / "near_miss_log.jsonl"
 
         # §7: Scarcity report output
@@ -1247,6 +1254,359 @@ class V2171LiveRunner:
                  f"{protected_losses}L/{missed_wins}W resolved | "
                  f"net_avoided=${net_avoided_pnl:.2f} | top={top_reason}")
     
+    ADJACENT_BUCKET_RANGES = {
+        "SUB_FLOOR":       (0.00,  0.03),
+        "PRIMARY_LOW":     (0.03,  0.05),
+        "PRIMARY_PREFERRED": (0.05, 0.08),
+        "PRIMARY_HIGH":    (0.08,  0.12),
+        "ADJACENT_HIGH":   (0.12,  0.20),
+        "MIDRANGE_BLOCKED": (0.20, 0.40),
+        "CONVEXITY_GONE":  (0.40,  1.01),
+    }
+
+    def _classify_bucket_v2173(self, down_mid: float) -> str:
+        """§4: Classify into V21.7.3 adjacent bucket labels."""
+        for label, (lo, hi) in self.ADJACENT_BUCKET_RANGES.items():
+            if lo <= down_mid < hi:
+                return label
+        return "UNKNOWN"
+
+    def _log_adjacent_bucket_shadow(self, slug_key, contract, down_mid, down_ob,
+                                     spot_vel, state, survivability, expires_in,
+                                     has_position, phase_timings):
+        """§4: Log shadow observations across ALL bucket ranges.
+        
+        Samples 1-in-10 to limit log volume. Logs full details for
+        near-primary (0-20¢) buckets; minimal for others.
+        """
+        bucket_label = self._classify_bucket_v2173(down_mid)
+        
+        # Only log near-primary buckets every scan, sample others 1/10
+        if down_mid >= 0.20 and self.adjacent_bucket_shadow_count % 10 != 0:
+            return
+        
+        self.adjacent_bucket_shadow_count += 1
+        
+        # Determine live decision for this observation
+        if 0.03 <= down_mid < 0.12:
+            current_live_decision = "ELIGIBLE"
+        else:
+            current_live_decision = "BLOCKED_BUCKET"
+        
+        # Would shadow trade this? (relaxed criteria)
+        would_trade_shadow = False
+        blocked_reason = ""
+        v15 = spot_vel.get("velocity_15s", 0)
+        v60 = spot_vel.get("velocity_60s", 0)
+        
+        if down_mid < 0.005:
+            blocked_reason = "dust"
+        elif down_mid >= 0.60:
+            blocked_reason = "convexity_gone"
+        elif not (down_mid < 0.20):  # above adjacent high
+            blocked_reason = "outside_adjacent_range"
+        else:
+            # Shadow would consider: any price 0-20¢ with negative velocity
+            if v15 < 0 or v60 < 0:
+                would_trade_shadow = True
+            else:
+                blocked_reason = "no_negative_velocity"
+        
+        # Regime from spot buffer
+        regime = "unknown"
+        if len(SPOT_PRICE_BUFFER) >= 20:
+            recent = [e["price"] for e in SPOT_PRICE_BUFFER[-20:]]
+            trend = (recent[-1] - recent[0]) / max(abs(recent[0]), 1e-9)
+            if trend > 0.02:
+                regime = "trending_up"
+            elif trend < -0.02:
+                regime = "trending_down"
+            else:
+                regime = "ranging"
+        
+        entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "market_slug": contract.get("slug", slug_key) if contract else slug_key,
+            "interval": "5m" if "-5m-" in slug_key else "15m",
+            "condition_id": contract.get("conditionId", "") if contract else "",
+            "down_bid": down_ob.get("best_bid", 0) if down_ob else 0,
+            "down_ask": down_ob.get("best_ask", 0) if down_ob else 0,
+            "bucket": bucket_label,
+            "time_to_expiry": expires_in,
+            "btc_spot": spot_vel.get("spot_now", 0),
+            "v15": v15,
+            "v30": spot_vel.get("velocity_30s", 0),
+            "v60": v60,
+            "higher_timeframe_regime": regime,
+            "current_live_decision": current_live_decision,
+            "blocked_reason": blocked_reason,
+            "would_trade_shadow": would_trade_shadow,
+            "shadow_bucket_label": bucket_label,
+            "expiry_timestamp": time.time() + expires_in if expires_in > 0 else 0,
+        }
+        
+        shadow_log_path = OUTPUT_DIR / "adjacent_bucket_shadow_log.jsonl"
+        with open(shadow_log_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
+    def _track_bucket_flash_latency(self, slug_key, contract, down_mid, down_ob,
+                                     spot_vel, state, survivability, expires_in,
+                                     phase_timings):
+        """§7: Track how long DOWN price stays near/in PRIMARY bucket.
+        
+        Detects when price crosses into 0-20¢ zone, measures duration,
+        and flags if the bot is too slow to catch the flash.
+        """
+        now_ts = time.time()
+        near_primary = down_mid < 0.20  # 0-20¢ zone
+        
+        slug = slug_key
+        
+        if near_primary:
+            if slug not in self.current_bucket_flash:
+                # Entering near-primary zone
+                self.current_bucket_flash[slug] = {
+                    "first_seen_timestamp": now_ts,
+                    "bucket_cross_timestamp": now_ts,
+                    "last_seen_timestamp": now_ts,
+                    "entry_price_at_cross": down_mid,
+                    "bucket_label": self._classify_bucket_v2173(down_mid),
+                }
+            else:
+                # Still in near-primary zone — update last_seen
+                self.current_bucket_flash[slug]["last_seen_timestamp"] = now_ts
+                self.current_bucket_flash[slug]["current_price"] = down_mid
+                self.current_bucket_flash[slug]["current_bucket"] = self._classify_bucket_v2173(down_mid)
+        else:
+            # Left near-primary zone
+            if slug in self.current_bucket_flash:
+                flash = self.current_bucket_flash.pop(slug)
+                duration_ms = (now_ts - flash["first_seen_timestamp"]) * 1000
+                
+                # Was this a valid live state that was missed?
+                missed = False
+                if flash["entry_price_at_cross"] >= 0.03 and flash["entry_price_at_cross"] < 0.12:
+                    # PRIMARY bucket flash — would live trade if state passed
+                    book_lat = phase_timings.get("book_fetch_latency_ms", 0)
+                    spot_lat = phase_timings.get("spot_fetch_latency_ms", 0)
+                    scan_lat = phase_timings.get("scan_latency_ms", 0)
+                    if duration_ms < self.scan_interval * 1000:
+                        missed = True
+                        self.bucket_flash_missed_latency += 1
+                
+                flash_entry = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "market_slug": contract.get("slug", slug_key) if contract else slug_key,
+                    "bucket_cross_timestamp": flash["bucket_cross_timestamp"],
+                    "first_seen_timestamp": flash["first_seen_timestamp"],
+                    "last_seen_timestamp": flash["last_seen_timestamp"],
+                    "duration_in_bucket_ms": round(duration_ms, 1),
+                    "entry_price_at_cross": flash["entry_price_at_cross"],
+                    "bucket_label": flash["bucket_label"],
+                    "scan_interval_ms": self.scan_interval * 1000,
+                    "book_fetch_latency_ms": phase_timings.get("book_fetch_latency_ms", 0),
+                    "spot_fetch_latency_ms": phase_timings.get("spot_fetch_latency_ms", 0),
+                    "decision_latency_ms": phase_timings.get("scan_latency_ms", 0),
+                    "quote_age_ms": phase_timings.get("quote_age_ms", 0),
+                    "would_live_trade_if_state_passed": flash["entry_price_at_cross"] >= 0.03 and flash["entry_price_at_cross"] < 0.12,
+                    "missed_due_to_latency": missed,
+                }
+                self.bucket_flash_log.append(flash_entry)
+                
+                # Write to file
+                flash_path = OUTPUT_DIR / "bucket_flash_latency_log.jsonl"
+                with open(flash_path, "a") as f:
+                    f.write(json.dumps(flash_entry) + "\n")
+
+    def _resolve_adjacent_bucket_settlements(self):
+        """§5: Resolve expired adjacent bucket shadow events via Gamma API.
+        
+        Binary settlement only. No midpoint. No synthetic close.
+        """
+        now = time.time()
+        shadow_log_path = OUTPUT_DIR / "adjacent_bucket_shadow_log.jsonl"
+        if not shadow_log_path.exists():
+            return
+        
+        # Load existing settlements
+        settlement_path = OUTPUT_DIR / "adjacent_bucket_shadow_settlements.jsonl"
+        settled_ids = set()
+        if settlement_path.exists():
+            for line in open(settlement_path):
+                s = json.loads(line)
+                settled_ids.add(s.get("event_id", ""))
+        
+        # Read shadow log entries that need resolution
+        to_resolve = []
+        all_entries = []
+        for line in open(shadow_log_path):
+            e = json.loads(line)
+            all_entries.append(e)
+            eid = e.get("timestamp", "") + e.get("market_slug", "")
+            if eid in settled_ids:
+                continue
+            exp_ts = e.get("expiry_timestamp", 0)
+            if exp_ts <= 0 or now < exp_ts:
+                continue
+            # Only settle if shadow would have traded
+            if not e.get("would_trade_shadow", False):
+                continue
+            to_resolve.append(e)
+        
+        if not to_resolve:
+            return
+        
+        resolved_count = 0
+        for entry in to_resolve:
+            slug = entry.get("market_slug", "")
+            entry_price = entry.get("down_ask", 0) or entry.get("down_bid", 0)
+            if entry_price <= 0:
+                entry_price = 0.10  # fallback estimate
+            bucket = entry.get("bucket", "UNKNOWN")
+            eid = entry.get("timestamp", "") + slug
+            
+            winner = None
+            try:
+                url = f"{GAMMA_URL}/markets?limit=1&slug={slug}"
+                req = urllib.request.Request(url, headers={"User-Agent": "FDC-V21.7.3"})
+                with urllib.request.urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read())
+                if data and len(data) > 0:
+                    m = data[0]
+                    outcome = m.get("outcome", "").lower()
+                    prices_str = m.get("outcomePrices", "")
+                    if prices_str and isinstance(prices_str, str):
+                        prices = prices_str.split(",")
+                        if len(prices) >= 2:
+                            down_final = float(prices[1]) if prices[1] else 0.0
+                            winner = "DOWN" if down_final > 0.5 else "UP"
+                    if not winner and (m.get("closed", False) or not m.get("active", True)):
+                        if outcome == "down":
+                            winner = "DOWN"
+                        elif outcome == "up":
+                            winner = "UP"
+            except Exception:
+                continue
+            
+            if winner is None:
+                continue
+            
+            win_loss = "WIN" if winner == "DOWN" else "LOSS"
+            gross_pnl = (1.0 - entry_price) * 1.0 if winner == "DOWN" else -entry_price * 1.0
+            slip_adj = gross_pnl * 0.98 if gross_pnl > 0 else gross_pnl  # 2% slippage on wins
+            
+            settlement = {
+                "event_id": eid,
+                "market_slug": slug,
+                "condition_id": entry.get("condition_id", ""),
+                "interval": entry.get("interval", ""),
+                "entry_bucket": bucket,
+                "entry_price": entry_price,
+                "selected_side": "DOWN",
+                "expiry_timestamp": entry.get("expiry_timestamp", 0),
+                "resolved_winner": winner,
+                "win_loss": win_loss,
+                "gross_pnl": round(gross_pnl, 4),
+                "slippage_adjusted_pnl": round(slip_adj, 4),
+                "settlement_source": "gamma_api",
+                "settlement_error": "",
+            }
+            
+            with open(settlement_path, "a") as f:
+                f.write(json.dumps(settlement) + "\n")
+            
+            # Track EV per bucket
+            if bucket not in self.adjacent_bucket_ev:
+                self.adjacent_bucket_ev[bucket] = {"wins": 0, "losses": 0, "pnl": 0.0}
+            if winner == "DOWN":
+                self.adjacent_bucket_ev[bucket]["wins"] += 1
+            else:
+                self.adjacent_bucket_ev[bucket]["losses"] += 1
+            self.adjacent_bucket_ev[bucket]["pnl"] += slip_adj
+            
+            resolved_count += 1
+        
+        if resolved_count > 0:
+            self.adjacent_bucket_resolved += resolved_count
+            log.info(f"✓ Adjacent bucket: resolved {resolved_count} shadow settlements")
+
+    def _generate_v2173_report(self):
+        """§11: Rolling V21.7.3 restrictiveness + speed report."""
+        now = time.time()
+        runtime_s = now - self.start_time.timestamp()
+        
+        # Latency stats
+        book_lats = [r.get("book_fetch_latency_ms", 0) for r in self.latency_records if r.get("book_fetch_latency_ms")]
+        quote_ages = [r.get("quote_age_at_submit_ms", 0) for r in self.latency_records if r.get("quote_age_at_submit_ms")]
+        scan_lats = [r.get("scan_latency_ms", 0) for r in self.latency_records if r.get("scan_latency_ms")]
+        
+        def p95(data):
+            if not data: return 0
+            s = sorted(data)
+            idx = int(len(s) * 0.95)
+            return round(s[min(idx, len(s)-1)], 1)
+        
+        # Bucket flash stats
+        flash_durations = [f.get("duration_in_bucket_ms", 0) for f in self.bucket_flash_log]
+        median_flash = 0
+        if flash_durations:
+            sf = sorted(flash_durations)
+            median_flash = sf[len(sf)//2]
+        
+        # Bucket distribution
+        bucket_dist = {}
+        for bname, bdata in self.bucket_occupancy.items():
+            bucket_dist[bname] = bdata.get("scan_count", 0)
+        
+        # Adjacent bucket EV
+        bucket_ev_summary = {}
+        for bucket, stats in self.adjacent_bucket_ev.items():
+            total = stats["wins"] + stats["losses"]
+            ev = stats["pnl"] / max(total, 1)
+            bucket_ev_summary[bucket] = {
+                "total": total,
+                "wins": stats["wins"],
+                "losses": stats["losses"],
+                "pnl": round(stats["pnl"], 4),
+                "ev_per_trade": round(ev, 4),
+            }
+        
+        report = {
+            "runtime_minutes": round(runtime_s / 60, 1),
+            "scans": sum(bucket_dist.values()),
+            "live_trades": self.state.total_trades,
+            "bankroll": round(self.state.bankroll, 2),
+            "bucket_distribution": bucket_dist,
+            "primary_bucket_seconds": round(self.eligible_bucket_seconds, 0),
+            "adjacent_bucket_seconds": round(
+                sum(bd.get("seconds_observed", 0) for bd in self.bucket_occupancy.values()
+                    if bd.get("seconds_observed", 0) > 0), 0),
+            "bucket_flash_count": len(self.bucket_flash_log),
+            "median_bucket_flash_duration_ms": round(median_flash, 1),
+            "p95_book_fetch_latency_ms": p95(book_lats),
+            "p95_quote_age_ms": p95(quote_ages),
+            "p95_decision_latency_ms": p95(scan_lats),
+            "live_bucket_missed_due_to_latency_count": self.bucket_flash_missed_latency,
+            "adjacent_bucket_shadow_count": self.adjacent_bucket_shadow_count,
+            "adjacent_bucket_resolved_count": self.adjacent_bucket_resolved,
+            "adjacent_bucket_EV": bucket_ev_summary,
+            "protective_gate_net_value": round(
+                sum(-e.get("hypothetical_pnl", 0) for e in self.protective_gate_log
+                    if e.get("resolved") and not e.get("would_have_won", True) 
+                    and e.get("hypothetical_pnl") is not None), 4),
+            "classification": "V21.7.3_RESTRICTIVENESS_SPEED_DIAGNOSTIC_RUNNING",
+        }
+        
+        report_path = OUTPUT_DIR / "v2173_restrictiveness_speed_report.json"
+        with open(report_path, "w") as f:
+            json.dump(report, f, indent=2, default=str)
+        
+        log.info(f"📊 V21.7.3 Report: {report['runtime_minutes']:.0f}min | "
+                 f"flashes={report['bucket_flash_count']} | "
+                 f"median_flash={report['median_bucket_flash_duration_ms']:.0f}ms | "
+                 f"missed_latency={report['live_bucket_missed_due_to_latency_count']} | "
+                 f"adj_resolved={report['adjacent_bucket_resolved_count']}")
+    
     def _update_bucket_occupancy(self, down_mid: float, state: str, survivability: float):
         """§4: Track how much time BTC DOWN spends in each bucket."""
         for bucket_name, (lo, hi) in BUCKET_RANGES.items():
@@ -1727,6 +2087,18 @@ class V2171LiveRunner:
         # ─── §4: Bucket occupancy tracking (ALWAYS) ───
         self._update_bucket_occupancy(down_mid, state, survivability)
 
+        # ─── §V21.7.3: Adjacent-bucket shadow diagnostics (ALWAYS) ───
+        self._log_adjacent_bucket_shadow(
+            slug_key, contract, down_mid, down_ob, spot_vel,
+            state, survivability, expires_in, has_position, phase_timings
+        )
+
+        # ─── §V21.7.3: Bucket flash latency tracking (near-primary) ───
+        self._track_bucket_flash_latency(
+            slug_key, contract, down_mid, down_ob, spot_vel,
+            state, survivability, expires_in, phase_timings
+        )
+
         # ═══════════════════════════════════════════════════════════════
         # GATE SEQUENCE — each gate has telemetry
         # ═══════════════════════════════════════════════════════════════
@@ -1998,6 +2370,8 @@ class V2171LiveRunner:
                 self._generate_scarcity_report()
                 self._resolve_protective_gate_events()
                 self._generate_protective_gate_summary()
+                self._resolve_adjacent_bucket_settlements()
+                self._generate_v2173_report()
                 self.last_scarcity_report = now
 
             # §10: Rolling reports every 30 minutes
