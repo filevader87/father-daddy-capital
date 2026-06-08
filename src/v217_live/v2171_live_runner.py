@@ -1281,8 +1281,8 @@ class V2171LiveRunner:
         """
         bucket_label = self._classify_bucket_v2173(down_mid)
         
-        # Only log near-primary buckets every scan, sample others 1/10
-        if down_mid >= 0.20 and self.adjacent_bucket_shadow_count % 10 != 0:
+        # Log near-primary (0-20¢) every scan; sample others 1-in-5
+        if down_mid >= 0.20 and self.adjacent_bucket_shadow_count % 5 != 0:
             return
         
         self.adjacent_bucket_shadow_count += 1
@@ -1327,7 +1327,7 @@ class V2171LiveRunner:
         entry = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "market_slug": contract.get("slug", slug_key) if contract else slug_key,
-            "interval": "5m" if "-5m-" in slug_key else "15m",
+            "interval": "5m" if "5m" in slug_key else ("15m" if "15m" in slug_key else "unknown"),
             "condition_id": contract.get("conditionId", "") if contract else "",
             "down_bid": down_ob.get("best_bid", 0) if down_ob else 0,
             "down_ask": down_ob.get("best_ask", 0) if down_ob else 0,
