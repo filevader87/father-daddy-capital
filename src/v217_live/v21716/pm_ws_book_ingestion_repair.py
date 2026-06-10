@@ -86,6 +86,7 @@ class SourceTrackedQuote:
         self.slug = ""
         self.asset = ""
         self.interval = ""
+        self.expires_in = 0  # seconds to expiry; negative = expired
         self.history = deque(maxlen=600)
         self.best_ask_delta_1s = 0.0
         self.best_ask_delta_3s = 0.0
@@ -129,6 +130,10 @@ class SourceTrackedQuote:
 
     @property
     def is_entry_eligible(self):
+        # V21.7.17: Block Gamma REST from live entry
+        # Only PM_WS_BOOK, PM_WS_BEST_BID_ASK, PM_CLOB_READ authorize live entry
+        if self.source in ("PM_GAMMA_REST", "PM_REST_FALLBACK", "PM_STALE", "PM_UNAVAILABLE"):
+            return False
         return self.is_live_book and self.book_age_ms <= CANARY_STALE_MS
 
     @property
@@ -182,8 +187,27 @@ class RepairQuoteCache:
                 if hasattr(q, k):
                     setattr(q, k, v)
 
+    def _evict_expired(self):
+        """Remove tokens expired >60s ago and stale Gamma REST >30s old."""
+        now = int(time.time())
+        to_evict = []
+        for tid, q in self._quotes.items():
+            # Evict tokens expired more than 60s ago
+            if q.expires_in < -60:
+                to_evict.append(tid)
+            # Evict stale Gamma REST entries older than 30s
+            elif q.source == "PM_GAMMA_REST" and q.book_age_ms > 30000:
+                to_evict.append(tid)
+        for tid in to_evict:
+            del self._quotes[tid]
+        return len(to_evict)
+
     async def snapshot(self) -> dict:
         async with self._lock:
+            # Evict expired/stale tokens before snapshot
+            evicted = self._evict_expired()
+            if evicted:
+                log.info(f"Evicted {evicted} expired/stale tokens from cache")
             now_ms = int(time.time() * 1000)
             tokens = {}
             for tid, q in self._quotes.items():
@@ -199,6 +223,7 @@ class RepairQuoteCache:
                     is_scalper_eligible=q.is_scalper_eligible,
                     condition_id=q.condition_id, side=q.side,
                     slug=q.slug, asset=q.asset, interval=q.interval,
+                    expires_in=q.expires_in,
                     best_ask_delta_1s=q.best_ask_delta_1s,
                     best_ask_delta_3s=q.best_ask_delta_3s,
                     best_ask_delta_5s=q.best_ask_delta_5s,
@@ -336,6 +361,15 @@ async def revalidate_tokens(session: aiohttp.ClientSession, markets: List[dict])
 
 class PolymarketWSFeed:
     """Fixed Polymarket WebSocket feed with assets_ids subscription + heartbeat."""
+    # Reconnect state machine
+    STATE_CONNECTED = "CONNECTED"
+    STATE_PING_ACTIVE = "PING_ACTIVE"
+    STATE_SERVER_CLOSED_1006 = "SERVER_CLOSED_1006"
+    STATE_RECONNECTING = "RECONNECTING"
+    STATE_RESUBSCRIBING = "RESUBSCRIBING"
+    STATE_BOOK_RECOVERED = "BOOK_RECOVERED"
+    STATE_STALE_RECOVERY_FAILED = "STALE_RECOVERY_FAILED"
+
     def __init__(self, cache: RepairQuoteCache):
         self.cache = cache
         self.pings_sent = 0
@@ -347,6 +381,10 @@ class PolymarketWSFeed:
         self.reconnect_count = 0
         self.connection_lifetimes = deque(maxlen=100)
         self.connect_time = 0.0
+        self.reconnect_state = self.STATE_CONNECTED
+        self.last_disconnect_ts = 0.0
+        self.last_resubscribe_ts = 0.0
+        self.last_book_recovery_ts = 0.0
         self.parser_stats = {
             "book": 0, "price_change": 0, "last_trade_price": 0,
             "best_bid_ask": 0, "tick_size_change": 0, "new_market": 0,
@@ -395,6 +433,8 @@ class PolymarketWSFeed:
                 ) as ws:
                     # Subscribe with CORRECT payload
                     await ws.send(json.dumps(sub_payload))
+                    self.reconnect_state = self.STATE_RESUBSCRIBING
+                    self.last_resubscribe_ts = time.time()
                     log.info(f"PM WS subscribed with {len(token_ids)} assets_ids (not condition_ids)")
                     self.reconnect_count += 1
                     self.connect_time = time.time()
@@ -429,6 +469,8 @@ class PolymarketWSFeed:
                         log.warning(f"PM WS connection ended after {lifetime:.1f}s")
 
             except websockets.exceptions.ConnectionClosed as e:
+                self.reconnect_state = self.STATE_SERVER_CLOSED_1006
+                self.last_disconnect_ts = time.time()
                 log.warning(f"PM WS connection closed: {e.code} {e.reason}")
                 self.heartbeat_timeouts += 1
                 # Brief backoff: 2s first, then 5s, max 15s
@@ -524,6 +566,11 @@ class PolymarketWSFeed:
                         spread=spread, bid_depth=bid_depth, ask_depth=ask_depth,
                         book_timestamp_ms=int(time.time() * 1000),
                     ), source="PM_WS_BOOK")
+                    # Track book recovery after reconnect
+                    if self.reconnect_state in (self.STATE_RESUBSCRIBING, self.STATE_SERVER_CLOSED_1006, self.STATE_RECONNECTING):
+                        self.reconnect_state = self.STATE_BOOK_RECOVERED
+                        self.last_book_recovery_ts = time.time()
+                        log.info(f"PM WS book recovered after reconnect: {event_type} for {asset_id[:20]}")
             self.parser_stats["book"] += 1
 
         # BEST BID/ASK
@@ -596,9 +643,36 @@ class PolymarketWSFeed:
             reconnect_count=self.reconnect_count,
             avg_connection_lifetime_seconds=sum(self.connection_lifetimes) / len(self.connection_lifetimes) if self.connection_lifetimes else 0,
             median_connection_lifetime_seconds=sorted(self.connection_lifetimes)[len(self.connection_lifetimes)//2] if self.connection_lifetimes else 0,
+            reconnect_state=self.reconnect_state,
+            last_disconnect_ts=datetime.fromtimestamp(self.last_disconnect_ts, tz=timezone.utc).isoformat() if self.last_disconnect_ts else "",
+            last_resubscribe_ts=datetime.fromtimestamp(self.last_resubscribe_ts, tz=timezone.utc).isoformat() if self.last_resubscribe_ts else "",
+            last_book_recovery_ts=datetime.fromtimestamp(self.last_book_recovery_ts, tz=timezone.utc).isoformat() if self.last_book_recovery_ts else "",
             classification="PM_WS_HEARTBEAT_OR_CONNECTION_FAILURE" if self.reconnect_count > 10 else "PM_WS_HEARTBEAT_HEALTHY",
         )
         with open(OUT / "heartbeat_report.json", "w") as f:
+            json.dump(report, f, indent=2)
+
+    def write_reconnect_gap_report(self):
+        """Write reconnect gap metrics per V21.7.17 §9."""
+        gap_ms = 0
+        if self.last_disconnect_ts > 0 and self.last_resubscribe_ts > 0:
+            gap_ms = int((self.last_resubscribe_ts - self.last_disconnect_ts) * 1000)
+        recovery_ms = 0
+        if self.last_resubscribe_ts > 0 and self.last_book_recovery_ts > 0 and self.last_book_recovery_ts > self.last_resubscribe_ts:
+            recovery_ms = int((self.last_book_recovery_ts - self.last_resubscribe_ts) * 1000)
+        report = dict(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            reconnect_state=self.reconnect_state,
+            connection_lifetime_seconds=time.time() - self.connect_time if self.connect_time else 0,
+            server_close_code=1006,  # Polymarket always closes with 1006
+            reconnect_start_ms=gap_ms,
+            resubscribe_sent_ms=gap_ms,
+            first_book_after_reconnect_ms=recovery_ms if recovery_ms > 0 else 999999,
+            gap_duration_ms=gap_ms,
+            total_reconnects=self.reconnect_count,
+            median_connection_lifetime_seconds=sorted(self.connection_lifetimes)[len(self.connection_lifetimes)//2] if self.connection_lifetimes else 0,
+        )
+        with open(OUT / "reconnect_gap_report.json", "w") as f:
             json.dump(report, f, indent=2)
 
     def write_parser_audit(self):
@@ -707,6 +781,7 @@ async def market_rotation(session: aiohttp.ClientSession, cache: RepairQuoteCach
                 await cache.register_token(tid, dict(
                     slug=m["slug"], asset=m["asset"], interval=m["interval"],
                     side=m["side"], condition_id=m["condition_id"],
+                    expires_in=m.get("expires_in", 0),
                 ))
                 rotation_entries.append(dict(
                     timestamp=datetime.now(timezone.utc).isoformat(),
@@ -746,6 +821,9 @@ async def gamma_rest_poll(session: aiohttp.ClientSession, cache: RepairQuoteCach
             markets = await discover_markets(session)
             for m in markets:
                 if not m.get("active") or m.get("closed"):
+                    continue
+                # V21.7.17: Skip expired markets in Gamma REST
+                if m.get("expires_in", 0) < -300:
                     continue
                 price = m.get("price", 0)
                 if price > 0:
@@ -875,10 +953,11 @@ async def diagnostics_loop(cache: RepairQuoteCache, ws_feed: PolymarketWSFeed):
             with open(OUT / "scalper_unlock_gate.json", "w") as f:
                 json.dump(sc_gate, f, indent=2)
 
-            # Heartbeat + parser reports
+            # Heartbeat + parser + reconnect gap reports
             ws_feed.write_heartbeat_report()
             ws_feed.write_parser_audit()
             ws_feed.write_raw_messages()
+            ws_feed.write_reconnect_gap_report()
 
         except Exception as e:
             log.error(f"Diagnostics error: {e}")
@@ -933,6 +1012,7 @@ async def main():
             await cache.register_token(m["token_id"], dict(
                 slug=m["slug"], asset=m["asset"], interval=m["interval"],
                 side=m["side"], condition_id=m["condition_id"],
+                expires_in=m.get("expires_in", 0),
             ))
 
         # Start all tasks
