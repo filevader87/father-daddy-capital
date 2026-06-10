@@ -2,7 +2,7 @@
 
 **Execution-survivable convex continuation organism for Polymarket UpDown binaries.**
 
-Current status: **LIVE — V21.7.1 runner + V21.7.13 real-time scanner + Weather V2.1 runner.**
+Current status: **LIVE — V21.7.1 runner + V21.7.13 real-time scanner + Weather V2.1 (TEMP QUARANTINED).**
 
 ## Active Bots
 
@@ -10,7 +10,8 @@ Current status: **LIVE — V21.7.1 runner + V21.7.13 real-time scanner + Weather
 |---|---|---|---|---|
 | Live Runner | V21.7.1 | Armed | 🟡 Running | BTC/XRP/SOL/ETH 5m/15m DOWN_MOMENTUM scanner + executor |
 | Real-Time Scanner | V21.7.13 | Build | 🟡 Running | WebSocket-first momentum scanner, 4-exchange feeds + PM REST poll |
-| Weather Runner | V2.1 | Paper | 🟡 Running | Weather market risk-tiered paper trader |
+| Weather Runner | V2.1 | Paper | 🔴 Halted | Temperature entries BLOCKED (V21.7.14). Settlement-only mode. |
+| Rain Shadow | V2.3 | Shadow | 🟡 Discovery | Precipitation market shadow cell. No paper/live entries. |
 | V19.8 Supervisor | V19.8 | — | 🟡 Cron | 5H loop monitor, every 1m |
 | V2171 Supervisor | V21.7.1 | — | 🟡 Cron | Live runner health check, every 10m |
 
@@ -49,10 +50,24 @@ WebSocket-first architecture with asyncio.Lock for event-loop safety.
 
 Weather market paper trader with risk-tiered city management.
 
+**⚠️ V21.7.14 CONTAINMENT: Temperature entries HALTED.** 0W/5L, -$7.60 drawdown (58.5%). Settlement-only mode.
+Root cause: forecast sigma=0.3°C vs 3-12°C actual errors. All 5 losses bet on heat during a European cold anomaly.
+
 **Risk tiers:** TRADE / QUALIFY / BLOCKED — position size, edge threshold, and σ adjustment per tier.
 **Settlement:** WU-style rounding (0.5 rounds up), HKO-floor cities use floor rounding.
 **Data source:** Open-Meteo daily max/min forecasts.
 **Markets:** Polymarket weather contracts (temperature yes/no).
+**Halt config:** `output/weather_bot/v2_3_halt_config.json`
+
+## Rain Shadow Cell V2.3
+
+Precipitation market shadow-only research cell. No paper/live entries until 25 resolved shadow events with PF ≥ 1.25.
+
+- Market discovery: Polymarket rain/precipitation contracts via Gamma API
+- Forecast: Open-Meteo precipitation probability + amount
+- Edge model: `prob_rain - yes_price` with 20pp minimum
+- Classification: `RAIN_MARKET_SHADOW_ONLY`
+- Promotion requires: 25 resolved events, PF ≥ 1.25, 0 settlement/rule/timezone errors
 
 ## MCP Server Integrations
 
@@ -121,8 +136,11 @@ python src/v217_live/v2171_live_runner.py --live --max-iterations 0 --scan-inter
 # V21.7.13 Real-time scanner
 python src/v217_live/v21713/ws_realtime_scanner.py
 
-# Weather V2.1 paper trader
+# Weather V2.1 paper trader (TEMP ENTRIES HALTED — settlement only)
 python src/weather/v1_weather_runner_v21.py --paper --interval 300
+
+# Rain V2.3 shadow cell (discovery only)
+python src/weather/v2_3_rain_shadow_cell.py
 
 # PMXT simulation
 python v2171_pmxt_2000_trade_sim.py
@@ -152,13 +170,26 @@ src/v217_live/
 
 src/weather/
   v1_weather_runner.py     # Weather V1 — original runner
-  v1_weather_runner_v2.py # Weather V2 — WU rounding, HKO floor cities
-  v1_weather_runner_v21.py # Weather V2.1 — risk tiers, hindcast, live readiness gate
+  v1_weather_runner_v2.py   # Weather V2 — WU rounding, HKO floor cities
+  v1_weather_runner_v21.py  # Weather V2.1 — risk tiers, hindcast, live readiness gate, V21.7.14 halt
+  v2_3_rain_shadow_cell.py  # Rain V2.3 — precipitation shadow cell (discovery only)
 
 output/
   v2171_live/           # Live runner state, trades, logs
   v21713_realtime_scanner/  # Scanner output: readiness, books, momentum events
   weather_bot/          # Weather bot state, trades, reports
+    v2_3_halt_config.json            # V21.7.14 halt directive
+    v2_3_weather_state_reconciliation.json  # Canonical state truth
+    v2_3_temperature_failure_audit.json      # Per-trade loss analysis
+    v2_3_weather_loss_audit.json             # Aggregate loss summary
+    v2_3_weather_live_gate.json              # Live promotion gate
+    rain_shadow/                             # Rain shadow cell output
+      rain_market_discovery.jsonl
+      rain_shadow_events.jsonl
+      rain_shadow_settlements.jsonl
+      rain_readiness_report.json
+  supervisor/
+    v21714_weather_supervisor_status.json   # V21.7.14 supervisor status
   v2171_pmxt_2000_trade_sim.json  # PMXT simulation results
 ```
 
