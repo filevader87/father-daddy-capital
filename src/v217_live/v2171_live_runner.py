@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
 """
-V21.7.1 LIVE DEPLOYMENT — DOWN_MOMENTUM EXECUTION SURVIVABLE
+V21.7.4 SURFACE EXPANSION + MODE INTEGRITY + LAG ALPHA SHADOW
 =============================================================
-Controlled live asymmetric extraction. No research. No iteration.
-Reality is now the optimizer.
+§2: Mode integrity — PAPER_LIVE_SIM / LIVE_REAL / SHADOW_ONLY / BACKTEST
+§3: ETH/SOL shadow-only expansion
+§4: BTC adjacent-bucket diagnostics continued
+§5: Polymarket data-lag alpha hypothesis (shadow measurement only)
+§6: WebSocket feed architecture
+§7: Latency / execution path audit
+§8: MCP nonblocking boot
 
-LIVE_PROFILE:
-  asset: BTC
-  intervals: 5m, 15m
-  side: DOWN
-  state: MOMENTUM
-  route: TAKER
-  timing: MOMENTUM_ONLY
-  bucket_primary: 0.03-0.12
-  bucket_preferred: 0.05-0.08
-  position_size: $1.00
+Execution modes:
+  LIVE_REAL      = real CLOB order placement with real collateral at risk
+  PAPER_LIVE_SIM = live market data, simulated execution, no real collateral
+  SHADOW_ONLY    = counterfactual logging only, no bankroll impact
+  BACKTEST       = historical replay or PMXT simulation
+
+Current classification:
+  BTC:        PAPER_LIVE_SIM (collateral NOT verified)
+  ETH/SOL:    SHADOW_ONLY
+  WEATHER:    PAPER_LIVE_SIM (WEATHER_BOT_LIVE_BLOCKED=True)
+  SWARM:      DISABLED
 
 Kill switches:
   MAX_DAILY_LOSS = $15.00
@@ -22,7 +28,7 @@ Kill switches:
   MAX_CONSECUTIVE_LOSSES = 60
   MAX_TOTAL_LIVE_TRADES = 100
 
-Hard revert to PAPER if:
+Hard revert to PAPER_LIVE_SIM if:
   - realized_ev < 0 over rolling 100 trades
   - PF < 1.0
   - settlement_errors > 0
@@ -35,6 +41,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, List, Tuple
+from enum import Enum
 
 sys.path.insert(0, "/home/naq1987s/father-daddy-capital")
 from fdc_pm_live import (
@@ -48,7 +55,72 @@ import urllib.request
 import csv
 
 # ═══════════════════════════════════════════════════════════════════════
-# V21.7.1 CONFIGURATION — LOCKED PER DIRECTIVE
+# §2: EXECUTION MODE INTEGRITY — V21.7.4
+# ═══════════════════════════════════════════════════════════════════════
+
+class ExecutionMode(Enum):
+    LIVE_REAL = "LIVE_REAL"           # Real CLOB orders, real collateral at risk
+    PAPER_LIVE_SIM = "PAPER_LIVE_SIM" # Live data, simulated execution, no real collateral
+    SHADOW_ONLY = "SHADOW_ONLY"       # Counterfactual logging only, no bankroll impact
+    BACKTEST = "BACKTEST"             # Historical replay / PMXT simulation
+
+# Asset-level execution mode assignment (§3: ETH/SOL = SHADOW_ONLY)
+ASSET_EXECUTION_MODES = {
+    "BTC": ExecutionMode.PAPER_LIVE_SIM,   # Collateral NOT verified → paper
+    "ETH": ExecutionMode.SHADOW_ONLY,       # Shadow expansion only
+    "SOL": ExecutionMode.SHADOW_ONLY,       # Shadow expansion only
+    "XRP": ExecutionMode.SHADOW_ONLY,       # Diagnostic only
+}
+
+def _execution_mode_label(asset: str = "BTC") -> str:
+    """§2: Return explicit execution mode string for given asset."""
+    return ASSET_EXECUTION_MODES.get(asset, ExecutionMode.SHADOW_ONLY).value
+
+def _mode_consistency_check(state: dict) -> dict:
+    """§2: Mode integrity verification. Returns mode_integrity_report dict."""
+    paper_only = state.get("paper_only", True)
+    live_enabled = state.get("live_enabled", False)
+    collateral_verified = state.get("collateral_verified", False)
+    
+    # Determine actual execution mode
+    if live_enabled and collateral_verified:
+        actual_mode = ExecutionMode.LIVE_REAL.value
+    elif live_enabled and not collateral_verified:
+        actual_mode = ExecutionMode.PAPER_LIVE_SIM.value
+    else:
+        actual_mode = ExecutionMode.PAPER_LIVE_SIM.value
+    
+    # Check: bot says LIVE but is actually paper?
+    reported = state.get("reported_mode", "")
+    inconsistency = ""
+    if "LIVE" in reported and actual_mode != ExecutionMode.LIVE_REAL.value:
+        inconsistency = f"Reports {reported} but actual mode is {actual_mode}"
+    
+    report = {
+        "reported_mode": reported,
+        "actual_execution_mode": actual_mode,
+        "real_order_submission_enabled": actual_mode == ExecutionMode.LIVE_REAL.value,
+        "paper_execution_enabled": actual_mode in (ExecutionMode.PAPER_LIVE_SIM.value, ExecutionMode.SHADOW_ONLY.value),
+        "shadow_logging_enabled": True,
+        "collateral_verified": collateral_verified,
+        "wallet_balance_source": state.get("wallet_balance_source", "unknown"),
+        "order_submission_endpoint_available": state.get("clob_accessible", False),
+        "mode_consistency_passed": inconsistency == "",
+        "mode_inconsistency_reason": inconsistency,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    
+    if inconsistency:
+        report["classification"] = "MODE_INTEGRITY_FAILED"
+        report["live_expansion_allowed"] = False
+    else:
+        report["classification"] = "MODE_INTEGRITY_PASSED"
+        report["live_expansion_allowed"] = True  # Still gated by other criteria
+    
+    return report
+
+# ═══════════════════════════════════════════════════════════════════════
+# V21.7.4 SURFACE EXPANSION — LOCKED PER DIRECTIVE
 # ═══════════════════════════════════════════════════════════════════════
 
 BANKROLL_ACTUAL = 70.00  # User-confirmed tradeable bankroll
@@ -63,7 +135,8 @@ LIVE_PROFILE = {
     "bucket_primary": (0.03, 0.12),
     "bucket_preferred": (0.05, 0.08),
     "position_size": 1.00,
-    "version": "V21.7.1",
+    "version": "V21.7.4",
+    "execution_mode": "PAPER_LIVE_SIM",  # §2: Explicit mode
 }
 
 # §4: Revised kill switches
@@ -207,9 +280,13 @@ class TradeRecord:
 
 @dataclass
 class LiveState:
-    """Persistent runner state."""
+    """Persistent runner state. §2: ExecutionMode-aware."""
     live_enabled: bool = True
     paper_only: bool = False
+    execution_mode: str = "PAPER_LIVE_SIM"  # §2: Explicit mode label
+    collateral_verified: bool = False       # §2: Collateral check result
+    wallet_balance_source: str = "unverified"
+    clob_accessible: bool = False
     total_trades: int = 0
     wins: int = 0
     losses: int = 0
@@ -275,10 +352,12 @@ TOKEN_BUFFER_MAX = 60  # Keep last 60 token ask readings (~5 min)
 # ── §MCP: Multi-exchange spot feed via MCP CCXT ──
 _mcp_crypto = None  # Lazy-initialized CryptoMCP instance
 _mcp_booted = False
+_mcp_degraded_sources = {}  # §8: Track degraded MCP sources
 
 
 def _init_mcp_bridge():
-    """Initialize MCP bridge in a daemon thread. Non-blocking after first call."""
+    """§8: Initialize MCP bridge — nonblocking. Onchain boot does NOT block startup.
+    Fallback to RPC immediately if MCP onchain times out."""
     global _mcp_crypto, _mcp_booted
     if _mcp_booted:
         return _mcp_crypto
@@ -287,14 +366,21 @@ def _init_mcp_bridge():
         import asyncio
         from mcp_client_bridge import CryptoMCP
         _mcp_crypto = CryptoMCP()
-        # Boot in a dedicated event loop — avoids conflicts with runner's main thread
+        
+        # §8: Boot polymarket + ccxt FIRST (critical). Onchain is nonblocking.
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(_mcp_crypto.boot())
-        # Don't close the loop — MCP needs it for future calls
-        log.info("§MCP: CryptoMCP bridge booted")
+        try:
+            loop.run_until_complete(asyncio.wait_for(
+                _mcp_crypto.boot(), timeout=15  # §8: 15s max, down from 30
+            ))
+            log.info("§MCP: CryptoMCP bridge booted (15s timeout)")
+        except asyncio.TimeoutError:
+            log.warning("§8: MCP boot timeout — onchain degraded, using RPC fallback")
+            # Track degraded source
+            _mcp_degraded_sources = {"onchain": "timeout"}
     except Exception as e:
-        log.warning(f"§MCP: Bridge init failed, falling back to urllib: {e}")
+        log.warning(f"§8: MCP bridge init failed, falling back to urllib: {e}")
         _mcp_crypto = None
     return _mcp_crypto
 
@@ -392,11 +478,36 @@ def fetch_pm_markets_mcp(slug: str) -> Optional[dict]:
 
 
 def fetch_onchain_balance(address: str, chain: str = "polygon") -> Optional[dict]:
-    """§MCP: Fetch on-chain balance via Bankless MCP."""
+    """§8: Fetch on-chain balance — NONBLOCKING. 
+    Returns None immediately if MCP onchain is degraded or times out.
+    Fallback to raw RPC for balance verification."""
+    global _mcp_degraded_sources
     if _mcp_crypto is None:
         _init_mcp_bridge()
     if _mcp_crypto is None:
         return None
+    
+    # §8: If onchain was degraded, skip MCP and use RPC fallback
+    if hasattr(_mcp_degraded_sources, 'get') and _mcp_degraded_sources.get("onchain"):
+        log.debug("§8: Skipping MCP onchain (degraded) — using RPC fallback")
+        try:
+            import urllib.request
+            url = f"https://polygon-rpc.com/"
+            payload = json.dumps({
+                "jsonrpc": "2.0", "method": "eth_getBalance",
+                "params": [address, "latest"], "id": 1
+            }).encode()
+            req = urllib.request.Request(url, data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "FDC-V2174"})
+            resp = urllib.request.urlopen(req, timeout=5)
+            result = json.loads(resp.read())
+            balance_wei = int(result.get("result", "0x0"), 16)
+            balance_matic = balance_wei / 1e18
+            return {"balance_matic": balance_matic, "source": "rpc_fallback"}
+        except Exception as e:
+            log.debug(f"§8: RPC fallback failed: {e}")
+            return None
+    
     try:
         result = _mcp_call_sync(
             _mcp_crypto.call("onchain", "get_token_balances_on_network",
@@ -404,7 +515,9 @@ def fetch_onchain_balance(address: str, chain: str = "polygon") -> Optional[dict
         )
         return result if isinstance(result, dict) else None
     except Exception as e:
-        log.debug(f"§MCP onchain balance failed: {e}")
+        log.debug(f"§8: MCP onchain balance failed: {e}")
+        # Mark onchain as degraded for future calls
+        _mcp_degraded_sources = {"onchain": str(e)}
         return None
 
 
@@ -852,7 +965,7 @@ class V2171LiveRunner:
     def initialize(self) -> bool:
         """Check wallet, auth, and discover markets."""
         log.info("=" * 60)
-        log.info("V21.7.1 LIVE DEPLOYMENT — INITIALIZATION")
+        log.info("V21.7.4 SURFACE EXPANSION — INITIALIZATION")
         log.info("=" * 60)
 
         # Wallet check
@@ -864,23 +977,28 @@ class V2171LiveRunner:
         log.info(f"  Position size: ${POSITION_SIZE:.2f}")
 
         if not self.wallet_info.get('collateral_ready', False):
-            log.warning("⚠️  Collateral NOT ready — running in PAPER mode")
+            log.warning("⚠️  Collateral NOT ready — running in PAPER_LIVE_SIM mode")
             self.paper_mode = True
+            self.state.execution_mode = ExecutionMode.PAPER_LIVE_SIM.value
 
         # Auth check
         creds = derive_api_credentials()
         if "error" in creds:
             log.error(f"Auth FAILED: {creds['error']}")
-            log.warning("⚠️  Running in PAPER mode — no CLOB access")
+            log.warning("⚠️  Running in PAPER_LIVE_SIM mode — no CLOB access")
             self.paper_mode = True
+            self.state.execution_mode = ExecutionMode.PAPER_LIVE_SIM.value
         else:
             log.info(f"Auth: {creds.get('mode')} wallet={creds.get('wallet', '')[:10]}...")
 
         self.state.bankroll = BANKROLL_ACTUAL  # User-confirmed tradeable amount
         self.state.paper_only = self.paper_mode
+        self.state.execution_mode = ExecutionMode.PAPER_LIVE_SIM.value if self.paper_mode else ExecutionMode.LIVE_REAL.value
+        if not self.paper_mode:
+            self.state.collateral_verified = True  # §2: Only true if collateral confirmed
 
         log.info(f"\nConfiguration:")
-        log.info(f"  Mode: {'PAPER' if self.paper_mode else 'LIVE'}")
+        log.info(f"  Execution mode: {self.state.execution_mode}")
         log.info(f"  Side: {LIVE_PROFILE['side']}")
         log.info(f"  State: {LIVE_PROFILE['state']}")
         log.info(f"  Route: {LIVE_PROFILE['route']}")
@@ -894,21 +1012,31 @@ class V2171LiveRunner:
 
         # Save initial state
         self._save_state()
+        # §2: Generate mode integrity report on init
+        self._generate_mode_integrity_report()
+        # §3: Generate asset surface report
+        self._generate_asset_surface_report()
         log.info("✓ Initialization complete")
         return True
 
     def discover_markets(self) -> Dict[str, dict]:
-        """Discover active BTC 5m and 15m markets."""
+        """§3: Discover active BTC (PAPER_LIVE_SIM) + ETH/SOL (SHADOW_ONLY) markets."""
         discovered = {}
-        for asset in LIVE_PROFILE["asset"]:
+        # §3: Extended asset surface — BTC + ETH + SOL
+        all_assets = ["BTC", "ETH", "SOL"]
+        for asset in all_assets:
             for interval in LIVE_PROFILE["intervals"]:
                 slug_key = f"{asset}_{interval}"
-                log.info(f"Discovering {asset} {interval} market...")
+                asset_mode = _execution_mode_label(asset)
+                log.info(f"Discovering {asset} {interval} market... [mode={asset_mode}]")
                 contract = discover_active_contract(asset, interval)
                 if contract:
                     log.info(f"  Found: {contract.get('slug', 'unknown')}")
                     log.info(f"  Expires in: {contract.get('expires_in_sec', 0):.0f}s")
                     log.info(f"  NegRisk: {contract.get('negRisk', False)}")
+                    log.info(f"  Execution mode: {asset_mode}")
+                    contract["asset"] = asset
+                    contract["execution_mode"] = asset_mode
                     discovered[slug_key] = contract
                     self.active_contracts[slug_key] = contract
                 else:
@@ -927,7 +1055,7 @@ class V2171LiveRunner:
             self.state.daily_trades = 0
             self.state.last_daily_reset = today
 
-        # §11: Hard failure conditions — immediate PAPER reversion
+        # §11: Hard failure conditions — immediate PAPER_LIVE_SIM reversion
         if self.state.settlement_errors > 0:
             self.state.halted = True
             self.state.halt_reason = f"SETTLEMENT_ERROR_COUNT={self.state.settlement_errors}"
@@ -1873,7 +2001,7 @@ class V2171LiveRunner:
             "protective_gate_blocks": self.protective_gate_blocks,
             "trade_count": self.state.total_trades,
             "primary_bottleneck": primary_bottleneck,
-            "status": "LIVE_RUNNING",
+            "status": self.state.execution_mode,  # §2: Explicit mode
             "scan_frequency": f"{self.scan_interval}s",
             "classification": "STATE_GATE_PROTECTIVE_SHADOW_REJECTED"
                 if self.eligible_bucket_seconds < 300 else "MONITORING",
@@ -2009,6 +2137,54 @@ class V2171LiveRunner:
         with open(LATENCY_REPORT_FILE, 'w') as f:
             json.dump(report, f, indent=2, default=str)
 
+        # §7: Extended latency/execution path report for V2174
+        V2174_DIR = Path("/home/naq1987s/father-daddy-capital/output/v2174")
+        V2174_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Classify speed (§7)
+        avg_scan = report.get("avg_scan_latency_ms", 0)
+        p95_quote_age = report.get("p95_quote_age_at_submit_ms", 9999)
+        if avg_scan <= 3000 and p95_quote_age <= 1500:
+            classification = "SCAN_SPEED_ACCEPTABLE"
+        elif p95_quote_age > 1500:
+            classification = "FEED_STALENESS_RISK"
+        elif avg_scan > 5000:
+            classification = "LATENCY_CONSTRAINED_ENTRY_PATH"
+        else:
+            classification = "SCAN_SPEED_ACCEPTABLE"
+        
+        # Check for execution path too slow
+        if report.get("p95_signal_to_submit_ms", 0) > 1000:
+            classification = "EXECUTION_PATH_TOO_SLOW"
+        
+        extended = {
+            **report,
+            "version": "V21.7.4",
+            "classification": classification,
+            "source_feed_latency_ms": report.get("avg_spot_fetch_latency_ms", 0),
+            "polymarket_book_latency_ms": report.get("avg_book_fetch_latency_ms", 0),
+            "decision_latency_ms": report.get("avg_signal_compute_latency_ms", 0),
+            "submit_latency_ms": report.get("avg_signal_to_submit_ms", 0),
+            "ack_latency_ms": 0,  # Not tracked yet — requires live order submission
+            "fill_confirmation_latency_ms": 0,
+            "end_to_end_latency_ms": avg_scan,
+            "recommendations": [],
+        }
+        
+        if classification == "FEED_STALENESS_RISK":
+            extended["recommendations"].append("Move external feeds to websockets")
+        if classification == "LATENCY_CONSTRAINED_ENTRY_PATH":
+            extended["recommendations"].extend([
+                "Cache market/token metadata",
+                "Prebuild order templates",
+                "Remove blocking MCP calls from critical path",
+            ])
+        if classification == "EXECUTION_PATH_TOO_SLOW":
+            extended["recommendations"].append("Activate 1s armed scanner for PRIMARY bucket touches")
+        
+        with open(V2174_DIR / "latency_execution_path_report.json", 'w') as f:
+            json.dump(extended, f, indent=2, default=str)
+
         return report
 
     def _generate_forensics_report(self) -> dict:
@@ -2069,10 +2245,16 @@ class V2171LiveRunner:
         return report
 
     def evaluate_and_trade(self, slug_key: str, contract: dict) -> Optional[dict]:
-        """§6: Evaluate a market for DOWN_MOMENTUM entry with full telemetry + latency."""
+        """§6: Evaluate a market for DOWN_MOMENTUM entry with full telemetry + latency.
+        §3: ETH/SOL assets are SHADOW_ONLY — log counterfactuals, never execute."""
         self.cycle_id += 1
         scan_started_at = time.time()
         phase_timings = {}
+
+        # §3: Determine execution mode for this asset
+        asset = contract.get("asset", "BTC")
+        asset_mode = contract.get("execution_mode", _execution_mode_label(asset))
+        is_shadow_only = asset_mode == ExecutionMode.SHADOW_ONLY.value
 
         expires_in = contract.get("expires_in_sec", 0) if contract else 0
         has_position = False
@@ -2384,10 +2566,22 @@ class V2171LiveRunner:
             "running_ev": 0.0,
             "running_drawdown": 0.0,
             "fill_quality": "PENDING",
-            "mode": "PAPER" if self.paper_mode else "LIVE",
+            "mode": self.state.execution_mode,  # §2: Explicit mode label
+            "execution_mode": asset_mode,  # §3: Asset-level mode
             "bucket_weight": bucket_weight,
             "adjusted_size": adjusted_size,
         }
+
+        # §3: SHADOW_ONLY interception — ETH/SOL never execute, only log
+        if is_shadow_only:
+            trade["fill_quality"] = "SHADOW_ONLY"
+            trade["actual_fill_price"] = rounded_price
+            trade["realized_pnl"] = 0.0  # Counterfactual — no bankroll impact
+            trade["settlement_result"] = "SHADOW_PENDING"
+            # Log to V2174 shadow counterfactuals
+            self._log_eth_sol_shadow(trade, contract, spot_vel, sig_info)
+            log.info(f"§3 SHADOW_ONLY: {slug_key} price={down_mid:.4f} — logged, no execution")
+            return None  # Never increment trade count or affect bankroll
 
         # Execute trade
         if self.paper_mode:
@@ -2432,8 +2626,8 @@ class V2171LiveRunner:
     def run_loop(self, max_iterations: int = None):
         """Main scan loop."""
         log.info("=" * 60)
-        log.info("V21.7.1 LIVE DEPLOYMENT — STARTING SCAN LOOP")
-        log.info(f"  Mode: {'PAPER' if self.paper_mode else 'LIVE'}")
+        log.info("V21.7.4 SURFACE EXPANSION — STARTING SCAN LOOP")
+        log.info(f"  Execution mode: {self.state.execution_mode}")
         log.info(f"  Max trades: {MAX_TOTAL_LIVE_TRADES}")
         log.info("=" * 60)
 
@@ -2517,7 +2711,7 @@ class V2171LiveRunner:
                 )
 
         log.info("=" * 60)
-        log.info("V21.7.1 DEPLOYMENT COMPLETE")
+        log.info("V21.7.4 DEPLOYMENT COMPLETE")
         log.info(f"  Total trades: {self.state.total_trades}")
         log.info(f"  Total P&L: ${self.state.total_pnl:.2f}")
         log.info(f"  Bankroll: ${self.state.bankroll:.2f}")
@@ -2572,6 +2766,88 @@ class V2171LiveRunner:
         with open(INCIDENT_FILE, 'w') as f:
             json.dump(incident, f, indent=2, default=str)
         log.critical(f"INCIDENT REPORT: {incident_type} — {detail}")
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # §2/§3: MODE INTEGRITY + ETH/SOL SHADOW COUNTERFACTUALS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    def _log_eth_sol_shadow(self, trade: dict, contract: dict, spot_vel: dict, sig_info: dict):
+        """§3: Log SHADOW_ONLY counterfactual for ETH/SOL to V2174 output."""
+        V2174_DIR = Path("/home/naq1987s/father-daddy-capital/output/v2174")
+        V2174_DIR.mkdir(parents=True, exist_ok=True)
+        shadow_file = V2174_DIR / "eth_sol_shadow_counterfactuals.jsonl"
+
+        event = {
+            "event_id": f"SHADOW-{self.cycle_id}-{int(time.time()*1000)}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "asset": trade.get("asset", "UNKNOWN"),
+            "interval": trade.get("interval", "5m"),
+            "market_slug": contract.get("slug", ""),
+            "condition_id": trade.get("condition_id", ""),
+            "selected_side": trade.get("side", "DOWN"),
+            "selected_token_id": "",  # populated from contract tokens
+            "opposite_token_id": "",
+            "entry_price": trade.get("entry_price", 0),
+            "entry_bucket": trade.get("bucket", ""),
+            "time_to_expiry": contract.get("expires_in_sec", 0),
+            "spot_price": spot_vel.get("price", 0) if isinstance(spot_vel, dict) else 0,
+            "v15": spot_vel.get("v15", 0) if isinstance(spot_vel, dict) else 0,
+            "v30": spot_vel.get("v30", 0) if isinstance(spot_vel, dict) else 0,
+            "v60": spot_vel.get("v60", 0) if isinstance(spot_vel, dict) else 0,
+            "v120": spot_vel.get("v120", 0) if isinstance(spot_vel, dict) else 0,
+            "higher_timeframe_regime": spot_vel.get("regime", "") if isinstance(spot_vel, dict) else "",
+            "orderbook_spread": sig_info.get("spread_pct", 0) if isinstance(sig_info, dict) else 0,
+            "orderbook_depth": sig_info.get("depth_usd", 0) if isinstance(sig_info, dict) else 0,
+            "survivability_score": trade.get("signal_score", 0),
+            "state_gate_decision": "SHADOW_LOGGED",
+            "would_trade_shadow": True,  # logged = would have triggered
+            "blocked_reason": "SHADOW_ONLY_ASSET",
+            "execution_mode": ExecutionMode.SHADOW_ONLY.value,
+        }
+
+        with open(shadow_file, 'a') as f:
+            f.write(json.dumps(event, default=str) + "\n")
+
+    def _generate_mode_integrity_report(self):
+        """§2: Generate mode_integrity_report.json."""
+        V2174_DIR = Path("/home/naq1987s/father-daddy-capital/output/v2174")
+        V2174_DIR.mkdir(parents=True, exist_ok=True)
+
+        state_dict = asdict(self.state)
+        state_dict["reported_mode"] = self.state.execution_mode
+        state_dict["wallet_balance_source"] = self.state.wallet_balance_source
+        state_dict["clob_accessible"] = self.state.clob_accessible
+
+        report = _mode_consistency_check(state_dict)
+        with open(V2174_DIR / "mode_integrity_report.json", 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+        log.info(f"§2 Mode integrity: {report['classification']} (mode={report['actual_execution_mode']})")
+        return report
+
+    def _generate_asset_surface_report(self):
+        """§3: Generate asset_surface_report.json."""
+        V2174_DIR = Path("/home/naq1987s/father-daddy-capital/output/v2174")
+        V2174_DIR.mkdir(parents=True, exist_ok=True)
+
+        report = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "version": "V21.7.4",
+            "assets": {},
+        }
+        for asset in ["BTC", "ETH", "SOL", "XRP"]:
+            report["assets"][asset] = {
+                "execution_mode": _execution_mode_label(asset),
+                "intervals": LIVE_PROFILE["intervals"] if asset != "XRP" else ["5m"],
+                "side": "DOWN" if asset != "XRP" else "DIAGNOSTIC",
+                "live_allowed": _execution_mode_label(asset) == ExecutionMode.LIVE_REAL.value,
+                "paper_allowed": _execution_mode_label(asset) in (ExecutionMode.PAPER_LIVE_SIM.value, ExecutionMode.LIVE_REAL.value),
+                "shadow_only": _execution_mode_label(asset) == ExecutionMode.SHADOW_ONLY.value,
+                "resolved_shadow_events": 0,
+                "promotion_criteria_met": False,
+            }
+        with open(V2174_DIR / "asset_surface_report.json", 'w') as f:
+            json.dump(report, f, indent=2, default=str)
+        return report
 
 
 # ═══════════════════════════════════════════════════════════════════════

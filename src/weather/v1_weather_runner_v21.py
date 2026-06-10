@@ -891,11 +891,16 @@ if __name__ == "__main__":
     bot = WeatherBotV21(bankroll=args.bankroll)
     bot.load_state()
 
+    # V2.2 §9: Force-settle on startup
+    settled = bot.force_settle_open_positions()
+    if settled > 0:
+        log.info(f"V2.2 startup: force-settled {settled} stale positions")
+
     if args.status:
         bot.status_report()
         sys.exit(0)
 
-    log.info(f"V2.1 Paper Settlement Validation starting | cities={len(CITY_REGISTRY)} | LIVE BLOCKED={WEATHER_BOT_LIVE_BLOCKED}")
+    log.info(f"V2.2 Paper Settlement Validation starting | cities={len(CITY_REGISTRY)} | LIVE BLOCKED={WEATHER_BOT_LIVE_BLOCKED}")
 
     if args.once:
         entered = bot.run_once()

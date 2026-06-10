@@ -225,5 +225,8 @@ output/weather_bot/
 output/v2171_live/shadow_counterfactual_*
 output/v2171_live/shadow_cf_console.log
 
+# V21.7.13 realtime scanner output
+output/v21713_realtime_scanner/
+
 # PMXT data (large parquet files)
 pmxt_data/

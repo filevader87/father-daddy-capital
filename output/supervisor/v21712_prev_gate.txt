@@ -1,0 +1,1 @@
+{"crypto_live_real_allowed": false, "weather_live_allowed": false, "scalper_micro_live_allowed": false, "global_live_expansion_allowed": false}
