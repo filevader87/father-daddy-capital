@@ -42,6 +42,21 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "output" / "weather_bot"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# §V21.7.14: Halt config — blocks new temperature entries
+HALT_CONFIG_PATH = OUTPUT_DIR / "v2_3_halt_config.json"
+
+def load_halt_config() -> dict:
+    """Load V21.7.14 halt config. Returns empty dict if missing."""
+    try:
+        if HALT_CONFIG_PATH.exists():
+            with open(HALT_CONFIG_PATH) as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+TEMPERATURE_ENTRIES_HALTED = load_halt_config().get("disable_new_weather_temperature_entries", True)
+
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 # §MCP: Add v217_live to path for MCP bridge
@@ -612,6 +627,12 @@ class WeatherBotV21(WeatherBotV2):
     def enter_position(self, signal: Dict, forecast_temps: Dict,
                        forecast_max: float, date_str: str, day_offset: int):
         """Enter position with full audit logging."""
+        # §V21.7.14: Halt new temperature entries
+        halt_cfg = load_halt_config()
+        if halt_cfg.get("disable_new_weather_temperature_entries", True):
+            log.info(f"TEMP_ENTRIES_HALTED: skipping {signal.get('city', '?')} — V21.7.14 halt directive active")
+            return None
+
         city = signal.get("city", "?")
         meta = CITY_REGISTRY.get(city, {})
         risk_tier = get_risk_tier(city)
@@ -900,7 +921,7 @@ if __name__ == "__main__":
         bot.status_report()
         sys.exit(0)
 
-    log.info(f"V2.2 Paper Settlement Validation starting | cities={len(CITY_REGISTRY)} | LIVE BLOCKED={WEATHER_BOT_LIVE_BLOCKED}")
+    log.info(f"V2.2 Paper Settlement Validation starting | cities={len(CITY_REGISTRY)} | LIVE BLOCKED={WEATHER_BOT_LIVE_BLOCKED} | TEMP_HALTED={TEMPERATURE_ENTRIES_HALTED}")
 
     if args.once:
         entered = bot.run_once()
