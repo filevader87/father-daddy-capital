@@ -39,6 +39,21 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, List
 
+# ─── V21.7.26 Scanner Bridge Integration ───
+# Import scanner bridge for faster BTC 15m data.
+# Falls back to original discover_market/fetch_quote if bridge fails.
+try:
+    sys.path.insert(0, str(Path(__file__).parent))
+    from v21726_scanner_bridge import (
+        discover_all_markets as scanner_discover,
+        fetch_books_persistent as scanner_fetch_books,
+        classify_zone,
+        LIVE_QUOTE_SOURCES as SCANNER_LIVE_SOURCES,
+    )
+    SCANNER_BRIDGE_AVAILABLE = True
+except ImportError:
+    SCANNER_BRIDGE_AVAILABLE = False
+
 # ─── Paths ───
 PROJECT_ROOT = Path("/home/naq1987s/father-daddy-capital")
 SRC_DIR = Path("/home/naq1987s/father-daddy-capital/src/v217_live")
@@ -238,6 +253,94 @@ def discover_market(force=False):
     except Exception as e:
         log.warning(f"Market discovery error: {e}")
         return _market_cache.get("data")
+
+
+def discover_market_via_scanner(force=False):
+    """Discover BTC 15m market via V21.7.26 scanner bridge.
+    
+    Uses persistent connection pool and concurrent book fetch.
+    Falls back to discover_market() if scanner bridge unavailable.
+    Returns market dict compatible with existing canary watcher.
+    """
+    if not SCANNER_BRIDGE_AVAILABLE:
+        return discover_market(force=force)
+    
+    try:
+        markets = scanner_discover(force=force)
+        for m in markets:
+            if m["asset"] == "BTC" and m["interval"] == "15m":
+                # Convert scanner format to canary watcher format
+                return {
+                    "market_id": m.get("market_id", ""),
+                    "question": m.get("question", ""),
+                    "slug": m.get("slug", ""),
+                    "condition_id": m.get("condition_id", ""),
+                    "neg_risk": m.get("neg_risk", False),
+                    "active": m.get("active", False),
+                    "clob_token_ids": [m.get("up_token_id", ""), m.get("down_token_id", "")],
+                    "down_token_id": m.get("down_token_id", ""),
+                    "up_token_id": m.get("up_token_id", ""),
+                    "expiry_ts": m.get("expiry_ts", 0),
+                    "tte": m.get("tte", 0),
+                }
+        log.warning("Scanner bridge: BTC 15m not found in discovered markets")
+        return None
+    except Exception as e:
+        log.warning(f"Scanner bridge discover error: {e}, falling back")
+        return discover_market(force=force)
+
+
+def fetch_quote_via_scanner(down_token_id: str, clob_client) -> Optional[dict]:
+    """Fetch BTC 15m DOWN quote via V21.7.26 scanner bridge.
+    
+    Uses persistent connection pool and book_normalizer.
+    Falls back to fetch_quote() if scanner bridge unavailable.
+    """
+    if not SCANNER_BRIDGE_AVAILABLE:
+        return fetch_quote(down_token_id, clob_client)
+    
+    try:
+        # Find BTC 15m market
+        markets = scanner_discover()
+        btc_15m = None
+        for m in markets:
+            if m["asset"] == "BTC" and m["interval"] == "15m":
+                btc_15m = m
+                break
+        
+        if not btc_15m:
+            log.warning("Scanner bridge: BTC 15m not found for quote fetch")
+            return fetch_quote(down_token_id, clob_client)
+        
+        # Fetch books for this market
+        quotes = scanner_fetch_books([btc_15m], max_workers=2)
+        
+        down_tid = btc_15m.get("down_token_id", "")
+        if down_tid not in quotes:
+            log.warning("Scanner bridge: BTC 15m DOWN book unavailable")
+            return fetch_quote(down_token_id, clob_client)
+        
+        norm = quotes[down_tid]
+        zone = classify_zone(norm.get("best_ask", 1.0))
+        
+        return {
+            "best_ask": norm["best_ask"],
+            "best_bid": norm["best_bid"],
+            "spread": norm["spread"],
+            "ask_depth": norm.get("ask_depth", 0),
+            "bid_depth": norm.get("bid_depth", 0),
+            "quote_source": norm.get("price_source", "NORMALIZED_BOOK"),
+            "quote_age_ms": 0,  # Direct CLOB read is always fresh
+            "raw_first_ask": norm.get("raw_first_ask"),
+            "raw_first_bid": norm.get("raw_first_bid"),
+            "book_valid": norm["is_valid"],
+            "book_reject_reason": norm.get("reject_reason", ""),
+            "zone": zone,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as e:
+        log.warning(f"Scanner bridge quote error: {e}, falling back")
+        return fetch_quote(down_token_id, clob_client)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -675,15 +778,15 @@ def run_watcher():
                 write_supervisor_status()
                 break
 
-            # Discover market
-            market = discover_market()
+            # Discover market — prefer V21.7.26 scanner bridge for speed
+            market = discover_market_via_scanner()
             if not market:
                 log.warning("No market discovered, sleeping...")
                 time.sleep(NORMAL_INTERVAL)
                 continue
 
-            # Fetch quote
-            quote = fetch_quote(market["down_token_id"], clob)
+            # Fetch quote — prefer V21.7.26 scanner bridge (persistent pool + normalized)
+            quote = fetch_quote_via_scanner(market["down_token_id"], clob)
             if not quote:
                 log.warning("Quote fetch failed, sleeping...")
                 time.sleep(NORMAL_INTERVAL)
