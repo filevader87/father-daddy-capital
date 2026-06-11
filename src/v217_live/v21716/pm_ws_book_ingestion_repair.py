@@ -131,7 +131,7 @@ class SourceTrackedQuote:
     @property
     def is_entry_eligible(self):
         # V21.7.17: Block Gamma REST from live entry
-        # Only PM_WS_BOOK, PM_WS_BEST_BID_ASK, PM_CLOB_READ authorize live entry
+        # Only PM_WS_BOOK, PM_WS_BEST_BID_ASK, PM_WS_PRICE_CHANGE, PM_CLOB_READ authorize live entry
         if self.source in ("PM_GAMMA_REST", "PM_REST_FALLBACK", "PM_STALE", "PM_UNAVAILABLE"):
             return False
         return self.is_live_book and self.book_age_ms <= CANARY_STALE_MS
@@ -188,12 +188,15 @@ class RepairQuoteCache:
                     setattr(q, k, v)
 
     def _evict_expired(self):
-        """Remove tokens expired >60s ago and stale Gamma REST >30s old."""
+        """Remove tokens expired >60s ago, stale Gamma REST >30s old, and empty-slug orphans."""
         now = int(time.time())
         to_evict = []
         for tid, q in self._quotes.items():
+            # Evict tokens with no slug (orphans from WS messages without market discovery)
+            if not q.slug:
+                to_evict.append(tid)
             # Evict tokens expired more than 60s ago
-            if q.expires_in < -60:
+            elif q.expires_in < -60:
                 to_evict.append(tid)
             # Evict stale Gamma REST entries older than 30s
             elif q.source == "PM_GAMMA_REST" and q.book_age_ms > 30000:

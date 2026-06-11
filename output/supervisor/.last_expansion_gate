@@ -1,0 +1,33 @@
+{
+  "version": "V21.7.12",
+  "timestamp": "2026-06-11T03:51:03.126841+00:00",
+  "crypto_live_real_allowed": false,
+  "weather_live_allowed": false,
+  "scalper_micro_live_allowed": false,
+  "swarm_allowed": false,
+  "global_live_expansion_allowed": false,
+  "blocking_reasons": [
+    "crypto: paper-only, no order-path preflight completed",
+    "weather: state CONSISTENT_WITH_NOTES \u2014 0W/5L, need 25+ resolved",
+    "scalper: 0/100 exits, feed REST_FALLBACK",
+    "swarm: no cell validated for allocation"
+  ],
+  "next_required_evidence": {
+    "crypto": "1+ resolved live/paper-live trade with binary settlement + mode integrity passed + wallet/collateral verified",
+    "weather": "25+ resolved paper trades with positive EV, PF>=1.25, zero source errors, state reconciliation passed",
+    "scalper": "100+ paper_live_exits, exit_success_rate>=85%, slippage_adjusted_EV>0, PF>=1.35, WS feed confirmed",
+    "swarm": "at least one cell passing live promotion criteria"
+  },
+  "hard_blocks": [
+    "ETH/SOL/XRP live",
+    "UP profiles",
+    "12-20\u00a2 live bucket",
+    "larger sizing",
+    "Kelly/martingale/pyramiding",
+    "weather live",
+    "politics live",
+    "swarm allocator",
+    "copy-trading",
+    "Bonereaper-style live profiles"
+  ]
+}
