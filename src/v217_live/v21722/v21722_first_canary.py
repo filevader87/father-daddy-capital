@@ -301,7 +301,9 @@ def run_feed_quote_gate(market_token_id: str, clob_client) -> dict:
             return gate
 
         if bids:
-            best_bid = float(bids[0].get("price", 0))
+            # CLOB API returns bids ASCENDING — sort for best (highest) bid
+            sorted_bids = sorted(bids, key=lambda x: float(x.get("price", "0")), reverse=True)
+            best_bid = float(sorted_bids[0].get("price", 0)) if sorted_bids else None
             checks["best_bid"] = best_bid
             checks["best_bid_present"] = True
             spread = best_ask - best_bid

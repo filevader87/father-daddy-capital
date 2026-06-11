@@ -245,28 +245,24 @@ def discover_market(force=False):
 # ═══════════════════════════════════════════════════════════════════════
 
 def fetch_quote(down_token_id: str, clob_client) -> Optional[dict]:
-    """Fetch best bid/ask from CLOB order book."""
+    """Fetch best bid/ask from CLOB order book using shared normalizer."""
     try:
+        from book_normalizer import normalize_for_entry
         book = clob_client.get_order_book(down_token_id)
-        asks = book.get("asks", [])
-        bids = book.get("bids", [])
-
-        # CLOB API returns asks DESCENDING (worst first), bids ASCENDING (worst first)
-        # Must sort to get true best prices
-        sorted_asks = sorted(asks, key=lambda x: float(x["price"]))  # ascending: [0]=lowest=best
-        sorted_bids = sorted(bids, key=lambda x: float(x["price"]), reverse=True)  # descending: [0]=highest=best
-        best_ask = float(sorted_asks[0]["price"]) if sorted_asks else None
-        best_bid = float(sorted_bids[0]["price"]) if sorted_bids else None
-        spread = (best_ask - best_bid) if (best_ask and best_bid) else None
-
+        norm = normalize_for_entry(book, token_id=down_token_id, side="DOWN")
+        
         return {
-            "best_ask": best_ask,
-            "best_bid": best_bid,
-            "spread": spread,
-            "ask_depth": len(asks),
-            "bid_depth": len(bids),
-            "quote_source": "PM_CLOB_READ",
+            "best_ask": norm["best_ask"],
+            "best_bid": norm["best_bid"],
+            "spread": norm["spread"],
+            "ask_depth": len(book.get("asks", [])),
+            "bid_depth": len(book.get("bids", [])),
+            "quote_source": "NORMALIZED_BOOK",
             "quote_age_ms": 0,  # Direct CLOB read is always fresh
+            "raw_first_ask": norm.get("raw_first_ask"),
+            "raw_first_bid": norm.get("raw_first_bid"),
+            "book_valid": norm["is_valid"],
+            "book_reject_reason": norm["reject_reason"],
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
@@ -398,20 +394,35 @@ def evaluate_entry(market: dict, quote: dict, recheck: dict) -> dict:
 # Order Execution (§13: FAK/FOK only)
 # ═══════════════════════════════════════════════════════════════════════
 
-def execute_order(down_token_id: str, best_ask: float, clob_client) -> dict:
-    """Execute single FAK/FOK canary order. NO GTC. NO chase. ONE SHOT."""
+def execute_order(down_token_id: str, best_ask: float, clob_client, quote_source: str = "UNKNOWN") -> dict:
+    """Execute single FAK/FOK canary order. NO GTC. NO chase. ONE SHOT.
+    
+    §13 V21.7.24: Live orders BLOCKED until price-path audit passes.
+    Classification: BTC_15M_CANARY_BLOCKED_PENDING_PRICE_PATH_AUDIT
+    """
     result = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "position_id": f"CANARY-{int(time.time())}",
-        "status": "INTENDED",
+        "status": "BLOCKED",
         "order_id": None,
         "fill_status": None,
         "fill_price": None,
         "fill_size": None,
         "error": None,
+        "block_reason": "V21.7.24_PRICE_PATH_AUDIT_PENDING",
     }
-
-    log.info(f"§13: EXECUTING FAK ORDER | DOWN @ {best_ask:.3f} | $5.00 | token={down_token_id[:20]}...")
+    
+    # ─── §13 V21.7.24 LIVE ORDER BLOCK ───
+    # Real orders blocked until price-path integrity audit passes.
+    # Classification: BTC_15M_CANARY_BLOCKED_PENDING_PRICE_PATH_AUDIT
+    log.warning("§13: ORDER BLOCKED | V21.7.24 price-path audit pending | "
+                f"quote_source={quote_source} | No live orders until audit passes")
+    result["status"] = "BLOCKED"
+    result["block_reason"] = "V21.7.24_PRICE_PATH_AUDIT_PENDING"
+    return result
+    
+    # The code below is unreachable until audit passes.
+    # Once audit passes, the block above will be removed.
 
     try:
         from py_clob_client_v2 import OrderArgsV2, CreateOrderOptions, OrderType

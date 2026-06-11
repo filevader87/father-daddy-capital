@@ -208,8 +208,11 @@ class ChainlinkRTDSFusion:
                                 bdata = json.loads(bresp.read())
                                 bids = bdata.get('bids', [])
                                 asks = bdata.get('asks', [])
-                                best_bid = float(bids[0]['price']) if bids else 0
-                                best_ask = float(asks[0]['price']) if asks else 0
+                                # CLOB API returns asks DESCENDING — sort for best prices
+                                sorted_bids = sorted(bids, key=lambda x: float(x['price']), reverse=True) if bids else []
+                                sorted_asks = sorted(asks, key=lambda x: float(x['price'])) if asks else []
+                                best_bid = float(sorted_bids[0]['price']) if sorted_bids else 0
+                                best_ask = float(sorted_asks[0]['price']) if sorted_asks else 0
                                 mid = (best_bid + best_ask) / 2 if best_bid and best_ask else 0
                             except Exception:
                                 best_bid = best_ask = mid = 0

@@ -334,8 +334,11 @@ async def polymarket_ws_feed(cache: QuoteCache, token_ids: list):
                             asks = book_data.get("asks", [])
                             if not bids and not asks:
                                 continue
-                            best_bid = float(bids[0].get("price", 0)) if bids else 0
-                            best_ask = float(asks[0].get("price", 0)) if asks else 0
+                            # CLOB API returns asks DESCENDING — sort for best prices
+                            sorted_bids = sorted(bids, key=lambda x: float(x.get("price", 0)), reverse=True) if bids else []
+                            sorted_asks = sorted(asks, key=lambda x: float(x.get("price", 1))) if asks else []
+                            best_bid = float(sorted_bids[0].get("price", 0)) if sorted_bids else 0
+                            best_ask = float(sorted_asks[0].get("price", 0)) if sorted_asks else 0
                             bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
                             ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
                             spread = round(best_ask - best_bid, 4) if best_bid and best_ask else 0
@@ -352,8 +355,11 @@ async def polymarket_ws_feed(cache: QuoteCache, token_ids: list):
                             continue
                         bids = data.get("bids", [])
                         asks = data.get("asks", [])
-                        best_bid = float(bids[0].get("price", 0)) if bids else 0
-                        best_ask = float(asks[0].get("price", 0)) if asks else 0
+                        # CLOB API returns asks DESCENDING — sort for best prices
+                        sorted_bids = sorted(bids, key=lambda x: float(x.get("price", 0)), reverse=True) if bids else []
+                        sorted_asks = sorted(asks, key=lambda x: float(x.get("price", 1))) if asks else []
+                        best_bid = float(sorted_bids[0].get("price", 0)) if sorted_bids else 0
+                        best_ask = float(sorted_asks[0].get("price", 0)) if sorted_asks else 0
                         bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
                         ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
                         cache.update_polymarket(tid, dict(

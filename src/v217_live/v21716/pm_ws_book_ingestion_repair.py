@@ -557,23 +557,26 @@ class PolymarketWSFeed:
         if event_type in ("book_snapshot", "book"):
             bids = data.get("bids", [])
             asks = data.get("asks", [])
-            if bids or asks:
-                best_bid = float(bids[0].get("price", 0)) if bids else 0
-                best_ask = float(asks[0].get("price", 0)) if asks else 0
-                bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
-                ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
-                spread = round(best_ask - best_bid, 4) if best_bid and best_ask else 0
-                if asset_id and (best_bid or best_ask):
-                    await self.cache.update_pm(asset_id, dict(
-                        best_bid=best_bid, best_ask=best_ask,
-                        spread=spread, bid_depth=bid_depth, ask_depth=ask_depth,
-                        book_timestamp_ms=int(time.time() * 1000),
-                    ), source="PM_WS_BOOK")
-                    # Track book recovery after reconnect
-                    if self.reconnect_state in (self.STATE_RESUBSCRIBING, self.STATE_SERVER_CLOSED_1006, self.STATE_RECONNECTING):
-                        self.reconnect_state = self.STATE_BOOK_RECOVERED
-                        self.last_book_recovery_ts = time.time()
-                        log.info(f"PM WS book recovered after reconnect: {event_type} for {asset_id[:20]}")
+            # Ensure sorted access to book slices per L126 pattern
+            # CLOB API returns asks DESCENDING — sort for best prices
+            bids_sorted = sorted(bids, key=lambda x: float(x.get("price", 0)), reverse=True)
+            asks_sorted = sorted(asks, key=lambda x: float(x.get("price", 1)))
+            best_bid = float(bids_sorted[0].get("price", 0)) if bids_sorted else 0
+            best_ask = float(asks_sorted[0].get("price", 0)) if asks_sorted else 0
+            bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
+            ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
+            spread = round(best_ask - best_bid, 4) if best_bid and best_ask else 0
+            if asset_id and (best_bid or best_ask):
+                await self.cache.update_pm(asset_id, dict(
+                    best_bid=best_bid, best_ask=best_ask,
+                    spread=spread, bid_depth=bid_depth, ask_depth=ask_depth,
+                    book_timestamp_ms=int(time.time() * 1000),
+                ), source="PM_WS_BOOK")
+                # Track book recovery after reconnect
+                if self.reconnect_state in (self.STATE_RESUBSCRIBING, self.STATE_SERVER_CLOSED_1006, self.STATE_RECONNECTING):
+                    self.reconnect_state = self.STATE_BOOK_RECOVERED
+                    self.last_book_recovery_ts = time.time()
+                    log.info(f"PM WS book recovered after reconnect: {event_type} for {asset_id[:20]}")
             self.parser_stats["book"] += 1
 
         # BEST BID/ASK
@@ -715,8 +718,11 @@ async def clob_sanity_check(session: aiohttp.ClientSession, cache: RepairQuoteCa
                             data = await resp.json()
                             bids = data.get("bids", [])
                             asks = data.get("asks", [])
-                            clob_bid = float(bids[0].get("price", 0)) if bids else 0
-                            clob_ask = float(asks[0].get("price", 0)) if asks else 0
+                            # CLOB API returns asks DESCENDING — sort for best prices
+                            bids_sorted = sorted(bids, key=lambda x: float(x.get("price", 0)), reverse=True) if bids else []
+                            asks_sorted = sorted(asks, key=lambda x: float(x.get("price", 1))) if asks else []
+                            clob_bid = float(bids_sorted[0].get("price", 0)) if bids_sorted else 0
+                            clob_ask = float(asks_sorted[0].get("price", 0)) if asks_sorted else 0
                             disagreement = abs(ws_ask - clob_ask) + abs(ws_bid - clob_bid) if (ws_bid and ws_ask) else 0
                             entry = dict(
                                 timestamp=datetime.now(timezone.utc).isoformat(),

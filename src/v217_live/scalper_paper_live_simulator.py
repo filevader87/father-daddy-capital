@@ -90,8 +90,11 @@ def fetch_orderbook(token_id):
     asks = data.get("asks", [])
     if not bids or not asks:
         return None
-    best_bid = float(bids[0].get("price", 0))
-    best_ask = float(asks[0].get("price", 0))
+    # CLOB API returns asks DESCENDING, bids ASCENDING — sort for best prices
+    sorted_bids = sorted(bids, key=lambda x: float(x.get("price", 0)), reverse=True)
+    sorted_asks = sorted(asks, key=lambda x: float(x.get("price", 1)))
+    best_bid = float(sorted_bids[0].get("price", 0)) if sorted_bids else 0
+    best_ask = float(sorted_asks[0].get("price", 0)) if sorted_asks else 0
     bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
     ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
     return dict(best_bid=best_bid, best_ask=best_ask,
