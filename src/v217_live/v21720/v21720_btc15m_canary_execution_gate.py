@@ -57,6 +57,7 @@ CANARY_CELL = {
     "order_type": "FOK",  # Fill-or-kill preferred, FAK acceptable
     "max_slippage_cents": 1,
     "max_retries": 1,
+    "starting_bankroll_usd": 70.0,
 }
 
 # §5: Allowed quote sources for live entry
@@ -468,6 +469,8 @@ def run_wallet_collateral_gate() -> dict:
             checks["usdc_balance"] = round(usdc_float, 2)
             checks["collateral_balance_verified"] = True
             checks["available_collateral_sufficient"] = usdc_float >= 10.0
+            checks["canary_bankroll_usd"] = 70.0  # Starting bankroll per directive
+            checks["canary_bankroll_note"] = "$70 starting bankroll allocated for canary trading"
             
             # NegRisk allowance (used for Up/Down markets)
             neg_risk = w3.to_checksum_address("0xC5d563A36AE78145C45a50134D48A1215220f80a")
