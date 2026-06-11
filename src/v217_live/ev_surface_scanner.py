@@ -75,8 +75,11 @@ def compute_ev_surface(token_id, side, asset, interval):
         if not bids or not asks:
             return None
         
-        best_bid = float(bids[0]['price'])
-        best_ask = float(asks[0]['price'])
+        # CLOB API returns asks DESCENDING, bids ASCENDING — sort for best prices
+        sorted_asks = sorted(asks, key=lambda x: float(x["price"]))
+        sorted_bids = sorted(bids, key=lambda x: float(x["price"]), reverse=True)
+        best_bid = float(sorted_bids[0]["price"]) if sorted_bids else None
+        best_ask = float(sorted_asks[0]["price"]) if sorted_asks else None
         mid = (best_bid + best_ask) / 2
         spread = best_ask - best_bid
         

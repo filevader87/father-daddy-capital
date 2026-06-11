@@ -206,7 +206,9 @@ def run_pre_trade_recheck() -> dict:
                 book = clob.get_order_book(tids[1])
                 asks = book.get("asks", [])
                 if asks:
-                    best_ask = float(asks[0].get("price", 0))
+                    # CLOB API returns asks DESCENDING — must sort for best (lowest) ask
+                    sorted_asks = sorted(asks, key=lambda x: float(x.get("price", "999")))
+                    best_ask = float(sorted_asks[0].get("price", 0))
                     checks["down_best_ask"] = best_ask
                     checks["ask_in_bucket"] = 0.03 <= best_ask <= 0.08
                     checks["ask_note"] = f"Ask={best_ask:.2f}¢, need 3-8¢"
@@ -284,7 +286,9 @@ def run_feed_quote_gate(market_token_id: str, clob_client) -> dict:
         asks = book.get("asks", [])
 
         if asks:
-            best_ask = float(asks[0].get("price", 0))
+            # CLOB API returns asks DESCENDING — must sort for best (lowest) ask
+            sorted_asks = sorted(asks, key=lambda x: float(x.get("price", "999")))
+            best_ask = float(sorted_asks[0].get("price", 0))
             checks["best_ask"] = best_ask
             checks["best_ask_present"] = True
         else:

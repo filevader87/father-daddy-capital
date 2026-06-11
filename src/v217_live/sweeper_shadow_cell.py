@@ -75,8 +75,11 @@ def evaluate_sweeper_candidate(token_id, side, asset, interval, market_data):
     if not bids or not asks:
         return None
     
-    best_bid = float(bids[0]['price'])
-    best_ask = float(asks[0]['price'])
+    # CLOB API returns asks DESCENDING, bids ASCENDING — sort for best prices
+    sorted_bids = sorted(bids, key=lambda x: float(x['price']), reverse=True)
+    sorted_asks = sorted(asks, key=lambda x: float(x['price']))
+    best_bid = float(sorted_bids[0]['price'])
+    best_ask = float(sorted_asks[0]['price'])
     mid = (best_bid + best_ask) / 2
     
     # Check if in sweeper price range

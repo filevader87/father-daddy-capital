@@ -251,8 +251,12 @@ def fetch_quote(down_token_id: str, clob_client) -> Optional[dict]:
         asks = book.get("asks", [])
         bids = book.get("bids", [])
 
-        best_ask = float(asks[0]["price"]) if asks else None
-        best_bid = float(bids[0]["price"]) if bids else None
+        # CLOB API returns asks DESCENDING (worst first), bids ASCENDING (worst first)
+        # Must sort to get true best prices
+        sorted_asks = sorted(asks, key=lambda x: float(x["price"]))  # ascending: [0]=lowest=best
+        sorted_bids = sorted(bids, key=lambda x: float(x["price"]), reverse=True)  # descending: [0]=highest=best
+        best_ask = float(sorted_asks[0]["price"]) if sorted_asks else None
+        best_bid = float(sorted_bids[0]["price"]) if sorted_bids else None
         spread = (best_ask - best_bid) if (best_ask and best_bid) else None
 
         return {
