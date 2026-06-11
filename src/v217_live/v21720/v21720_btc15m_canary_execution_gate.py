@@ -2,12 +2,12 @@
 """
 V21.7.20 — BTC 15m Canary Execution Preflight Gate
 =====================================================
-Final pre-live canary gate. Authorizes ONE $1 BTC DOWN 15m order
+Final pre-live canary gate. Authorizes ONE $5 BTC DOWN 15m order
 only after ALL gates pass.
 
 Classification: FINAL_PRE_LIVE_CANARY_GATE
 Hard limits:
-  - $1 maximum position
+  - $5 minimum position (PM 15m market minimum)
   - 1 open position max
   - 1 trade per day max
   - 3-8¢ entry bucket only
@@ -15,6 +15,7 @@ Hard limits:
   - Complete order lifecycle stress pass
   - Complete wallet/collateral pass
   - Complete settlement/journaling path
+  - sig_type=3 (POLY_1271) + funder=DW for all CLOB orders
 
 §5: Canonical feed source = V21.7.16+ PM WS
 §6: Feed freshness ≤ 3000ms absolute
@@ -22,7 +23,7 @@ Hard limits:
 §9: Wallet/collateral verified
 §10: Mode integrity LIVE_REAL for BTC canary only
 §15: One order, no chase, no retry beyond 1
-§18: Risk limits: $1/d, $3/w, $3 total, 3 consecutive loss halt
+§18: Risk limits: $5/d, $15/w, $15 total, 3 consecutive loss halt
 §19: Emergency halt on any ambiguity
 """
 
@@ -51,13 +52,15 @@ CANARY_CELL = {
     "side": "DOWN",
     "entry_bucket_lo": 0.03,
     "entry_bucket_hi": 0.08,
-    "position_size_usd": 1.0,
+    "position_size_usd": 5.0,  # PM 15m market minimum is $5
     "max_open_positions": 1,
     "max_daily_trades": 1,
-    "order_type": "FOK",  # Fill-or-kill preferred, FAK acceptable
+    "order_type": "GTC",  # GTC for deposit wallet flow (FOK not supported with sig_type=3)
     "max_slippage_cents": 1,
     "max_retries": 1,
     "starting_bankroll_usd": 70.0,
+    "sig_type": 3,  # POLY_1271 — REQUIRED for deposit wallet flow
+    "neg_risk": False,  # BTC 15m Up/Down are NOT neg_risk markets
 }
 
 # §5: Allowed quote sources for live entry
@@ -75,12 +78,12 @@ HOT_PATH_CANARY_PREFERRED_MS = 750
 
 # §18: Risk limits
 RISK_LIMITS = {
-    "position_size_usd": 1.0,
+    "position_size_usd": 5.0,  # PM 15m market minimum
     "max_open_positions": 1,
     "max_daily_trades": 1,
-    "max_daily_loss_usd": 1.0,
-    "max_weekly_loss_usd": 3.0,
-    "max_total_canary_loss_usd": 3.0,
+    "max_daily_loss_usd": 5.0,
+    "max_weekly_loss_usd": 15.0,
+    "max_total_canary_loss_usd": 15.0,
     "max_consecutive_losses": 3,
 }
 
@@ -492,15 +495,42 @@ def run_wallet_collateral_gate() -> dict:
             checks["on_chain_error"] = str(e)
             checks["collateral_balance_verified"] = False
     
-    # CLOB credentials (Polymarket uses PM_API_KEY, PM_API_SECRET, PM_API_PASSPHRASE)
+    # CLOB credentials — sig_type=3 (POLY_1271) deposit wallet flow
+    # py-clob-client-v2 is REQUIRED (old v0.34.6 does not support POLY_1271)
     clob_key = env.get("PM_API_KEY", "")
     clob_secret = env.get("PM_API_SECRET", "")
     clob_pass = env.get("PM_API_PASSPHRASE", "")
     checks["clob_credentials_loaded"] = bool(clob_key and clob_secret and clob_pass)
-    # If no CLOB API key, can still sign orders with PK (EIP-712)
-    checks["clob_api_key_present"] = bool(clob_key)
+    checks["sig_type"] = 3  # POLY_1271 deposit wallet flow
+    checks["funder_address"] = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"  # UUPS deposit wallet
     checks["order_signing_via_pk"] = signer_loaded  # EIP-712 signing works without API key
     checks["clob_alternative_auth"] = signer_loaded and not bool(clob_key)
+    
+    # Verify CLOB balance via py-clob-client-v2 (sig_type=3 POLY_1271)
+    if pk:
+        try:
+            from py_clob_client_v2 import ClobClient as ClobClientV2, SignatureTypeV2, BalanceAllowanceParams, AssetType
+            dw = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
+            clob_v2 = ClobClientV2(
+                host="https://clob.polymarket.com",
+                chain_id=137,
+                key=pk,
+                signature_type=SignatureTypeV2.POLY_1271.value,
+                funder=dw,
+            )
+            creds = clob_v2.create_or_derive_api_key()
+            clob_v2.set_api_creds(creds)
+            bal = clob_v2.get_balance_allowance(params=BalanceAllowanceParams(asset_type=AssetType.COLLATERAL))
+            clob_balance_raw = int(bal.get("balance", "0"))
+            clob_balance_usd = clob_balance_raw / 1_000_000  # USDC has 6 decimals
+            checks["clob_v2_balance_usd"] = round(clob_balance_usd, 2)
+            checks["clob_v2_balance_sufficient"] = clob_balance_usd >= 5.0  # Min $5 order
+            checks["clob_v2_sig_type"] = "POLY_1271"
+            checks["clob_v2_funder"] = dw
+            checks["clob_v2_deposit_wallet_flow"] = True
+        except Exception as e:
+            checks["clob_v2_error"] = str(e)
+            checks["clob_v2_balance_sufficient"] = False
     
     # Order signing check
     checks["order_signing_works"] = signer_loaded  # Can sign EIP-712
@@ -517,6 +547,7 @@ def run_wallet_collateral_gate() -> dict:
         checks.get("signer_loaded", False),
         checks.get("clob_credentials_loaded", False) or checks.get("clob_alternative_auth", False),
         checks.get("order_signing_works", False),
+        checks.get("clob_v2_deposit_wallet_flow", False),  # sig_type=3 deposit wallet flow
     ])
     
     if critical_passed:
