@@ -34,7 +34,8 @@ OUT_DIR = PROJECT_ROOT / "output" / "v21733_feed_hotpath_optimizer"
 @dataclass
 class QuoteSnapshot:
     """Minimal quote data for hot-path consumption.
-    No raw book, no Gamma response, no CLOB response, no verbose logs."""
+    No raw book, no Gamma response, no CLOB response, no verbose logs.
+    V21.7.34: Added identity fields (condition_id, window, expiry, identity_valid)."""
     asset: str
     interval: str
     side: str
@@ -50,6 +51,12 @@ class QuoteSnapshot:
     book_valid: bool
     updated_at: str
     zone: str = ""
+    # V21.7.34 identity fields
+    up_token_id: str = ""
+    expiry_timestamp: int = 0
+    identity_valid: bool = False
+    identity_source: str = ""
+    is_current_window: bool = False
 
     def is_live_eligible(self) -> bool:
         """Check if quote source is live-eligible (PM_WS_BOOK, PM_WS_BEST_BID_ASK, PM_CLOB_READ)."""
@@ -313,6 +320,11 @@ class LiveQuoteCache:
                     book_valid=q.get("is_valid", False),
                     updated_at=datetime.now(timezone.utc).isoformat(),
                     zone=zone,
+                    up_token_id=m.get("up_token_id", "") if side == "DOWN" else (tid if side == "UP" else ""),
+                    expiry_timestamp=m.get("expiry_ts", 0),
+                    identity_valid=bool(condition_id and tid),
+                    identity_source="scanner_bridge_discover_all_markets",
+                    is_current_window=m.get("tte", 0) > 0 and m.get("tte", 0) <= 900,
                 )
                 self.update(snapshot)
 
