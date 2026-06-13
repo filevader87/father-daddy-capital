@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-06-13T10:13:58.932942+00:00",
+  "version": "V21.7.33",
+  "before_optimization": {
+    "discovery_ms": 0.0,
+    "fetch_ms": 1090.3,
+    "lookup_ms": 0.0,
+    "total_ms": 1090.3
+  },
+  "after_optimization": {
+    "note": "After optimization: quote cache eliminates discovery+fetch. Lookup <1ms.",
+    "target_discovery_ms": 0,
+    "target_fetch_ms": 0,
+    "target_lookup_ms": 1,
+    "target_total_ms": 1
+  },
+  "bottleneck": "GAMMA_REST discovery+fetch dominates hot-path latency. Quote cache eliminates this.",
+  "classification": "HOTPATH_LATENCY_MEASURED"
+}

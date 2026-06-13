@@ -1,0 +1,39 @@
+{
+  "timestamp": "2026-06-13T10:13:55.157551+00:00",
+  "version": "V21.7.33",
+  "classification": "FEED_CANARY_BLOCKED_BRIDGE_STALE",
+  "canary_state": "ARMED_BUT_FEED_BLOCKED",
+  "real_orders_allowed": false,
+  "checks": {
+    "mode_integrity_passed": true,
+    "wallet_address_present": true,
+    "collateral_balance_verified": true,
+    "btc_15m_market_discovered": true,
+    "btc_15m_down_token_mapped": true,
+    "btc_15m_condition_id_extracted": false,
+    "btc_15m_quote_source": "PM_GAMMA_REST",
+    "btc_15m_quote_age_ms": 3018,
+    "btc_15m_ws_fresh": false,
+    "btc_15m_quote_source_live_eligible": false,
+    "btc_15m_live_entry_allowed": false,
+    "ws_reconnect_count": 14,
+    "ws_median_conn_lifetime_s": 7458.519600868225,
+    "pm_books_fresh": true,
+    "btc_15m_p50_age_ms": 3018,
+    "btc_15m_p95_target_met": false
+  },
+  "root_causes": [
+    "CONDITION_ID_EXTRACTION_FAILED: btc_15m_condition_id_extracted=false, GAMMA_REST cannot provide condition_id for order submission",
+    "WS_BOOKS_STALE: WS feeds have previous-window books (age 177K+s), current-window only available via GAMMA_REST",
+    "QUOTE_SOURCE_NOT_LIVE_ELIGIBLE: source=PM_GAMMA_REST not in {'PM_WS_BOOK', 'PM_CLOB_READ', 'PM_WS_BEST_BID_ASK'}",
+    "LIVE_ENTRY_BLOCKED: preflight checks prevent live order submission"
+  ],
+  "resolution_path": [
+    "1. Fix condition_id extraction in canary gate \u2014 GAMMA_REST provides slug but not condition_id",
+    "2. Extract condition_id from market discovery (discover_all_markets already provides it)",
+    "3. Pass condition_id to canary gate via quote cache or direct injection",
+    "4. Alternative: add PM_CLOB_READ as live-eligible source for order submission (current source is GAMMA_REST priority 5)",
+    "5. WS books must be refreshed for current-window tokens \u2014 current WS has expired-window books only"
+  ],
+  "live_scope_unchanged": true
+}

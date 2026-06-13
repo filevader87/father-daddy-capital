@@ -1,0 +1,49 @@
+{
+  "timestamp": "2026-06-13T10:13:55.158053+00:00",
+  "version": "V21.7.33",
+  "classification": "PM_FEEDS_AVAILABLE_WS_STALE",
+  "feeds": {
+    "binance": {
+      "connected": false,
+      "note": "Not integrated \u2014 no Binance WS in FDC stack"
+    },
+    "coinbase": {
+      "connected": false,
+      "note": "Not integrated \u2014 no Coinbase WS in FDC stack"
+    },
+    "bybit": {
+      "connected": false,
+      "note": "Not integrated \u2014 no Bybit WS in FDC stack"
+    },
+    "okx": {
+      "connected": false,
+      "note": "Not integrated \u2014 no OKX WS in FDC stack"
+    },
+    "chainlink_rtds": {
+      "connected": false,
+      "note": "Not integrated \u2014 no Chainlink/RTDS in FDC stack"
+    },
+    "pm_ws": {
+      "connected": true,
+      "reconnect_count": 14,
+      "note": "Connected but stale books for current window",
+      "current_tokens": 24,
+      "gamma_rest_tokens": 32,
+      "p50_age_ms": 564,
+      "p95_age_ms": 179222508
+    },
+    "pm_gamma_rest": {
+      "connected": true,
+      "latency_p50_ms": 28,
+      "note": "Primary source for current-window quotes"
+    },
+    "pm_clob_read": {
+      "connected": true,
+      "note": "Available for direct CLOB reads"
+    }
+  },
+  "external_feed_required_for_live": false,
+  "external_feed_role": "DIAGNOSTIC_ONLY",
+  "note": "External exchange feeds (Binance, Coinbase, etc.) are not in the FDC stack. They are not required for live entry. PM WS + GAMMA_REST are the primary sources. PM WS is connected but provides stale books for current window tokens.",
+  "pm_ws_issue": "WS books are from expired/previous market windows (age 177K+ seconds). Current-window books only available via GAMMA_REST polling. This is the root cause of 'feed not canary-ready'."
+}

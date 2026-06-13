@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-06-13T10:13:57.841112+00:00",
+  "version": "V21.7.33",
+  "current_mode": "POLLING_5S",
+  "current_stats": {
+    "total_scans": 29869,
+    "armed_activations": 0,
+    "near_bucket_count": 0,
+    "eligible_signal_count": 0
+  },
+  "escalation_triggers": [
+    {
+      "trigger": "BTC_15m_DOWN_ask <= 0.12",
+      "action": "SCAN_INTERVAL_1S",
+      "description": "NEAR_8_12 zone entered"
+    },
+    {
+      "trigger": "BTC_15m_DOWN_ask <= 0.08",
+      "action": "SCAN_INTERVAL_500MS_QUOTE_POLL_250MS",
+      "description": "CANARY_3_8 zone \u2014 maximum urgency"
+    },
+    {
+      "trigger": "transition_memory_records_zone_transition_toward_CANARY",
+      "action": "SCAN_INTERVAL_1S",
+      "description": "Proactive escalation on zone transition"
+    }
+  ],
+  "de_escalation_triggers": [
+    {
+      "trigger": "DOWN_ask > 0.15 for 60s",
+      "action": "RETURN_TO_5S_POLLING",
+      "description": "Safely back in MIDZONE"
+    },
+    {
+      "trigger": "market_rollover",
+      "action": "RETURN_TO_5S_POLLING",
+      "description": "New window, reset urgency"
+    },
+    {
+      "trigger": "quote_stale > 5s",
+      "action": "PAUSE_SCANNING",
+      "description": "Feed degraded"
+    },
+    {
+      "trigger": "feed_health_degraded",
+      "action": "RETURN_TO_5S_POLLING_AND_ALERT",
+      "description": "External or PM feed issues"
+    }
+  ],
+  "implementation": "IN_V21733_DESIGN_ONLY",
+  "note": "Armed mode escalation will be implemented in canary watcher. Current 5s polling is safe but slow. 1s escalation provides faster entry when price is near bucket.",
+  "live_scope_unchanged": true
+}

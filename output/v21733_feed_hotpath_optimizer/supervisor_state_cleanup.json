@@ -1,0 +1,58 @@
+{
+  "timestamp": "2026-06-13T10:13:57.842279+00:00",
+  "version": "V21.7.33",
+  "previous_state": "ARMED (ambiguous \u2014 armed + preflight failed)",
+  "new_state": "ARMED_BUT_FEED_BLOCKED",
+  "state_definition": "Canary armed but feed preflight failed \u2014 no real orders allowed",
+  "feed_classification": "FEED_CANARY_BLOCKED_BRIDGE_STALE",
+  "track_a_state": {
+    "canary_mode": "ARMED",
+    "live_orders_allowed": false,
+    "feed_ready": false,
+    "bucket_touched": false,
+    "current_zone": "MIDZONE_40_60",
+    "current_ask": 0.52,
+    "clear_state": "ARMED_BUT_FEED_BLOCKED"
+  },
+  "track_b_state": {
+    "mode": "PAPER_ONLY",
+    "live_allowed": false,
+    "blocking_reasons": [
+      "bucket_scarcity",
+      "no_order_path_preflight",
+      "ext_feeds_not_healthy"
+    ]
+  },
+  "track_c_state": {
+    "mode": "PAPER_ONLY",
+    "live_allowed": false,
+    "blocking_reasons": [
+      "ETH_live_blocked"
+    ]
+  },
+  "track_d_state": {
+    "mode": "SHADOW",
+    "live_allowed": false,
+    "blocking_reasons": [
+      "hard_block_on_8_25_live"
+    ]
+  },
+  "track_e_state": {
+    "mode": "PAPER_ONLY_QUARANTINED",
+    "live_allowed": false,
+    "blocking_reasons": [
+      "0W/5L",
+      "need_25+_resolved",
+      "temperature_quarantined"
+    ]
+  },
+  "allowed_states": {
+    "ARMED_AND_LIVE_AUTHORIZED_WAITING_FOR_BUCKET": "Canary armed, feed ready, all gates green, waiting for BTC 15m DOWN ask to enter 3-8\u00a2 bucket",
+    "ARMED_BUT_FEED_BLOCKED": "Canary armed but feed preflight failed \u2014 no real orders allowed",
+    "WAITING_FOR_BUCKET": "Feed ready but canary not yet armed or bucket not touched",
+    "ORDER_SUBMITTED": "Real order has been submitted to CLOB",
+    "POSITION_OPEN": "Canary position is open and being monitored",
+    "HALTED": "Canary halted due to risk limit, error, or manual stop"
+  },
+  "live_scope_unchanged": true
+}

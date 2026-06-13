@@ -1,0 +1,241 @@
+{
+  "timestamp": "2026-06-13T10:13:55.159835+00:00",
+  "version": "V21.7.33",
+  "findings": [
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 622,
+      "code": "f.write(json.dumps(result, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 651,
+      "code": "json.dump(halt, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 681,
+      "code": "f.write(json.dumps(row, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 697,
+      "code": "f.write(json.dumps(flash, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 734,
+      "code": "json.dump(status, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 745,
+      "code": "json.dump(health, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 854,
+      "code": "f.write(json.dumps(position_event, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "line": 905,
+      "code": "print(json.dumps(result, indent=2, default=str))",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1217,
+      "code": "f.write(json.dumps(forensics_entry) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1365,
+      "code": "f.write(json.dumps(entry) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1442,
+      "code": "f.write(json.dumps(entry) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1488,
+      "code": "json.dump(summary, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1587,
+      "code": "f.write(json.dumps(entry) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1656,
+      "code": "f.write(json.dumps(flash_entry) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1753,
+      "code": "f.write(json.dumps(settlement) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1839,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 1954,
+      "code": "f.write(json.dumps(near_miss_entry, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2012,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2016,
+      "code": "json.dump(self.shadow_counterfactual, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2091,
+      "code": "f.write(json.dumps(entry) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2138,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2186,
+      "code": "json.dump(extended, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2224,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2243,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2730,
+      "code": "f.write(json.dumps(trade, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2754,
+      "code": "json.dump(state_dict, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2767,
+      "code": "json.dump(incident, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2809,
+      "code": "f.write(json.dumps(event, default=str) + \"\\n\")",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2823,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v2171_live_runner.py",
+      "line": 2849,
+      "code": "json.dump(report, f, indent=2, default=str)",
+      "issue": "Synchronous JSON file write in potential hot path",
+      "severity": "LOW"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "pattern": "json.dump",
+      "occurrences": 9,
+      "issue": "Synchronous JSON serialization found 9 times",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "pattern": "with open(",
+      "occurrences": 7,
+      "issue": "Synchronous file open found 7 times",
+      "severity": "MEDIUM"
+    },
+    {
+      "file": "v21723_btc15m_canary_watcher.py",
+      "pattern": ".write(",
+      "occurrences": 4,
+      "issue": "Synchronous file write found 4 times",
+      "severity": "MEDIUM"
+    }
+  ],
+  "recommendation": "Replace synchronous JSON file writes in canary scan loop with ring buffer + async writer. Journal writes must not block order evaluation.",
+  "hotpath_rule": "No synchronous JSON file writes before order submission. No large object serialization in canary execution path. Ring buffer + async flush only.",
+  "current_status": "CANARY_WATCHER_USES_SYNCHRONOUS_STATUS_JSON",
+  "target_status": "CANARY_WATCHER_USES_ASYNC_JOURNAL_RING_BUFFER"
+}

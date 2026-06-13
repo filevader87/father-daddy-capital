@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-06-13T10:13:55.943370+00:00",
+  "version": "V21.7.33",
+  "classification": "CPU_AFFINITY_ENABLED",
+  "cpu_count": 24,
+  "affinity_supported": true,
+  "process_mapping": {
+    "feed_ingestion": 0,
+    "scanner_decision": 1,
+    "order_executor": 2,
+    "journal_reporter": 3
+  },
+  "existing_fdc_pids": 14,
+  "note": "CPU affinity not applied yet \u2014 process_affinity.py module created for future use. Current single-process architecture runs on shared cores.",
+  "recommendation": "When process split architecture is implemented, apply os.sched_setaffinity per process role. For now, priority is feed + scanner on cores 0-1."
+}

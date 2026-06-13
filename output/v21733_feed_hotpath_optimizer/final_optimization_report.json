@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-06-13T10:13:58.939351+00:00",
+  "version": "V21.7.33",
+  "classification": "V21.7.33_FEED_BLOCKED_OPTIMIZATION_READY",
+  "canary_state": "ARMED_BUT_FEED_BLOCKED",
+  "feed_classification": "FEED_CANARY_BLOCKED_BRIDGE_STALE",
+  "real_orders_allowed": false,
+  "root_causes": [
+    "CONDITION_ID_EXTRACTION_FAILED: btc_15m_condition_id_extracted=false, GAMMA_REST cannot provide condition_id for order submission",
+    "WS_BOOKS_STALE: WS feeds have previous-window books (age 177K+s), current-window only available via GAMMA_REST",
+    "QUOTE_SOURCE_NOT_LIVE_ELIGIBLE: source=PM_GAMMA_REST not in {'PM_WS_BOOK', 'PM_CLOB_READ', 'PM_WS_BEST_BID_ASK'}",
+    "LIVE_ENTRY_BLOCKED: preflight checks prevent live order submission"
+  ],
+  "resolution_path": [
+    "1. Fix condition_id extraction in canary gate \u2014 GAMMA_REST provides slug but not condition_id",
+    "2. Extract condition_id from market discovery (discover_all_markets already provides it)",
+    "3. Pass condition_id to canary gate via quote cache or direct injection",
+    "4. Alternative: add PM_CLOB_READ as live-eligible source for order submission (current source is GAMMA_REST priority 5)",
+    "5. WS books must be refreshed for current-window tokens \u2014 current WS has expired-window books only"
+  ],
+  "external_feed_required_for_live": false,
+  "hotpath_latency_ms": 1090.3,
+  "hotpath_bottleneck": "GAMMA_REST discovery+fetch",
+  "cpu_affinity": "CPU_AFFINITY_ENABLED",
+  "quote_cache_status": "DESIGNED_NOT_YET_IMPLEMENTED",
+  "armed_mode_escalation": "DESIGNED_NOT_YET_IMPLEMENTED",
+  "process_split_architecture": "DESIGNED_NOT_YET_IMPLEMENTED",
+  "live_scope_unchanged": true,
+  "hard_blocks_enforced": [
+    "BTC_5M_LIVE_BLOCKED",
+    "ETH_LIVE_BLOCKED",
+    "UP_LIVE_BLOCKED",
+    "8_25_LIVE_BLOCKED",
+    "MIDZONE_LIVE_BLOCKED",
+    "WEATHER_LIVE_BLOCKED",
+    "SCALPER_LIVE_BLOCKED",
+    "GTC_GTD_BLOCKED"
+  ],
+  "track_summary": {
+    "track_a": "ARMED_BUT_FEED_BLOCKED",
+    "track_b": "PAPER_ONLY_BOTTLENECK_BUCKET_SCARCITY",
+    "track_c": "PAPER_ONLY_ETH_VALIDATION",
+    "track_d": "SHADOW_3_25_EXPANSION",
+    "track_e": "PAPER_ONLY_QUARANTINED_0W_5L"
+  }
+}
