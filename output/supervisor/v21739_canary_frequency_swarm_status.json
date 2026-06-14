@@ -1,0 +1,21 @@
+{
+  "classification": "V21.7.39_CANARY_FREQUENCY_RECONCILED",
+  "timestamp": "2026-06-14T11:59:01.543900+00:00",
+  "btc15m_canary_state": "CONDITIONAL_ARMED_WAITING_FOR_3_8_BUCKET",
+  "btc15m_frequency_classification": "REGIME_DEPENDENT_TOO_SPARSE_FOR_PRIMARY_CAPITAL_ENGINE",
+  "btc15m_live_allowed": true,
+  "btc15m_expected_opportunities_per_day": "0 (range-bound) / 2-5 (trending)",
+  "btc15m_observed_opportunities_per_day": 0,
+  "primary_live_candidate": "BTC_15M_DOWN_CANARY",
+  "capital_accumulation_ready": false,
+  "highest_priority_repair": "BUILD_8_12_PAPER_CELL_FOR_MIDZONE_REGIME",
+  "btc5m_status": "BLOCKED_FORWARD_NEGATIVE",
+  "eth_status": "SHADOW_NO_RESOLVED_SAMPLE",
+  "weather_status": "QUARANTINED_BROKEN_CALIBRATION",
+  "swarm_total_cells": 7,
+  "swarm_live_cells": 1,
+  "swarm_paper_cells": 0,
+  "swarm_shadow_cells": 3,
+  "swarm_quarantined_cells": 1,
+  "next_action": "ACTIVATE_8_12_PAPER_CELL_AND_ETH_SHADOW_CELL"
+}
