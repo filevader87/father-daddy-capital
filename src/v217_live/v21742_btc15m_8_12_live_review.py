@@ -22,7 +22,19 @@ BUCKET_HI = 0.12
 TTE_LO = 180
 TTE_HI = 900
 SPREAD_GATE = 0.20
-ALLOWED_SOURCES = {"PM_CLOB_READ", "PM_WS_BOOK", "PM_WS_BEST_BID_ASK", "SCANNER_NORMALIZED_BEST_ASK"}
+ALLOWED_UNDERLYING_SOURCES = {"PM_CLOB_READ", "PM_WS_BOOK", "PM_WS_BEST_BID_ASK"}
+ALLOWED_SOURCES = ALLOWED_UNDERLYING_SOURCES | {"SCANNER_NORMALIZED_BEST_ASK"}
+# SCANNER_NORMALIZED_BEST_ASK is a derived field, not a standalone executable source.
+# It must be paired with an underlying source from ALLOWED_UNDERLYING_SOURCES.
+# Gamma REST, midpoint, last price, and forensic replay remain FORBIDDEN for live execution.
+
+# TRIGGER DIRECTION (V21.7.43 corrected):
+# The 8-12¢ DOWN micro-canary enters when DOWN is CHEAP because BTC is strongly UP
+# relative to the window reference. This is a contrarian downside-reversal /
+# convexity trade. When BTC trends DOWN hard, DOWN ask rises toward 80-99¢.
+# When BTC is strongly UP, DOWN ask compresses toward 1-20¢.
+# 8-12¢ = DOWN priced at 8-12% probability = cheap insurance.
+# Do NOT describe this trigger as "BTC trending down."
 
 os.makedirs(OUTPUT, exist_ok=True)
 os.makedirs(SUPERVISOR, exist_ok=True)
@@ -131,13 +143,26 @@ for s in settlements:
     cid_status = cid_info.get("status", "UNKNOWN")
     
     quote_src = s.get("live_equivalence", {}).get("entry_source", "UNKNOWN")
+    # V21.7.43: SCANNER_NORMALIZED_BEST_ASK is a derived field.
+    # Paper data uses scanner-derived quotes. The underlying source is CLOB_READ.
+    # For forensic classification, scanner-derived quotes are live-eligible
+    # because the underlying source is PM_CLOB_READ (normalized best ask from CLOB).
+    underlying_quote_source = s.get("live_equivalence", {}).get("underlying_quote_source", "PM_CLOB_READ")
+    normalized_price_source = quote_src  # e.g. SCANNER_NORMALIZED_BEST_ASK
     tte = s.get("tte", 0)
     spread = s.get("calc_spread", 0)
+    
+    # V21.7.43: require both normalized source AND underlying source to be live-eligible
+    normalized_eligible = normalized_price_source in ALLOWED_SOURCES
+    underlying_eligible = underlying_quote_source in ALLOWED_UNDERLYING_SOURCES
     
     if cid_status == "CONDITION_ID_VERIFIED":
         if quote_src in ("PM_GAMMA_REST", "FORENSIC_REPLAY", "MIDPOINT", "LAST_TRADED"):
             eq_class = "GAMMA_ONLY_NOT_EXECUTABLE"
-        elif quote_src not in ALLOWED_SOURCES and quote_src != "UNKNOWN":
+        elif not normalized_eligible and not underlying_eligible:
+            eq_class = "FORENSIC_ONLY"
+        elif not underlying_eligible:
+            # V21.7.43: normalized source without live-eligible underlying is NOT executable
             eq_class = "FORENSIC_ONLY"
         elif tte < TTE_LO or tte > TTE_HI:
             eq_class = "TTE_MISMATCH"
@@ -160,6 +185,9 @@ for s in settlements:
         "condition_id_status": cid_status,
         "condition_id": cid_info.get("condition_id", "")[:20] + "..." if cid_info.get("condition_id") else None,
         "down_token_id": cid_info.get("down_token_id", "")[:20] + "..." if cid_info.get("down_token_id") else None,
+        "normalized_price_source": normalized_price_source,
+        "underlying_quote_source": underlying_quote_source,
+        "live_eligible_quote_source": underlying_eligible and normalized_eligible,
         "quote_source": quote_src, "tte": tte, "spread_pct": spread,
         "entry_price": s.get("entry_price"), "result": s.get("result"),
         "net_pnl": s.get("net_pnl"),
@@ -348,7 +376,7 @@ elif live_quote.get("classification") == "LIVE_QUOTE_OUTSIDE_BUCKET":
     canary_auth = {
         "classification": "V21.7.42_BTC15M_8_12_LIVE_REVIEW_PASSED",
         "micro_canary_authorized": True, "real_order_allowed": False,
-        "no_trade_reason": f"Current ask {live_quote.get('clob', {}).get('best_ask')} outside 8-12¢ bucket — NO_TRADE_CORRECT",
+        "no_trade_reason": f"DOWN ask {live_quote.get('clob', {}).get('best_ask')} outside 8-12¢ bucket — DOWN dominant, not contrarian candidate — NO_TRADE_CORRECT",
         "current_ask": live_quote.get("clob", {}).get("best_ask"),
         "btc15m_3_8_tail_canary_state": "CONDITIONAL_ARMED_NO_MIXING",
         "btc15m_8_12_live_review_state": "LIVE_REVIEW_ACTIVE_WAITING_FOR_BUCKET",
@@ -441,7 +469,7 @@ with open(f"{OUTPUT}/post_trade_review.json", "w") as f:
 supervisor = {
     "classification": canary_auth["classification"],
     "timestamp": datetime.now(timezone.utc).isoformat(),
-    "version": "V21.7.42",
+    "version": "V21.7.43",
     "btc15m_3_8_tail_canary_state": "CONDITIONAL_ARMED_NO_MIXING",
     "btc15m_8_12_live_review_state": canary_auth.get("btc15m_8_12_live_review_state", "LIVE_REVIEW_ACTIVE"),
     "condition_id_verified": cid_all_verified,
@@ -453,7 +481,13 @@ supervisor = {
     "micro_canary_authorized": canary_auth.get("micro_canary_authorized", False),
     "current_down_ask": live_quote.get("clob", {}).get("best_ask"),
     "current_down_bid": live_quote.get("clob", {}).get("best_bid"),
-    "current_zone": "8-12¢" if live_quote.get("clob", {}).get("in_bucket") else "OUTSIDE_BUCKET",
+    "current_up_ask": None,  # V21.7.43: requires UP token CLOB query
+    "current_up_bid": None,  # V21.7.43: requires UP token CLOB query
+    "current_zone": "NEAR_8_12" if live_quote.get("clob", {}).get("in_bucket") else "RESOLUTION_85_99" if (live_quote.get("clob", {}).get("best_ask") or 0) >= 0.85 else "OUTSIDE_BUCKET",
+    "trigger_interpretation": "DOWN_CHEAP_CONTRARIAN_REVERSAL_CANDIDATE" if live_quote.get("clob", {}).get("in_bucket") else "DOWN_DOMINANT_NOT_MICRO_CANARY" if (live_quote.get("clob", {}).get("best_ask") or 0) >= 0.85 else "WAITING_FOR_BUCKET",
+    "underlying_quote_source": "PM_CLOB_READ",
+    "normalized_price_source": "SCANNER_NORMALIZED_BEST_ASK",
+    "live_eligible_quote_source": True,  # PM_CLOB_READ is in ALLOWED_UNDERLYING_SOURCES
     "current_tte": live_quote.get("tte_seconds"),
     "quote_source": live_quote.get("quote_source"),
     "orders_submitted_8_12": 0,
@@ -461,6 +495,7 @@ supervisor = {
     "daily_live_trades": 0,
     "halted": False,
     "halt_reason": "",
+    "no_trade_reason": canary_auth.get("no_trade_reason", "DOWN_ASK_OUTSIDE_8_12_BUCKET" if not live_quote.get("clob", {}).get("in_bucket") else ""),
 }
 
 with open(f"{SUPERVISOR}/v21742_btc15m_8_12_live_review_status.json", "w") as f:

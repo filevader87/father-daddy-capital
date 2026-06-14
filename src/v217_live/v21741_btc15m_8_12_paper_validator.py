@@ -11,6 +11,15 @@ Key parameters:
 - Settlement: Gamma Events API, outcomes = ["Up", "Down"], outcomePrices = [up_price, down_price]
 - PnL: contracts = 5/ask, win = contracts*1 - 5, loss = -5, friction = 0.02*5
 - Promotion: 25+ resolved, WR sufficient, EV>0, PF>=1.25, DD<=15%, 0 errors, 0 violations
+
+TRIGGER DIRECTION (V21.7.43 corrected):
+The 8-12¢ DOWN micro-canary enters when DOWN is CHEAP because BTC is strongly UP
+relative to the window reference level. This is a contrarian downside-reversal /
+convexity trade — buying cheap DOWN insurance when the market prices DOWN as unlikely.
+When BTC trends DOWN hard, the DOWN ask rises toward 80-99¢ (DOWN dominant).
+When BTC is strongly UP, the DOWN ask compresses toward 1-20¢ (DOWN unlikely = cheap).
+The 8-12¢ zone means DOWN is priced at 8-12% probability — cheap insurance.
+Do NOT describe this trigger as "BTC trending down."
 """
 
 import json, os, sys, time, requests
