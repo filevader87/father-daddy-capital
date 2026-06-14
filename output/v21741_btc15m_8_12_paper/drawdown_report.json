@@ -1,0 +1,2020 @@
+{
+  "max_drawdown": 35.7,
+  "max_drawdown_pct": 5.1,
+  "peak_pnl": 6526.2,
+  "drawdown_start_trade": "P812-0228",
+  "drawdown_end_trade": "P812-0235",
+  "final_cumulative_pnl": 6526.2,
+  "cumulative_series": [
+    {
+      "trade_id": "P812-0001",
+      "timestamp": "2026-06-07T10:57:07",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": -5.1
+    },
+    {
+      "trade_id": "P812-0002",
+      "timestamp": "2026-06-07T11:09:27",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": -10.2
+    },
+    {
+      "trade_id": "P812-0003",
+      "timestamp": "2026-06-07T11:26:30",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": -15.3
+    },
+    {
+      "trade_id": "P812-0004",
+      "timestamp": "2026-06-07T11:38:56",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": -20.4
+    },
+    {
+      "trade_id": "P812-0005",
+      "timestamp": "2026-06-07T11:56:57",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 37.0
+    },
+    {
+      "trade_id": "P812-0006",
+      "timestamp": "2026-06-07T12:09:26",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 77.35
+    },
+    {
+      "trade_id": "P812-0007",
+      "timestamp": "2026-06-07T12:26:31",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 134.75
+    },
+    {
+      "trade_id": "P812-0008",
+      "timestamp": "2026-06-07T12:41:15",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 179.65
+    },
+    {
+      "trade_id": "P812-0009",
+      "timestamp": "2026-06-07T12:51:10",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 174.55
+    },
+    {
+      "trade_id": "P812-0010",
+      "timestamp": "2026-06-07T13:07:22",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 231.95
+    },
+    {
+      "trade_id": "P812-0011",
+      "timestamp": "2026-06-07T13:37:44",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 289.35
+    },
+    {
+      "trade_id": "P812-0012",
+      "timestamp": "2026-06-07T14:11:08",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 284.25
+    },
+    {
+      "trade_id": "P812-0013",
+      "timestamp": "2026-06-07T14:21:11",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 279.15
+    },
+    {
+      "trade_id": "P812-0014",
+      "timestamp": "2026-06-07T14:36:31",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 336.55
+    },
+    {
+      "trade_id": "P812-0015",
+      "timestamp": "2026-06-07T14:50:05",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 393.95
+    },
+    {
+      "trade_id": "P812-0016",
+      "timestamp": "2026-06-07T15:08:34",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 451.35
+    },
+    {
+      "trade_id": "P812-0017",
+      "timestamp": "2026-06-07T15:39:50",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 446.25
+    },
+    {
+      "trade_id": "P812-0018",
+      "timestamp": "2026-06-07T15:55:54",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 503.65
+    },
+    {
+      "trade_id": "P812-0019",
+      "timestamp": "2026-06-07T16:08:53",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 498.55
+    },
+    {
+      "trade_id": "P812-0020",
+      "timestamp": "2026-06-07T16:25:22",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 493.45
+    },
+    {
+      "trade_id": "P812-0021",
+      "timestamp": "2026-06-07T16:55:33",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 538.35
+    },
+    {
+      "trade_id": "P812-0022",
+      "timestamp": "2026-06-07T17:06:55",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 533.25
+    },
+    {
+      "trade_id": "P812-0023",
+      "timestamp": "2026-06-07T17:42:10",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 528.15
+    },
+    {
+      "trade_id": "P812-0024",
+      "timestamp": "2026-06-07T17:52:47",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 585.55
+    },
+    {
+      "trade_id": "P812-0025",
+      "timestamp": "2026-06-07T18:11:33",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 580.45
+    },
+    {
+      "trade_id": "P812-0026",
+      "timestamp": "2026-06-07T18:17:00",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 617.02
+    },
+    {
+      "trade_id": "P812-0027",
+      "timestamp": "2026-06-07T18:42:08",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 653.59
+    },
+    {
+      "trade_id": "P812-0028",
+      "timestamp": "2026-06-07T18:52:04",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 710.99
+    },
+    {
+      "trade_id": "P812-0029",
+      "timestamp": "2026-06-07T19:18:25",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 768.39
+    },
+    {
+      "trade_id": "P812-0030",
+      "timestamp": "2026-06-07T19:38:17",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 825.79
+    },
+    {
+      "trade_id": "P812-0031",
+      "timestamp": "2026-06-07T19:52:03",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 820.69
+    },
+    {
+      "trade_id": "P812-0032",
+      "timestamp": "2026-06-07T20:05:20",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 815.59
+    },
+    {
+      "trade_id": "P812-0033",
+      "timestamp": "2026-06-07T20:24:45",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 810.49
+    },
+    {
+      "trade_id": "P812-0034",
+      "timestamp": "2026-06-07T20:52:15",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 805.39
+    },
+    {
+      "trade_id": "P812-0035",
+      "timestamp": "2026-06-07T21:09:26",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 800.29
+    },
+    {
+      "trade_id": "P812-0036",
+      "timestamp": "2026-06-07T21:22:14",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 857.69
+    },
+    {
+      "trade_id": "P812-0037",
+      "timestamp": "2026-06-07T21:57:45",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 852.59
+    },
+    {
+      "trade_id": "P812-0038",
+      "timestamp": "2026-06-07T22:11:10",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 847.49
+    },
+    {
+      "trade_id": "P812-0039",
+      "timestamp": "2026-06-07T22:20:48",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 904.89
+    },
+    {
+      "trade_id": "P812-0040",
+      "timestamp": "2026-06-07T22:37:16",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 899.79
+    },
+    {
+      "trade_id": "P812-0041",
+      "timestamp": "2026-06-07T22:55:18",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 944.69
+    },
+    {
+      "trade_id": "P812-0042",
+      "timestamp": "2026-06-07T23:26:30",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 939.59
+    },
+    {
+      "trade_id": "P812-0043",
+      "timestamp": "2026-06-07T23:56:19",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 934.49
+    },
+    {
+      "trade_id": "P812-0044",
+      "timestamp": "2026-06-08T00:11:25",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 991.89
+    },
+    {
+      "trade_id": "P812-0045",
+      "timestamp": "2026-06-08T00:26:10",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 986.79
+    },
+    {
+      "trade_id": "P812-0046",
+      "timestamp": "2026-06-08T00:37:59",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 981.69
+    },
+    {
+      "trade_id": "P812-0047",
+      "timestamp": "2026-06-08T00:56:46",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 1032.14
+    },
+    {
+      "trade_id": "P812-0048",
+      "timestamp": "2026-06-08T01:05:10",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1089.54
+    },
+    {
+      "trade_id": "P812-0049",
+      "timestamp": "2026-06-08T01:25:00",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1146.94
+    },
+    {
+      "trade_id": "P812-0050",
+      "timestamp": "2026-06-08T02:26:52",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 1187.3
+    },
+    {
+      "trade_id": "P812-0051",
+      "timestamp": "2026-06-08T02:36:10",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 1227.65
+    },
+    {
+      "trade_id": "P812-0052",
+      "timestamp": "2026-06-08T03:10:15",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1222.55
+    },
+    {
+      "trade_id": "P812-0053",
+      "timestamp": "2026-06-08T03:42:49",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 1259.12
+    },
+    {
+      "trade_id": "P812-0054",
+      "timestamp": "2026-06-08T04:05:16",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1316.52
+    },
+    {
+      "trade_id": "P812-0055",
+      "timestamp": "2026-06-08T04:21:28",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 1366.97
+    },
+    {
+      "trade_id": "P812-0056",
+      "timestamp": "2026-06-08T04:38:22",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1424.37
+    },
+    {
+      "trade_id": "P812-0057",
+      "timestamp": "2026-06-08T04:50:23",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1481.77
+    },
+    {
+      "trade_id": "P812-0058",
+      "timestamp": "2026-06-08T05:12:44",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 1532.23
+    },
+    {
+      "trade_id": "P812-0059",
+      "timestamp": "2026-06-08T05:35:47",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1589.63
+    },
+    {
+      "trade_id": "P812-0060",
+      "timestamp": "2026-06-08T05:52:02",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1584.53
+    },
+    {
+      "trade_id": "P812-0061",
+      "timestamp": "2026-06-08T06:09:22",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1579.43
+    },
+    {
+      "trade_id": "P812-0062",
+      "timestamp": "2026-06-08T06:22:58",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1574.33
+    },
+    {
+      "trade_id": "P812-0063",
+      "timestamp": "2026-06-08T06:38:55",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1631.73
+    },
+    {
+      "trade_id": "P812-0064",
+      "timestamp": "2026-06-08T06:57:18",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 1682.19
+    },
+    {
+      "trade_id": "P812-0065",
+      "timestamp": "2026-06-08T07:05:57",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1677.09
+    },
+    {
+      "trade_id": "P812-0066",
+      "timestamp": "2026-06-08T07:26:00",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1671.99
+    },
+    {
+      "trade_id": "P812-0067",
+      "timestamp": "2026-06-08T07:48:52",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1666.89
+    },
+    {
+      "trade_id": "P812-0068",
+      "timestamp": "2026-06-08T08:02:19",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1724.29
+    },
+    {
+      "trade_id": "P812-0069",
+      "timestamp": "2026-06-08T08:21:44",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1781.69
+    },
+    {
+      "trade_id": "P812-0070",
+      "timestamp": "2026-06-08T08:55:44",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1839.09
+    },
+    {
+      "trade_id": "P812-0071",
+      "timestamp": "2026-06-08T09:06:27",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1833.99
+    },
+    {
+      "trade_id": "P812-0072",
+      "timestamp": "2026-06-08T09:21:42",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1828.89
+    },
+    {
+      "trade_id": "P812-0073",
+      "timestamp": "2026-06-08T09:34:50",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 1886.29
+    },
+    {
+      "trade_id": "P812-0074",
+      "timestamp": "2026-06-08T09:56:02",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1881.19
+    },
+    {
+      "trade_id": "P812-0075",
+      "timestamp": "2026-06-08T10:10:20",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 1921.54
+    },
+    {
+      "trade_id": "P812-0076",
+      "timestamp": "2026-06-08T10:20:04",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 1966.44
+    },
+    {
+      "trade_id": "P812-0077",
+      "timestamp": "2026-06-08T10:41:55",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 1961.34
+    },
+    {
+      "trade_id": "P812-0078",
+      "timestamp": "2026-06-08T10:56:52",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2018.74
+    },
+    {
+      "trade_id": "P812-0079",
+      "timestamp": "2026-06-08T11:22:46",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2013.64
+    },
+    {
+      "trade_id": "P812-0080",
+      "timestamp": "2026-06-08T11:38:30",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2008.54
+    },
+    {
+      "trade_id": "P812-0081",
+      "timestamp": "2026-06-08T11:53:12",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2065.94
+    },
+    {
+      "trade_id": "P812-0082",
+      "timestamp": "2026-06-08T12:03:49",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 2110.84
+    },
+    {
+      "trade_id": "P812-0083",
+      "timestamp": "2026-06-08T12:23:48",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2105.74
+    },
+    {
+      "trade_id": "P812-0084",
+      "timestamp": "2026-06-08T12:36:29",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2100.64
+    },
+    {
+      "trade_id": "P812-0085",
+      "timestamp": "2026-06-08T12:57:44",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2095.54
+    },
+    {
+      "trade_id": "P812-0086",
+      "timestamp": "2026-06-08T13:26:12",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2152.94
+    },
+    {
+      "trade_id": "P812-0087",
+      "timestamp": "2026-06-08T13:53:23",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2147.84
+    },
+    {
+      "trade_id": "P812-0088",
+      "timestamp": "2026-06-08T14:26:43",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2205.24
+    },
+    {
+      "trade_id": "P812-0089",
+      "timestamp": "2026-06-08T14:41:27",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2200.14
+    },
+    {
+      "trade_id": "P812-0090",
+      "timestamp": "2026-06-08T15:11:25",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2195.04
+    },
+    {
+      "trade_id": "P812-0091",
+      "timestamp": "2026-06-08T15:27:52",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 2245.5
+    },
+    {
+      "trade_id": "P812-0092",
+      "timestamp": "2026-06-08T15:39:28",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 2295.95
+    },
+    {
+      "trade_id": "P812-0093",
+      "timestamp": "2026-06-08T16:12:43",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2290.85
+    },
+    {
+      "trade_id": "P812-0094",
+      "timestamp": "2026-06-08T16:21:51",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2285.75
+    },
+    {
+      "trade_id": "P812-0095",
+      "timestamp": "2026-06-08T16:35:12",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2343.15
+    },
+    {
+      "trade_id": "P812-0096",
+      "timestamp": "2026-06-08T16:54:37",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 2393.61
+    },
+    {
+      "trade_id": "P812-0097",
+      "timestamp": "2026-06-08T17:12:36",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2451.01
+    },
+    {
+      "trade_id": "P812-0098",
+      "timestamp": "2026-06-08T17:21:24",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2445.91
+    },
+    {
+      "trade_id": "P812-0099",
+      "timestamp": "2026-06-08T17:34:18",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2503.31
+    },
+    {
+      "trade_id": "P812-0100",
+      "timestamp": "2026-06-08T17:53:30",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2498.21
+    },
+    {
+      "trade_id": "P812-0101",
+      "timestamp": "2026-06-08T18:37:19",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2555.61
+    },
+    {
+      "trade_id": "P812-0102",
+      "timestamp": "2026-06-08T18:50:48",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2613.01
+    },
+    {
+      "trade_id": "P812-0103",
+      "timestamp": "2026-06-08T19:22:18",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2607.91
+    },
+    {
+      "trade_id": "P812-0104",
+      "timestamp": "2026-06-08T19:55:08",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 2652.81
+    },
+    {
+      "trade_id": "P812-0105",
+      "timestamp": "2026-06-08T20:37:56",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2647.71
+    },
+    {
+      "trade_id": "P812-0106",
+      "timestamp": "2026-06-08T20:56:38",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2642.61
+    },
+    {
+      "trade_id": "P812-0107",
+      "timestamp": "2026-06-08T21:05:40",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2637.51
+    },
+    {
+      "trade_id": "P812-0108",
+      "timestamp": "2026-06-08T21:41:20",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2632.41
+    },
+    {
+      "trade_id": "P812-0109",
+      "timestamp": "2026-06-08T21:54:38",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2689.81
+    },
+    {
+      "trade_id": "P812-0110",
+      "timestamp": "2026-06-08T22:01:42",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2747.21
+    },
+    {
+      "trade_id": "P812-0111",
+      "timestamp": "2026-06-08T22:23:11",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2742.11
+    },
+    {
+      "trade_id": "P812-0112",
+      "timestamp": "2026-06-08T22:42:25",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2799.51
+    },
+    {
+      "trade_id": "P812-0113",
+      "timestamp": "2026-06-08T22:57:00",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2794.41
+    },
+    {
+      "trade_id": "P812-0114",
+      "timestamp": "2026-06-08T23:09:01",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2789.31
+    },
+    {
+      "trade_id": "P812-0115",
+      "timestamp": "2026-06-08T23:16:46",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2846.71
+    },
+    {
+      "trade_id": "P812-0116",
+      "timestamp": "2026-06-08T23:55:44",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2904.11
+    },
+    {
+      "trade_id": "P812-0117",
+      "timestamp": "2026-06-09T00:27:19",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 2961.51
+    },
+    {
+      "trade_id": "P812-0118",
+      "timestamp": "2026-06-09T00:57:16",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3018.91
+    },
+    {
+      "trade_id": "P812-0119",
+      "timestamp": "2026-06-09T01:11:12",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3013.81
+    },
+    {
+      "trade_id": "P812-0120",
+      "timestamp": "2026-06-09T01:25:07",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3008.71
+    },
+    {
+      "trade_id": "P812-0121",
+      "timestamp": "2026-06-09T01:57:04",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3003.61
+    },
+    {
+      "trade_id": "P812-0122",
+      "timestamp": "2026-06-09T02:26:43",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 2998.51
+    },
+    {
+      "trade_id": "P812-0123",
+      "timestamp": "2026-06-09T02:37:36",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3055.91
+    },
+    {
+      "trade_id": "P812-0124",
+      "timestamp": "2026-06-09T03:38:41",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3050.81
+    },
+    {
+      "trade_id": "P812-0125",
+      "timestamp": "2026-06-09T03:55:38",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3045.71
+    },
+    {
+      "trade_id": "P812-0126",
+      "timestamp": "2026-06-09T04:07:34",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3040.61
+    },
+    {
+      "trade_id": "P812-0127",
+      "timestamp": "2026-06-09T04:27:10",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3098.01
+    },
+    {
+      "trade_id": "P812-0128",
+      "timestamp": "2026-06-09T04:34:13",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3092.91
+    },
+    {
+      "trade_id": "P812-0129",
+      "timestamp": "2026-06-09T04:56:05",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3087.81
+    },
+    {
+      "trade_id": "P812-0130",
+      "timestamp": "2026-06-09T05:09:54",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3082.71
+    },
+    {
+      "trade_id": "P812-0131",
+      "timestamp": "2026-06-09T05:25:26",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3077.61
+    },
+    {
+      "trade_id": "P812-0132",
+      "timestamp": "2026-06-09T05:35:56",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3072.51
+    },
+    {
+      "trade_id": "P812-0133",
+      "timestamp": "2026-06-09T05:56:37",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 3112.86
+    },
+    {
+      "trade_id": "P812-0134",
+      "timestamp": "2026-06-09T06:26:11",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3107.76
+    },
+    {
+      "trade_id": "P812-0135",
+      "timestamp": "2026-06-09T06:41:08",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3165.16
+    },
+    {
+      "trade_id": "P812-0136",
+      "timestamp": "2026-06-09T06:56:57",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3222.56
+    },
+    {
+      "trade_id": "P812-0137",
+      "timestamp": "2026-06-09T07:08:25",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3279.96
+    },
+    {
+      "trade_id": "P812-0138",
+      "timestamp": "2026-06-09T07:26:57",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3337.36
+    },
+    {
+      "trade_id": "P812-0139",
+      "timestamp": "2026-06-09T07:39:05",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3332.26
+    },
+    {
+      "trade_id": "P812-0140",
+      "timestamp": "2026-06-09T08:05:04",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3389.66
+    },
+    {
+      "trade_id": "P812-0141",
+      "timestamp": "2026-06-09T08:40:43",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3384.56
+    },
+    {
+      "trade_id": "P812-0142",
+      "timestamp": "2026-06-09T08:55:58",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3441.96
+    },
+    {
+      "trade_id": "P812-0143",
+      "timestamp": "2026-06-09T09:08:27",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3436.86
+    },
+    {
+      "trade_id": "P812-0144",
+      "timestamp": "2026-06-09T09:33:37",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3494.26
+    },
+    {
+      "trade_id": "P812-0145",
+      "timestamp": "2026-06-09T10:09:37",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3489.16
+    },
+    {
+      "trade_id": "P812-0146",
+      "timestamp": "2026-06-09T10:40:41",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3546.56
+    },
+    {
+      "trade_id": "P812-0147",
+      "timestamp": "2026-06-09T11:04:06",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3603.96
+    },
+    {
+      "trade_id": "P812-0148",
+      "timestamp": "2026-06-09T11:27:34",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3598.86
+    },
+    {
+      "trade_id": "P812-0149",
+      "timestamp": "2026-06-09T12:07:41",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3593.76
+    },
+    {
+      "trade_id": "P812-0150",
+      "timestamp": "2026-06-09T12:41:30",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 3644.22
+    },
+    {
+      "trade_id": "P812-0151",
+      "timestamp": "2026-06-09T13:19:54",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3701.62
+    },
+    {
+      "trade_id": "P812-0152",
+      "timestamp": "2026-06-09T13:40:33",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3696.52
+    },
+    {
+      "trade_id": "P812-0153",
+      "timestamp": "2026-06-09T14:11:08",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3753.92
+    },
+    {
+      "trade_id": "P812-0154",
+      "timestamp": "2026-06-09T14:20:39",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 3794.27
+    },
+    {
+      "trade_id": "P812-0155",
+      "timestamp": "2026-06-09T14:39:33",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3851.67
+    },
+    {
+      "trade_id": "P812-0156",
+      "timestamp": "2026-06-09T15:11:32",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3846.57
+    },
+    {
+      "trade_id": "P812-0157",
+      "timestamp": "2026-06-09T15:42:52",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3841.47
+    },
+    {
+      "trade_id": "P812-0158",
+      "timestamp": "2026-06-09T16:09:02",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 3898.87
+    },
+    {
+      "trade_id": "P812-0159",
+      "timestamp": "2026-06-09T16:36:34",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3893.77
+    },
+    {
+      "trade_id": "P812-0160",
+      "timestamp": "2026-06-09T17:12:52",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3888.67
+    },
+    {
+      "trade_id": "P812-0161",
+      "timestamp": "2026-06-09T17:20:31",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3883.57
+    },
+    {
+      "trade_id": "P812-0162",
+      "timestamp": "2026-06-09T18:20:04",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 3920.14
+    },
+    {
+      "trade_id": "P812-0163",
+      "timestamp": "2026-06-09T19:40:39",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3915.04
+    },
+    {
+      "trade_id": "P812-0164",
+      "timestamp": "2026-06-09T20:20:47",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 3965.49
+    },
+    {
+      "trade_id": "P812-0165",
+      "timestamp": "2026-06-09T20:42:18",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 3960.39
+    },
+    {
+      "trade_id": "P812-0166",
+      "timestamp": "2026-06-09T21:04:24",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 4005.29
+    },
+    {
+      "trade_id": "P812-0167",
+      "timestamp": "2026-06-09T21:19:18",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4062.69
+    },
+    {
+      "trade_id": "P812-0168",
+      "timestamp": "2026-06-09T21:41:29",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4120.09
+    },
+    {
+      "trade_id": "P812-0169",
+      "timestamp": "2026-06-09T22:35:01",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4114.99
+    },
+    {
+      "trade_id": "P812-0170",
+      "timestamp": "2026-06-09T22:51:06",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 4165.45
+    },
+    {
+      "trade_id": "P812-0171",
+      "timestamp": "2026-06-09T23:20:45",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 4202.02
+    },
+    {
+      "trade_id": "P812-0172",
+      "timestamp": "2026-06-09T23:38:47",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4259.42
+    },
+    {
+      "trade_id": "P812-0173",
+      "timestamp": "2026-06-10T00:06:49",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4254.32
+    },
+    {
+      "trade_id": "P812-0174",
+      "timestamp": "2026-06-10T00:33:09",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4311.72
+    },
+    {
+      "trade_id": "P812-0175",
+      "timestamp": "2026-06-10T00:50:01",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4306.62
+    },
+    {
+      "trade_id": "P812-0176",
+      "timestamp": "2026-06-10T01:07:41",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4364.02
+    },
+    {
+      "trade_id": "P812-0177",
+      "timestamp": "2026-06-10T01:39:00",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4421.42
+    },
+    {
+      "trade_id": "P812-0178",
+      "timestamp": "2026-06-10T01:49:47",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4416.32
+    },
+    {
+      "trade_id": "P812-0179",
+      "timestamp": "2026-06-10T02:10:47",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 4466.77
+    },
+    {
+      "trade_id": "P812-0180",
+      "timestamp": "2026-06-10T02:18:43",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 4517.23
+    },
+    {
+      "trade_id": "P812-0181",
+      "timestamp": "2026-06-10T10:08:04",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4574.63
+    },
+    {
+      "trade_id": "P812-0182",
+      "timestamp": "2026-06-10T10:56:45",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4569.53
+    },
+    {
+      "trade_id": "P812-0183",
+      "timestamp": "2026-06-10T12:12:32",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4564.43
+    },
+    {
+      "trade_id": "P812-0184",
+      "timestamp": "2026-06-10T12:25:01",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4621.83
+    },
+    {
+      "trade_id": "P812-0185",
+      "timestamp": "2026-06-10T12:30:25",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4616.73
+    },
+    {
+      "trade_id": "P812-0186",
+      "timestamp": "2026-06-10T13:56:27",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4674.13
+    },
+    {
+      "trade_id": "P812-0187",
+      "timestamp": "2026-06-10T15:21:32",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4669.03
+    },
+    {
+      "trade_id": "P812-0188",
+      "timestamp": "2026-06-10T15:53:59",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4663.93
+    },
+    {
+      "trade_id": "P812-0189",
+      "timestamp": "2026-06-10T16:26:58",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 4714.38
+    },
+    {
+      "trade_id": "P812-0190",
+      "timestamp": "2026-06-10T16:50:26",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4771.78
+    },
+    {
+      "trade_id": "P812-0191",
+      "timestamp": "2026-06-10T17:49:10",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4766.68
+    },
+    {
+      "trade_id": "P812-0192",
+      "timestamp": "2026-06-10T18:27:29",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4761.58
+    },
+    {
+      "trade_id": "P812-0193",
+      "timestamp": "2026-06-10T20:27:12",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4756.48
+    },
+    {
+      "trade_id": "P812-0194",
+      "timestamp": "2026-06-10T22:55:45",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4813.88
+    },
+    {
+      "trade_id": "P812-0195",
+      "timestamp": "2026-06-10T23:19:55",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4808.78
+    },
+    {
+      "trade_id": "P812-0196",
+      "timestamp": "2026-06-11T00:23:19",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4803.68
+    },
+    {
+      "trade_id": "P812-0197",
+      "timestamp": "2026-06-11T00:53:41",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4798.58
+    },
+    {
+      "trade_id": "P812-0198",
+      "timestamp": "2026-06-11T01:24:20",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4793.48
+    },
+    {
+      "trade_id": "P812-0199",
+      "timestamp": "2026-06-11T01:56:04",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 4833.84
+    },
+    {
+      "trade_id": "P812-0200",
+      "timestamp": "2026-06-11T02:25:52",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4891.24
+    },
+    {
+      "trade_id": "P812-0201",
+      "timestamp": "2026-06-11T02:55:29",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4886.14
+    },
+    {
+      "trade_id": "P812-0202",
+      "timestamp": "2026-06-11T03:32:54",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4881.04
+    },
+    {
+      "trade_id": "P812-0203",
+      "timestamp": "2026-06-11T03:53:35",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4875.94
+    },
+    {
+      "trade_id": "P812-0204",
+      "timestamp": "2026-06-11T04:51:11",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4870.84
+    },
+    {
+      "trade_id": "P812-0205",
+      "timestamp": "2026-06-11T05:05:27",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 4915.74
+    },
+    {
+      "trade_id": "P812-0206",
+      "timestamp": "2026-06-11T06:24:11",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4910.64
+    },
+    {
+      "trade_id": "P812-0207",
+      "timestamp": "2026-06-11T06:52:03",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 4968.04
+    },
+    {
+      "trade_id": "P812-0208",
+      "timestamp": "2026-06-11T07:26:00",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4962.94
+    },
+    {
+      "trade_id": "P812-0209",
+      "timestamp": "2026-06-11T07:56:32",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4957.84
+    },
+    {
+      "trade_id": "P812-0210",
+      "timestamp": "2026-06-11T08:23:52",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4952.74
+    },
+    {
+      "trade_id": "P812-0211",
+      "timestamp": "2026-06-11T08:50:49",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4947.64
+    },
+    {
+      "trade_id": "P812-0212",
+      "timestamp": "2026-06-11T09:24:51",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5005.04
+    },
+    {
+      "trade_id": "P812-0213",
+      "timestamp": "2026-06-11T09:36:12",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 4999.94
+    },
+    {
+      "trade_id": "P812-0214",
+      "timestamp": "2026-06-11T09:55:29",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 5036.5
+    },
+    {
+      "trade_id": "P812-0215",
+      "timestamp": "2026-06-11T10:23:14",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 5076.86
+    },
+    {
+      "trade_id": "P812-0216",
+      "timestamp": "2026-06-11T10:52:04",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5071.76
+    },
+    {
+      "trade_id": "P812-0217",
+      "timestamp": "2026-06-11T11:27:56",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5129.16
+    },
+    {
+      "trade_id": "P812-0218",
+      "timestamp": "2026-06-11T12:57:17",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5124.06
+    },
+    {
+      "trade_id": "P812-0219",
+      "timestamp": "2026-06-11T13:27:31",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5174.51
+    },
+    {
+      "trade_id": "P812-0220",
+      "timestamp": "2026-06-11T13:55:03",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5169.41
+    },
+    {
+      "trade_id": "P812-0221",
+      "timestamp": "2026-06-11T14:24:44",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5164.31
+    },
+    {
+      "trade_id": "P812-0222",
+      "timestamp": "2026-06-11T15:27:12",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5159.21
+    },
+    {
+      "trade_id": "P812-0223",
+      "timestamp": "2026-06-11T15:37:56",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 5199.57
+    },
+    {
+      "trade_id": "P812-0224",
+      "timestamp": "2026-06-11T16:37:29",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5194.47
+    },
+    {
+      "trade_id": "P812-0225",
+      "timestamp": "2026-06-11T17:04:24",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 5231.04
+    },
+    {
+      "trade_id": "P812-0226",
+      "timestamp": "2026-06-11T17:33:46",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5225.94
+    },
+    {
+      "trade_id": "P812-0227",
+      "timestamp": "2026-06-11T17:57:40",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5220.84
+    },
+    {
+      "trade_id": "P812-0228",
+      "timestamp": "2026-06-11T18:07:04",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5278.24
+    },
+    {
+      "trade_id": "P812-0229",
+      "timestamp": "2026-06-11T18:38:38",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5273.14
+    },
+    {
+      "trade_id": "P812-0230",
+      "timestamp": "2026-06-11T19:33:07",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5268.04
+    },
+    {
+      "trade_id": "P812-0231",
+      "timestamp": "2026-06-11T21:08:54",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5262.94
+    },
+    {
+      "trade_id": "P812-0232",
+      "timestamp": "2026-06-11T22:07:51",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5257.84
+    },
+    {
+      "trade_id": "P812-0233",
+      "timestamp": "2026-06-11T23:37:15",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5252.74
+    },
+    {
+      "trade_id": "P812-0234",
+      "timestamp": "2026-06-12T00:08:11",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5247.64
+    },
+    {
+      "trade_id": "P812-0235",
+      "timestamp": "2026-06-12T00:38:52",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5242.54
+    },
+    {
+      "trade_id": "P812-0236",
+      "timestamp": "2026-06-12T01:03:21",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5299.94
+    },
+    {
+      "trade_id": "P812-0237",
+      "timestamp": "2026-06-12T02:07:02",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5294.84
+    },
+    {
+      "trade_id": "P812-0238",
+      "timestamp": "2026-06-12T03:11:21",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5345.29
+    },
+    {
+      "trade_id": "P812-0239",
+      "timestamp": "2026-06-12T03:41:54",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5340.19
+    },
+    {
+      "trade_id": "P812-0240",
+      "timestamp": "2026-06-12T04:07:08",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5397.59
+    },
+    {
+      "trade_id": "P812-0241",
+      "timestamp": "2026-06-12T04:38:38",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5448.05
+    },
+    {
+      "trade_id": "P812-0242",
+      "timestamp": "2026-06-12T05:07:51",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5498.5
+    },
+    {
+      "trade_id": "P812-0243",
+      "timestamp": "2026-06-12T05:38:31",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5555.9
+    },
+    {
+      "trade_id": "P812-0244",
+      "timestamp": "2026-06-12T06:34:50",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5613.3
+    },
+    {
+      "trade_id": "P812-0245",
+      "timestamp": "2026-06-12T07:08:20",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5608.2
+    },
+    {
+      "trade_id": "P812-0246",
+      "timestamp": "2026-06-12T07:42:34",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5603.1
+    },
+    {
+      "trade_id": "P812-0247",
+      "timestamp": "2026-06-12T08:06:50",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5598.0
+    },
+    {
+      "trade_id": "P812-0248",
+      "timestamp": "2026-06-12T08:38:16",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5648.46
+    },
+    {
+      "trade_id": "P812-0249",
+      "timestamp": "2026-06-12T09:11:55",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5643.36
+    },
+    {
+      "trade_id": "P812-0250",
+      "timestamp": "2026-06-12T09:39:45",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5638.26
+    },
+    {
+      "trade_id": "P812-0251",
+      "timestamp": "2026-06-12T10:10:35",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5633.16
+    },
+    {
+      "trade_id": "P812-0252",
+      "timestamp": "2026-06-12T10:35:12",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5628.06
+    },
+    {
+      "trade_id": "P812-0253",
+      "timestamp": "2026-06-12T11:05:39",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5622.96
+    },
+    {
+      "trade_id": "P812-0254",
+      "timestamp": "2026-06-12T11:36:11",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5680.36
+    },
+    {
+      "trade_id": "P812-0255",
+      "timestamp": "2026-06-12T12:08:03",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5730.81
+    },
+    {
+      "trade_id": "P812-0256",
+      "timestamp": "2026-06-12T13:41:00",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5788.21
+    },
+    {
+      "trade_id": "P812-0257",
+      "timestamp": "2026-06-12T14:06:58",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5783.11
+    },
+    {
+      "trade_id": "P812-0258",
+      "timestamp": "2026-06-12T15:10:49",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5778.01
+    },
+    {
+      "trade_id": "P812-0259",
+      "timestamp": "2026-06-12T15:39:17",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5828.47
+    },
+    {
+      "trade_id": "P812-0260",
+      "timestamp": "2026-06-12T16:08:57",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5823.37
+    },
+    {
+      "trade_id": "P812-0261",
+      "timestamp": "2026-06-12T16:41:41",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5873.82
+    },
+    {
+      "trade_id": "P812-0262",
+      "timestamp": "2026-06-12T18:08:44",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 5924.28
+    },
+    {
+      "trade_id": "P812-0263",
+      "timestamp": "2026-06-12T18:40:07",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5919.18
+    },
+    {
+      "trade_id": "P812-0264",
+      "timestamp": "2026-06-12T20:09:00",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5914.08
+    },
+    {
+      "trade_id": "P812-0265",
+      "timestamp": "2026-06-12T21:08:39",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5908.98
+    },
+    {
+      "trade_id": "P812-0266",
+      "timestamp": "2026-06-12T21:40:22",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5903.88
+    },
+    {
+      "trade_id": "P812-0267",
+      "timestamp": "2026-06-12T22:10:04",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5898.78
+    },
+    {
+      "trade_id": "P812-0268",
+      "timestamp": "2026-06-12T23:12:19",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 5935.35
+    },
+    {
+      "trade_id": "P812-0269",
+      "timestamp": "2026-06-13T01:41:56",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5930.25
+    },
+    {
+      "trade_id": "P812-0270",
+      "timestamp": "2026-06-13T02:11:40",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 5987.65
+    },
+    {
+      "trade_id": "P812-0271",
+      "timestamp": "2026-06-13T12:47:36",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 5982.55
+    },
+    {
+      "trade_id": "P812-0272",
+      "timestamp": "2026-06-13T13:48:40",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 6022.9
+    },
+    {
+      "trade_id": "P812-0273",
+      "timestamp": "2026-06-13T16:50:00",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 6067.8
+    },
+    {
+      "trade_id": "P812-0274",
+      "timestamp": "2026-06-13T17:19:50",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 6062.7
+    },
+    {
+      "trade_id": "P812-0275",
+      "timestamp": "2026-06-13T17:50:40",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 6099.27
+    },
+    {
+      "trade_id": "P812-0276",
+      "timestamp": "2026-06-13T18:49:48",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 6156.67
+    },
+    {
+      "trade_id": "P812-0277",
+      "timestamp": "2026-06-13T21:52:19",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 6214.07
+    },
+    {
+      "trade_id": "P812-0278",
+      "timestamp": "2026-06-13T23:20:45",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 6208.97
+    },
+    {
+      "trade_id": "P812-0279",
+      "timestamp": "2026-06-13T23:53:19",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 6249.32
+    },
+    {
+      "trade_id": "P812-0280",
+      "timestamp": "2026-06-14T01:53:01",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 6306.72
+    },
+    {
+      "trade_id": "P812-0281",
+      "timestamp": "2026-06-14T02:23:34",
+      "result": "WIN",
+      "net_pnl": 36.5667,
+      "cumulative_pnl": 6343.29
+    },
+    {
+      "trade_id": "P812-0282",
+      "timestamp": "2026-06-14T04:53:25",
+      "result": "WIN",
+      "net_pnl": 40.3545,
+      "cumulative_pnl": 6383.64
+    },
+    {
+      "trade_id": "P812-0283",
+      "timestamp": "2026-06-14T06:22:28",
+      "result": "WIN",
+      "net_pnl": 50.4556,
+      "cumulative_pnl": 6434.1
+    },
+    {
+      "trade_id": "P812-0284",
+      "timestamp": "2026-06-14T08:21:29",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 6429.0
+    },
+    {
+      "trade_id": "P812-0285",
+      "timestamp": "2026-06-14T09:55:25",
+      "result": "LOSS",
+      "net_pnl": -5.1,
+      "cumulative_pnl": 6423.9
+    },
+    {
+      "trade_id": "P812-0286",
+      "timestamp": "2026-06-14T10:53:07",
+      "result": "WIN",
+      "net_pnl": 57.4,
+      "cumulative_pnl": 6481.3
+    },
+    {
+      "trade_id": "P812-0287",
+      "timestamp": "2026-06-14T11:56:47",
+      "result": "WIN",
+      "net_pnl": 44.9,
+      "cumulative_pnl": 6526.2
+    }
+  ],
+  "max_drawdown_note": "Calculated as percentage of $700 starting bankroll, not $5 position size."
+}
