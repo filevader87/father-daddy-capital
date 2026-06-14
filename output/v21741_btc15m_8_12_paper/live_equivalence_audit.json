@@ -1,7 +1,7 @@
 {
   "classification": "LIVE_EQUIVALENCE_AUDIT_PASSED",
-  "total_candidates": 2517,
-  "total_resolved": 287,
+  "total_candidates": 2523,
+  "total_resolved": 289,
   "total_rejected": 0,
   "fill_assumptions": {
     "entry_price": "normalized_best_ask",

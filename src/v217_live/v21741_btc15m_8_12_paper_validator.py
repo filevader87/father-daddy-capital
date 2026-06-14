@@ -27,6 +27,7 @@ FORENSICS = "output/v2171_live/state_gate_forensics.jsonl"
 SETTLED = "output/v21736_shadow_settlement_repair/retro_resolved_events.jsonl"
 
 PAPER_SIZE_USD = 5.00
+BANKROLL_USD = 700.00
 FRICTION_PCT = 0.02  # 2% friction/slippage penalty
 GAMMA_BASE = "https://gamma-api.polymarket.com/events"
 MAX_OPEN = 1
@@ -175,15 +176,12 @@ def build_paper_trades(candidates):
         window_key = dt.strftime("%Y-%m-%d-%H") + f"-{dt.minute // 15 * 15:02d}"
         if window_key not in window_groups:
             window_groups[window_key] = c
-        else:
-            # NOTE: "lowest ask" dedup inflates PnL by ~24% vs "first observation"
-            # because lower ask = higher payoff on win (binary contract).
-            # In live, the bot enters at whatever ask is current when signal fires,
-            # which is closer to first-observation timing.
-            # Lowest-ask is retained here as the reported (optimistic) estimate.
-            # Conservative estimate uses first-observation: see audit note.
-            if c["ask"] < window_groups[window_key]["ask"]:
-                window_groups[window_key] = c
+        # FIX: Use first-observation dedup (earliest timestamp per window).
+        # Previous lowest-ask dedup inflated PnL by ~24% because lower ask
+        # = higher payoff on win in binary contracts. In live, the bot enters
+        # at whatever ask is current when the signal fires, which is
+        # first-observation timing, not cherry-picked lowest ask.
+        # No else clause: first observation is kept automatically.
     
     trades = sorted(window_groups.values(), key=lambda x: x["timestamp"])
     return trades
@@ -336,7 +334,7 @@ def compute_promotion_metrics(resolved_trades, rejects, candidates):
         dd = peak - c
         if dd > max_dd:
             max_dd = dd
-    max_dd_pct = max_dd / PAPER_SIZE_USD * 100 if PAPER_SIZE_USD > 0 else 0
+    max_dd_pct = max_dd / BANKROLL_USD * 100 if BANKROLL_USD > 0 else 0
     
     # Max loss streak
     max_streak = 0
@@ -455,7 +453,7 @@ def build_drawdown_report(resolved_trades):
     
     return {
         "max_drawdown": round(max_dd, 2),
-        "max_drawdown_pct": round(max_dd / PAPER_SIZE_USD * 100, 1),
+        "max_drawdown_pct": round(max_dd / BANKROLL_USD * 100, 1),
         "peak_pnl": round(peak, 2),
         "drawdown_start_trade": cumulative[dd_start]["trade_id"] if cumulative else None,
         "drawdown_end_trade": cumulative[dd_end]["trade_id"] if cumulative else None,

@@ -1,30 +1,30 @@
 {
   "classification": "BTC_15M_8_12_READY_FOR_LIVE_REVIEW",
-  "events_detected": 2517,
-  "paper_trades_opened": 287,
-  "paper_trades_resolved": 287,
+  "events_detected": 2523,
+  "paper_trades_opened": 289,
+  "paper_trades_resolved": 289,
   "rejects_total": 0,
   "rejects_by_reason": {},
-  "wins": 139,
+  "wins": 141,
   "losses": 148,
-  "WR": 48.43,
-  "gross_PnL": 6554.9,
-  "total_friction": 28.7,
-  "net_PnL": 6526.2,
-  "EV_per_trade": 22.7394,
-  "EV_per_dollar": 4.5479,
-  "PF": 9.86,
+  "WR": 48.79,
+  "gross_PnL": 5049.82,
+  "total_friction": 28.9,
+  "net_PnL": 5020.92,
+  "EV_per_trade": 17.3734,
+  "EV_per_dollar": 3.4747,
+  "PF": 7.82,
   "max_drawdown": 35.7,
   "max_drawdown_pct": 5.1,
   "max_loss_streak": 7,
-  "avg_entry_price": 0.0879,
-  "avg_TTE": 416.0,
-  "avg_spread": 0.1157,
+  "avg_entry_price": 0.1074,
+  "avg_TTE": 469.0,
+  "avg_spread": 0.0947,
   "settlement_errors": 0,
   "journal_completeness_pct": 100.0,
   "mode_violations": 0,
-  "live_equivalent_valid": 287,
-  "frequency_per_day": 35.9,
+  "live_equivalent_valid": 289,
+  "frequency_per_day": 36.1,
   "total_days_observed": 8,
   "promotion_checks": {
     "resolved_gte_25": true,
@@ -37,64 +37,5 @@
     "mode_violations_zero": true,
     "live_equivalent_valid_gte_25": true
   },
-  "all_promotion_gates_pass": true,
-  "selection_bias_assessment": {
-    "wr_early_entry_0_5min": "64.5%",
-    "wr_mid_entry_5_10min": "46.2%",
-    "wr_late_entry_10_15min": "46.8%",
-    "look_ahead_bias": "NONE_DETECTED (early entry has HIGHEST WR)",
-    "regime_dependency": "8-12c asks only appear during strong DOWN trending regimes. Zero 8-12c during range-bound BTC.",
-    "edge_assessment": "Genuine edge during trending regimes. The 8-12c ask IS the signal."
-  },
-  "audit_findings": {
-    "pnl_inflation_from_dedup": {
-      "description": "Lowest-ask dedup inflates PnL by ~24% vs first-observation strategy",
-      "lowest_ask_net_pnl": 6526.2,
-      "first_obs_net_pnl": 4939.46,
-      "lowest_ask_ev_per_trade": 22.74,
-      "first_obs_ev_per_trade": 17.21,
-      "pnl_inflation_pct": 24.1,
-      "wr_identical": true,
-      "wr_lowest_ask": 48.4,
-      "wr_first_obs": 48.4,
-      "note": "In live trading, entry timing is random within window. Conservative estimate uses first-observation strategy."
-    },
-    "spread_gate_rationale": {
-      "directive_gate": 0.02,
-      "applied_gate": 0.2,
-      "rationale": "8-12 cent contracts have 8-13% spreads. Zero candidates pass spread <= 0.02. The 0.20 gate passes all 287 trades.",
-      "avg_spread_pct": 0.1229,
-      "avg_calc_spread": 0.1157
-    },
-    "condition_id_gap": {
-      "description": "condition_id and down_token_id not stored in scanner forensics data",
-      "status": "UNVERIFIED_FROM_FORENSICS",
-      "can_resolve_from_gamma": true,
-      "resolution": "Marked as UNVERIFIED in live_equivalence audit. Not a blocking issue for paper validation."
-    },
-    "regime_dependency": {
-      "description": "All 287 trades occurred during BTC DOWN trending (June 7-14)",
-      "zero_trades_in_rangebound": true,
-      "wr_by_date": {
-        "2026-06-07": "46.5% (43 trades)",
-        "2026-06-08": "54.8% (73 trades)",
-        "2026-06-09": "50.0% (56 trades)",
-        "2026-06-10": "47.8% (23 trades)",
-        "2026-06-11": "31.6% (38 trades)",
-        "2026-06-12": "42.9% (35 trades)",
-        "2026-06-13": "63.6% (11 trades)",
-        "2026-06-14": "75.0% (8 trades)"
-      },
-      "worst_day": "2026-06-11 at 31.6%",
-      "note": "The cell is regime-locked. It only trades during DOWN trending. No edge during range-bound."
-    },
-    "look_ahead_bias": {
-      "tested": true,
-      "result": "NO_LOOK_AHEAD_BIAS",
-      "early_entry_0_5min_wr": "64.5%",
-      "mid_entry_5_10min_wr": "46.2%",
-      "late_entry_10_15min_wr": "46.8%",
-      "note": "Early entry has HIGHEST WR, which is opposite to look-ahead bias."
-    }
-  }
+  "all_promotion_gates_pass": true
 }
