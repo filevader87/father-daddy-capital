@@ -49,5 +49,12 @@
     "edge_assessment": "Genuine edge during trending regimes. The 8-12c ask IS the signal."
   },
   "regime_dependency_note": "8-12c asks only appear during strong DOWN trending. Zero trades during range-bound BTC. Paper validation is regime-dependent.",
-  "paper_validation_caveat": "287 resolved trades over 7 days (June 7-14). All during trending regime. WR 48.4% is genuine but regime-locked. Range-bound regime produces 0 trades."
+  "paper_validation_caveat": "287 resolved trades over 7 days (June 7-14). All during trending regime. WR 48.4% is genuine but regime-locked. Range-bound regime produces 0 trades.",
+  "conservative_estimate": {
+    "description": "First-observation dedup (more realistic for live trading)",
+    "net_pnl": 4939.46,
+    "ev_per_trade": 17.21,
+    "wr": 48.4,
+    "pnl_inflation_from_lowest_ask": "24%"
+  }
 }

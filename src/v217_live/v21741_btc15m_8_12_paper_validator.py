@@ -130,7 +130,9 @@ def load_paper_candidates():
         # Track A gates (modified for 8-12¢ bucket)
         bucket_gate = 0.08 <= ask <= 0.12
         tte_gate = 180 <= tte <= 900
-        spread_gate = spread_pct <= 0.20  # Relaxed from 0.02 for wider bucket
+        # Spread gate: 0.02 (2%) is for midzone; 8-12¢ contracts have 8-13% spreads
+        # All 2,517 candidates pass spread <= 0.20; zero pass spread <= 0.02
+        spread_gate = spread_pct <= 0.20  # Adjusted for low-price bucket
         
         if not (bucket_gate and tte_gate and spread_gate):
             continue
@@ -174,7 +176,12 @@ def build_paper_trades(candidates):
         if window_key not in window_groups:
             window_groups[window_key] = c
         else:
-            # Keep the one with the best (lowest) ask — most conservative entry
+            # NOTE: "lowest ask" dedup inflates PnL by ~24% vs "first observation"
+            # because lower ask = higher payoff on win (binary contract).
+            # In live, the bot enters at whatever ask is current when signal fires,
+            # which is closer to first-observation timing.
+            # Lowest-ask is retained here as the reported (optimistic) estimate.
+            # Conservative estimate uses first-observation: see audit note.
             if c["ask"] < window_groups[window_key]["ask"]:
                 window_groups[window_key] = c
     
@@ -224,11 +231,15 @@ def resolve_paper_trades(trades):
         pnl = compute_pnl(trade["ask"], PAPER_SIZE_USD, result)
         
         # Live-equivalence audit
+        # NOTE: condition_id_valid and down_token_valid are marked True but
+        # cannot be verified from forensics data (scanner doesn't store them).
+        # condition_id CAN be resolved from Gamma API per slug, but was not done
+        # in this validation pass. This is a known gap.
         live_equiv = {
             "entry_source": "SCANNER_NORMALIZED_BEST_ASK",
             "order_type": "FAK_FOK_SIMULATED",
-            "condition_id_valid": True,  # scanner uses valid condition_ids
-            "down_token_valid": True,
+            "condition_id_valid": "UNVERIFIED_FROM_FORENSICS",  # not stored in scanner data
+            "down_token_valid": "UNVERIFIED_FROM_FORENSICS",  # not stored in scanner data
             "quote_not_midpoint": trade["ask"] != trade["mid"],
             "quote_not_stale": True,
             "quote_not_gamma_rest": True,
