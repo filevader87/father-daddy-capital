@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-06-15T12:43:43.499954+00:00",
+  "authorized_live_cells": [
+    {
+      "cell": "BTC_15M_DOWN_3_8_TAIL_CANARY",
+      "priority": 1,
+      "asset": "BTC",
+      "interval": "15m",
+      "side": "DOWN",
+      "ask_min": 0.03,
+      "ask_max": 0.08,
+      "size_usd": 5.0,
+      "order_type": "FAK/FOK",
+      "mode": "MICRO_LIVE_ARMED_NO_SIGNAL"
+    },
+    {
+      "cell": "BTC_15M_DOWN_8_12_MICRO_CANARY",
+      "priority": 2,
+      "asset": "BTC",
+      "interval": "15m",
+      "side": "DOWN",
+      "ask_min": 0.08,
+      "ask_max": 0.12,
+      "size_usd": 5.0,
+      "order_type": "FAK/FOK",
+      "mode": "MICRO_LIVE_ARMED_NO_SIGNAL"
+    }
+  ],
+  "priority": "TAIL_3_8_first_then_MICRO_8_12",
+  "same_window_rule": "execute_at_most_one; prefer 3-8\u00a2 tail; block 8-12\u00a2 after 3-8\u00a2 fill",
+  "up_cheap_shadow": {
+    "cell": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+    "mode": "SHADOW_ONLY",
+    "live_allowed": false,
+    "promotion_requires": "resolved_shadow >= 25, EV > 0, PF >= 1.25, settlement_errors = 0"
+  },
+  "blocked_cells": [
+    {
+      "cell": "BTC_5M_DOWN",
+      "mode": "DEPRECATED",
+      "reason": "FORWARD_NEGATIVE_RECONNECT_GAP"
+    },
+    {
+      "cell": "BTC_5M_UP",
+      "mode": "DEPRECATED",
+      "reason": "FORWARD_NEGATIVE_RECONNECT_GAP"
+    },
+    {
+      "cell": "WEATHER_TEMP",
+      "mode": "QUARANTINED",
+      "reason": "FORWARD_NEGATIVE_0W_5L"
+    },
+    {
+      "cell": "WEATHER_RAIN",
+      "mode": "SHADOW_ONLY",
+      "reason": "NO_MARKETS_OR_SAMPLE"
+    },
+    {
+      "cell": "SCALPER",
+      "mode": "SHADOW_ONLY",
+      "reason": "INFRA_NOT_READY_PM_5M_NOT_WS_ELIGIBLE"
+    }
+  ]
+}

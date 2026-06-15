@@ -1,0 +1,18 @@
+{
+  "from_mode": "PAPER_ONLY",
+  "to_mode": "MICRO_LIVE_ARMED_NO_SIGNAL",
+  "timestamp": "2026-06-15T12:43:43.499538+00:00",
+  "conditions_met": {
+    "live_cash_verified": true,
+    "clob_collateral_balance_gte_5": true,
+    "allowance_ready": true,
+    "collateral_ready": true,
+    "mode_integrity_passed": true,
+    "order_lifecycle_ready": true,
+    "settlement_ready": true,
+    "quote_provenance_patch_passed": true
+  },
+  "conditions_failed": [],
+  "transition_allowed": true,
+  "blocker": null
+}

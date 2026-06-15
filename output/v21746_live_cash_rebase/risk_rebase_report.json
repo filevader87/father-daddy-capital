@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-06-15T12:43:43.499746+00:00",
+  "paper_bankroll_old": 70.0,
+  "paper_bankroll_old_note": "REPLACED \u2014 not used for live risk",
+  "live_bankroll_source": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+  "live_bankroll_usd": 52.09,
+  "micro_canary_size_usd": 5.0,
+  "risk_pct_live_bankroll": 9.6,
+  "risk_classification": "MICRO_LIVE_MIN_SIZE_RISK_ACCEPTED",
+  "max_live_order_size_usd": 5.0,
+  "max_open_live_positions": 1,
+  "max_daily_live_trades": 1,
+  "max_daily_live_loss_usd": 5.0,
+  "max_weekly_live_loss_usd": 10.0,
+  "post_fill_freeze": true,
+  "loss_pause_requires_manual_review": true,
+  "win_freeze_no_auto_scale": true,
+  "forbidden_modes": [
+    "FULL_LIVE",
+    "AUTO_SCALE",
+    "SWARM_LIVE",
+    "MULTI_POSITION_LIVE",
+    "KELLY_LIVE"
+  ]
+}

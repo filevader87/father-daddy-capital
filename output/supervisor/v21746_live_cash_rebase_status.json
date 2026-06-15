@@ -1,0 +1,70 @@
+{
+  "version": "V21.7.46",
+  "timestamp": "2026-06-15T12:43:44.175684+00:00",
+  "mode": "MICRO_LIVE_ARMED_NO_SIGNAL",
+  "live_cash_verified": true,
+  "live_bankroll": 52.093392,
+  "live_bankroll_source": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+  "sig_type": 3,
+  "allowance_ready": true,
+  "collateral_ready": true,
+  "risk_pct_for_5_order": 9.6,
+  "micro_live_armed": true,
+  "real_orders_allowed": false,
+  "authorized_live_cells": [
+    {
+      "cell": "BTC_15M_DOWN_3_8_TAIL_CANARY",
+      "priority": 1,
+      "asset": "BTC",
+      "interval": "15m",
+      "side": "DOWN",
+      "ask_min": 0.03,
+      "ask_max": 0.08,
+      "size_usd": 5.0,
+      "order_type": "FAK/FOK",
+      "mode": "MICRO_LIVE_ARMED_NO_SIGNAL"
+    },
+    {
+      "cell": "BTC_15M_DOWN_8_12_MICRO_CANARY",
+      "priority": 2,
+      "asset": "BTC",
+      "interval": "15m",
+      "side": "DOWN",
+      "ask_min": 0.08,
+      "ask_max": 0.12,
+      "size_usd": 5.0,
+      "order_type": "FAK/FOK",
+      "mode": "MICRO_LIVE_ARMED_NO_SIGNAL"
+    }
+  ],
+  "current_btc15m_down_ask": null,
+  "current_btc15m_down_zone": null,
+  "underlying_quote_source": null,
+  "normalized_price_source": null,
+  "quote_age_ms": null,
+  "open_positions": 0,
+  "daily_live_trades": 0,
+  "weekly_live_loss": 0.0,
+  "halted": false,
+  "halt_reason": null,
+  "next_action": "wait_for_valid_3_8_or_8_12_signal",
+  "forbidden_modes": [
+    "FULL_LIVE",
+    "AUTO_SCALE",
+    "SWARM_LIVE",
+    "MULTI_POSITION_LIVE",
+    "KELLY_LIVE"
+  ],
+  "live_capital_guardrails": {
+    "max_live_order_size_usd": 5.0,
+    "max_open_live_positions": 1,
+    "max_daily_live_trades": 1,
+    "max_daily_live_loss_usd": 5.0,
+    "max_weekly_live_loss_usd": 10.0,
+    "post_fill_freeze": true,
+    "loss_pause_requires_manual_review": true,
+    "win_freeze_no_auto_scale": true
+  },
+  "paper_bankroll_note": "70.0 is NOT live capital \u2014 replaced by CLOB sig_type=3 balance",
+  "data_api_note": "position value is NOT live cash"
+}
