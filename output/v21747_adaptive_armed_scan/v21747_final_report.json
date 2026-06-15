@@ -1,0 +1,29 @@
+{
+  "version": "V21.7.47",
+  "timestamp": "2026-06-15T22:23:27.528566+00:00",
+  "classification": "V21.7.47_ADAPTIVE_ARMED_SCAN_ACTIVE",
+  "mode": "MICRO_LIVE_ARMED_ADAPTIVE_SCAN",
+  "adaptive_scan_enabled": true,
+  "current_tier": 0,
+  "current_tier_name": "IDLE_MIDZONE_SCAN",
+  "down_ask_cents": 49.0,
+  "zone": "MIDZONE",
+  "signal": false,
+  "can_submit": false,
+  "scan_interval_s": 120,
+  "guardrails_unchanged": true,
+  "max_order_size_usd": 5.0,
+  "post_fill_freeze": true,
+  "audit": {
+    "total_windows_observed": 1,
+    "tier_0_scans": 1,
+    "tier_1_scans": 0,
+    "tier_2_scans": 0,
+    "tier_3_candidates": 0,
+    "pre_submit_checks_triggered": 0,
+    "orders_submitted": 0,
+    "no_fill_count": 0,
+    "missed_signal_count": 0,
+    "missed_signal_reasons": []
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "total_windows_observed": 1,
+  "tier_0_scans": 1,
+  "tier_1_scans": 0,
+  "tier_2_scans": 0,
+  "tier_3_candidates": 0,
+  "pre_submit_checks_triggered": 0,
+  "orders_submitted": 0,
+  "no_fill_count": 0,
+  "missed_signal_count": 0,
+  "missed_signal_reasons": []
+}
