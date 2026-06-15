@@ -1,0 +1,259 @@
+{
+  "version": "V21.7.45",
+  "timestamp": "2026-06-15T12:26:23.951026+00:00",
+  "classification": "V21.7.45_WALLET_TRUTH_REPAIRED",
+  "wallet_truth": {
+    "profile_address": "0xD4a39D33b8CcB46a08378e426BaEE3591463f090",
+    "deposit_wallet_address": "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b",
+    "data_api_position_value": 2.115,
+    "data_api_position_value_note": "Position value only \u2014 NOT available cash",
+    "clob_collateral_balance": 55.294992,
+    "clob_collateral_allowance": "INFINITE",
+    "clob_conditional_allowances_valid": true,
+    "public_portfolio_value": null,
+    "public_cash_estimate": null,
+    "runner_paper_bankroll": 70.0,
+    "runner_paper_bankroll_note": "NOT live capital \u2014 paper parameter only",
+    "live_cash_verified": true,
+    "collateral_ready": true,
+    "auth_valid": true,
+    "source_of_truth": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+    "blocker": null
+  },
+  "clob_auth_classification": "CLOB_BALANCE_ALLOWANCE_AUTH_OK",
+  "data_api": {
+    "eoa": {
+      "position_value": 0,
+      "total_positions": 0,
+      "active_positions": 0,
+      "active_details": [],
+      "total_initial_value": 0,
+      "total_current_value": 0
+    },
+    "dw": {
+      "position_value": 2.115,
+      "total_positions": 23,
+      "active_positions": 2,
+      "active_details": [
+        {
+          "title": "Reya FDV above $200M one day after launch?",
+          "size": 3.0,
+          "avgPrice": 0.23,
+          "initialValue": 0.69,
+          "currentValue": 0.57,
+          "outcome": "Yes"
+        },
+        {
+          "title": "New Rihanna Album before GTA VI?",
+          "size": 3.0,
+          "avgPrice": 0.54,
+          "initialValue": 1.62,
+          "currentValue": 1.545,
+          "outcome": "Yes"
+        }
+      ],
+      "total_initial_value": 76.18,
+      "total_current_value": 2.11
+    }
+  },
+  "on_chain": {
+    "eoa": {
+      "address": "0xD4a39D33b8CcB46a08378e426BaEE3591463f090",
+      "matic": 62.1901,
+      "usdc_e": 0.0,
+      "usdc_native": 0.0,
+      "usdc_total_onchain": 0.0
+    },
+    "dw": {
+      "address": "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b",
+      "matic": 0.0,
+      "usdc_e": 0.0,
+      "usdc_native": 0.0,
+      "usdc_total_onchain": 0.0
+    }
+  },
+  "up_cheap_shadow": {
+    "timestamp": "2026-06-15T12:26:23.950164+00:00",
+    "track": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+    "mode": "SHADOW_ONLY",
+    "live_allowed": false,
+    "events": 0,
+    "resolved": 0,
+    "wins": 0,
+    "losses": 0,
+    "pending": 0,
+    "errors": 0,
+    "WR": 0,
+    "net_PnL": 0,
+    "EV_per_trade": 0,
+    "PF": 0,
+    "max_DD": 0,
+    "max_loss_streak": 0,
+    "settlement_errors": 0,
+    "promotion_requires": "resolved_shadow >= 25, EV > 0, PF >= 1.25, settlement_errors = 0"
+  },
+  "down_vs_up_comparison": {
+    "timestamp": "2026-06-15T12:26:23.950369+00:00",
+    "DOWN_8_12": {
+      "track": "BTC_15M_DOWN_8_12_TRACK_A",
+      "resolved": 0,
+      "WR": 0,
+      "EV_per_trade": 0,
+      "PF": 0,
+      "mode": "AUTHORIZED_NO_TRADE"
+    },
+    "UP_8_12": {
+      "track": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+      "resolved": 0,
+      "WR": 0,
+      "EV_per_trade": 0,
+      "PF": 0,
+      "mode": "SHADOW_ONLY"
+    },
+    "classification": "BOTH_UNPROVEN"
+  },
+  "blocked_cells": [
+    {
+      "cell": "BTC_5M_DOWN",
+      "mode": "DEPRECATED",
+      "reason_blocked": "FORWARD_NEGATIVE_RECONNECT_GAP",
+      "last_sample": "V21.7.4 scanner data",
+      "wr": null,
+      "pnl": null,
+      "repair_required": "NEW_STRATEGY_LOGIC + CONNECTIVITY_FIX",
+      "minimum_proof_before_reconsideration": "50+ resolved positive-EV paper trades, PF >= 1.25",
+      "priority": "LOW"
+    },
+    {
+      "cell": "BTC_5M_UP",
+      "mode": "DEPRECATED",
+      "reason_blocked": "FORWARD_NEGATIVE_RECONNECT_GAP",
+      "last_sample": "None \u2014 never deployed",
+      "wr": null,
+      "pnl": null,
+      "repair_required": "SAME_AS_BTC_5M_DOWN",
+      "minimum_proof_before_reconsideration": "50+ resolved positive-EV paper trades, PF >= 1.25",
+      "priority": "LOW"
+    },
+    {
+      "cell": "WEATHER_TEMP",
+      "mode": "QUARANTINED",
+      "reason_blocked": "FORWARD_NEGATIVE_0W_5L",
+      "last_sample": "V21.7.39 5 trades (0W/5L, -$7.60)",
+      "wr": 0.0,
+      "pnl": -7.6,
+      "repair_required": "CALIBRATION_REPAIRED + SETTLEMENT_VALIDATION",
+      "minimum_proof_before_reconsideration": "25+ resolved paper trades, positive EV, PF >= 1.25, station/timezone validated",
+      "priority": "LOW"
+    },
+    {
+      "cell": "WEATHER_RAIN",
+      "mode": "SHADOW_ONLY",
+      "reason_blocked": "NO_MARKETS_OR_SAMPLE",
+      "last_sample": "None",
+      "wr": null,
+      "pnl": null,
+      "repair_required": "MARKET_DISCOVERY + SAMPLING",
+      "minimum_proof_before_reconsideration": "25+ resolved paper trades, positive EV",
+      "priority": "LOW"
+    },
+    {
+      "cell": "SCALPER",
+      "mode": "SHADOW_ONLY",
+      "reason_blocked": "INFRA_NOT_READY_PM_5M_NOT_WS_ELIGIBLE",
+      "last_sample": "None \u2014 PM 5m markets lack WS book depth",
+      "wr": null,
+      "pnl": null,
+      "repair_required": "WS_BOOK_DEPTH_FOR_5M",
+      "minimum_proof_before_reconsideration": "25+ resolved paper trades, PF >= 1.25",
+      "priority": "LOW"
+    }
+  ],
+  "live_capital_readiness": {
+    "timestamp": "2026-06-15T12:26:23.950710+00:00",
+    "can_execute_live_now": true,
+    "source_of_truth_live_cash": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+    "blocker_if_not_live": null,
+    "authorized_but_blocked": [
+      {
+        "cell": "BTC_15M_DOWN_8_12_MICRO_CANARY",
+        "status": "AUTHORIZED_NO_TRADE",
+        "blocker": "BUCKET_SCARCITY",
+        "live_allowed": true,
+        "capital_ready": true
+      }
+    ],
+    "strategy_ready_capital_blocked": [],
+    "strategy_blocked": [
+      {
+        "cell": "BTC_5M_DOWN",
+        "reason": "FORWARD_NEGATIVE"
+      },
+      {
+        "cell": "BTC_5M_UP",
+        "reason": "FORWARD_NEGATIVE"
+      },
+      {
+        "cell": "WEATHER_TEMP",
+        "reason": "QUARANTINED_0W_5L"
+      },
+      {
+        "cell": "WEATHER_RAIN",
+        "reason": "NO_MARKETS"
+      },
+      {
+        "cell": "SCALPER",
+        "reason": "INFRA_NOT_READY"
+      }
+    ],
+    "up_cheap_shadow": {
+      "cell": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+      "mode": "SHADOW_ONLY",
+      "live_allowed": false,
+      "promotion_requires": "resolved_shadow >= 25, EV > 0, PF >= 1.25, settlement_errors = 0"
+    },
+    "weather": "QUARANTINED",
+    "btc_5m": "DEPRECATED"
+  },
+  "supervisor": {
+    "version": "V21.7.45",
+    "timestamp": "2026-06-15T12:26:23.950888+00:00",
+    "paper_bankroll": 70.0,
+    "paper_bankroll_note": "NOT live capital \u2014 paper parameter only",
+    "data_api_position_value": 2.115,
+    "data_api_position_value_note": "Position value only \u2014 NOT available cash",
+    "clob_collateral_balance": 55.294992,
+    "clob_collateral_allowance": "INFINITE",
+    "live_cash_verified": true,
+    "collateral_ready": true,
+    "auth_valid": true,
+    "source_of_truth": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+    "mode": "MICRO_LIVE_ARMED",
+    "real_orders_allowed": true,
+    "capital_blocker": null,
+    "classification": "CAPITAL_TRUTH_VERIFIED"
+  },
+  "pass_criteria": {
+    "wallet_truth_model_implemented": true,
+    "data_api_not_treated_as_cash": true,
+    "runner_bankroll_not_treated_as_live": true,
+    "clob_401_classified": true,
+    "supervisor_exposes_source_of_truth": true,
+    "real_order_gate_blocks_unverified_capital": true,
+    "up_cheap_shadow_created": true,
+    "comparison_generated": true,
+    "weather_remains_quarantined": true,
+    "btc_5m_remains_deprecated": true,
+    "blocked_cells_report_generated": true
+  },
+  "failure_criteria": {
+    "data_api_treated_as_cash": false,
+    "public_portfolio_treated_as_executable": false,
+    "runner_bankroll_treated_as_live": false,
+    "clob_401_ignored": false,
+    "up_cheap_made_live": false,
+    "weather_revived": false,
+    "btc_5m_revived": false,
+    "real_orders_allowed_with_unverified_capital": false
+  }
+}

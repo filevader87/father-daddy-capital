@@ -1,0 +1,46 @@
+{
+  "timestamp": "2026-06-15T12:26:23.950710+00:00",
+  "can_execute_live_now": true,
+  "source_of_truth_live_cash": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+  "blocker_if_not_live": null,
+  "authorized_but_blocked": [
+    {
+      "cell": "BTC_15M_DOWN_8_12_MICRO_CANARY",
+      "status": "AUTHORIZED_NO_TRADE",
+      "blocker": "BUCKET_SCARCITY",
+      "live_allowed": true,
+      "capital_ready": true
+    }
+  ],
+  "strategy_ready_capital_blocked": [],
+  "strategy_blocked": [
+    {
+      "cell": "BTC_5M_DOWN",
+      "reason": "FORWARD_NEGATIVE"
+    },
+    {
+      "cell": "BTC_5M_UP",
+      "reason": "FORWARD_NEGATIVE"
+    },
+    {
+      "cell": "WEATHER_TEMP",
+      "reason": "QUARANTINED_0W_5L"
+    },
+    {
+      "cell": "WEATHER_RAIN",
+      "reason": "NO_MARKETS"
+    },
+    {
+      "cell": "SCALPER",
+      "reason": "INFRA_NOT_READY"
+    }
+  ],
+  "up_cheap_shadow": {
+    "cell": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+    "mode": "SHADOW_ONLY",
+    "live_allowed": false,
+    "promotion_requires": "resolved_shadow >= 25, EV > 0, PF >= 1.25, settlement_errors = 0"
+  },
+  "weather": "QUARANTINED",
+  "btc_5m": "DEPRECATED"
+}

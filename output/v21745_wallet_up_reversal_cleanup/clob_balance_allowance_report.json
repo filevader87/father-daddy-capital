@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-06-15T12:26:14.297839+00:00",
+  "pUSD_balance": 55.294992,
+  "pUSD_allowance": "INFINITE",
+  "minimum_required_for_5_order": 5.0,
+  "funding_sufficient": true,
+  "allowance_sufficient": true,
+  "classification": "CLOB_BALANCE_ALLOWANCE_VERIFIED",
+  "sig_type_2_balance_usd": 0.0,
+  "sig_type_2_note": "sig_type=2 returns balance=0 for POLY_1271 accounts \u2014 use sig_type=3"
+}

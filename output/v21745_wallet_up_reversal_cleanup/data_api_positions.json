@@ -1,0 +1,35 @@
+{
+  "eoa": {
+    "position_value": 0,
+    "total_positions": 0,
+    "active_positions": 0,
+    "active_details": [],
+    "total_initial_value": 0,
+    "total_current_value": 0
+  },
+  "dw": {
+    "position_value": 2.115,
+    "total_positions": 23,
+    "active_positions": 2,
+    "active_details": [
+      {
+        "title": "Reya FDV above $200M one day after launch?",
+        "size": 3.0,
+        "avgPrice": 0.23,
+        "initialValue": 0.69,
+        "currentValue": 0.57,
+        "outcome": "Yes"
+      },
+      {
+        "title": "New Rihanna Album before GTA VI?",
+        "size": 3.0,
+        "avgPrice": 0.54,
+        "initialValue": 1.62,
+        "currentValue": 1.545,
+        "outcome": "Yes"
+      }
+    ],
+    "total_initial_value": 76.18,
+    "total_current_value": 2.11
+  }
+}

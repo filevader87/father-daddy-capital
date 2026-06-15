@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-06-15T12:26:23.950369+00:00",
+  "DOWN_8_12": {
+    "track": "BTC_15M_DOWN_8_12_TRACK_A",
+    "resolved": 0,
+    "WR": 0,
+    "EV_per_trade": 0,
+    "PF": 0,
+    "mode": "AUTHORIZED_NO_TRADE"
+  },
+  "UP_8_12": {
+    "track": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+    "resolved": 0,
+    "WR": 0,
+    "EV_per_trade": 0,
+    "PF": 0,
+    "mode": "SHADOW_ONLY"
+  },
+  "classification": "BOTH_UNPROVEN"
+}

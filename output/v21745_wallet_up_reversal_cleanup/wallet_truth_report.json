@@ -1,0 +1,18 @@
+{
+  "profile_address": "0xD4a39D33b8CcB46a08378e426BaEE3591463f090",
+  "deposit_wallet_address": "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b",
+  "data_api_position_value": 2.115,
+  "data_api_position_value_note": "Position value only \u2014 NOT available cash",
+  "clob_collateral_balance": 55.294992,
+  "clob_collateral_allowance": "INFINITE",
+  "clob_conditional_allowances_valid": true,
+  "public_portfolio_value": null,
+  "public_cash_estimate": null,
+  "runner_paper_bankroll": 70.0,
+  "runner_paper_bankroll_note": "NOT live capital \u2014 paper parameter only",
+  "live_cash_verified": true,
+  "collateral_ready": true,
+  "auth_valid": true,
+  "source_of_truth": "CLOB_BALANCE_ALLOWANCE_SIG_TYPE_3",
+  "blocker": null
+}

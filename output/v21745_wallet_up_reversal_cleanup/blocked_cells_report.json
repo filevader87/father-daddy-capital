@@ -1,0 +1,57 @@
+[
+  {
+    "cell": "BTC_5M_DOWN",
+    "mode": "DEPRECATED",
+    "reason_blocked": "FORWARD_NEGATIVE_RECONNECT_GAP",
+    "last_sample": "V21.7.4 scanner data",
+    "wr": null,
+    "pnl": null,
+    "repair_required": "NEW_STRATEGY_LOGIC + CONNECTIVITY_FIX",
+    "minimum_proof_before_reconsideration": "50+ resolved positive-EV paper trades, PF >= 1.25",
+    "priority": "LOW"
+  },
+  {
+    "cell": "BTC_5M_UP",
+    "mode": "DEPRECATED",
+    "reason_blocked": "FORWARD_NEGATIVE_RECONNECT_GAP",
+    "last_sample": "None \u2014 never deployed",
+    "wr": null,
+    "pnl": null,
+    "repair_required": "SAME_AS_BTC_5M_DOWN",
+    "minimum_proof_before_reconsideration": "50+ resolved positive-EV paper trades, PF >= 1.25",
+    "priority": "LOW"
+  },
+  {
+    "cell": "WEATHER_TEMP",
+    "mode": "QUARANTINED",
+    "reason_blocked": "FORWARD_NEGATIVE_0W_5L",
+    "last_sample": "V21.7.39 5 trades (0W/5L, -$7.60)",
+    "wr": 0.0,
+    "pnl": -7.6,
+    "repair_required": "CALIBRATION_REPAIRED + SETTLEMENT_VALIDATION",
+    "minimum_proof_before_reconsideration": "25+ resolved paper trades, positive EV, PF >= 1.25, station/timezone validated",
+    "priority": "LOW"
+  },
+  {
+    "cell": "WEATHER_RAIN",
+    "mode": "SHADOW_ONLY",
+    "reason_blocked": "NO_MARKETS_OR_SAMPLE",
+    "last_sample": "None",
+    "wr": null,
+    "pnl": null,
+    "repair_required": "MARKET_DISCOVERY + SAMPLING",
+    "minimum_proof_before_reconsideration": "25+ resolved paper trades, positive EV",
+    "priority": "LOW"
+  },
+  {
+    "cell": "SCALPER",
+    "mode": "SHADOW_ONLY",
+    "reason_blocked": "INFRA_NOT_READY_PM_5M_NOT_WS_ELIGIBLE",
+    "last_sample": "None \u2014 PM 5m markets lack WS book depth",
+    "wr": null,
+    "pnl": null,
+    "repair_required": "WS_BOOK_DEPTH_FOR_5M",
+    "minimum_proof_before_reconsideration": "25+ resolved paper trades, PF >= 1.25",
+    "priority": "LOW"
+  }
+]

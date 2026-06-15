@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-06-15T12:26:23.950164+00:00",
+  "track": "BTC_15M_UP_8_12_TRACK_A_SHADOW",
+  "mode": "SHADOW_ONLY",
+  "live_allowed": false,
+  "events": 0,
+  "resolved": 0,
+  "wins": 0,
+  "losses": 0,
+  "pending": 0,
+  "errors": 0,
+  "WR": 0,
+  "net_PnL": 0,
+  "EV_per_trade": 0,
+  "PF": 0,
+  "max_DD": 0,
+  "max_loss_streak": 0,
+  "settlement_errors": 0,
+  "promotion_requires": "resolved_shadow >= 25, EV > 0, PF >= 1.25, settlement_errors = 0"
+}
