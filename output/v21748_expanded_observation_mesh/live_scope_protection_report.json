@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-06-16T00:10:42.729135+00:00",
+  "btc_5m_live_allowed": false,
+  "eth_5m_live_allowed": false,
+  "sol_5m_live_allowed": false,
+  "xrp_5m_live_allowed": false,
+  "weather_live_allowed": false,
+  "authorized_live_cells": [
+    "BTC_15M_DOWN_3_8_TAIL_CANARY",
+    "BTC_15M_DOWN_8_12_MICRO_CANARY"
+  ],
+  "live_order_assertions_passed": true,
+  "live_scope_unchanged": true
+}

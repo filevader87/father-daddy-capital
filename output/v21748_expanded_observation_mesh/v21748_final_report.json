@@ -1,0 +1,44 @@
+{
+  "version": "V21.7.48",
+  "timestamp": "2026-06-16T00:10:24.602277+00:00",
+  "classification": "V21.7.48_EXPANDED_OBSERVATION_MESH_ACTIVE",
+  "mode": "MICRO_LIVE_ARMED_ADAPTIVE_SCAN",
+  "5m_scan": {
+    "enabled": true,
+    "interval_s": 5,
+    "assets": [
+      "BTC",
+      "ETH",
+      "SOL",
+      "XRP"
+    ],
+    "markets_discovered": 8,
+    "quotes_captured": 16,
+    "shadow_opportunities": 0,
+    "live_allowed": false
+  },
+  "weather": {
+    "daily_activation": true,
+    "mode": "DAILY_PAPER_CALIBRATION",
+    "live_allowed": false,
+    "markets_found": 0
+  },
+  "live_scope": {
+    "authorized_live_cells": [
+      "BTC_15M_DOWN_3_8_TAIL_CANARY",
+      "BTC_15M_DOWN_8_12_MICRO_CANARY"
+    ],
+    "five_minute_live_allowed": {
+      "BTC": false,
+      "ETH": false,
+      "SOL": false,
+      "XRP": false
+    },
+    "weather_live_allowed": false,
+    "protection_passed": true,
+    "scope_unchanged": true
+  },
+  "guardrails_unchanged": true,
+  "max_order_size_usd": 5.0,
+  "post_fill_freeze": true
+}

@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-06-16T00:10:24.602277+00:00",
+  "version": "V21.7.48",
+  "markets_discovered": 8,
+  "quotes_captured": 16,
+  "zone_transitions": 16,
+  "shadow_opportunities": 0,
+  "scan_interval_s": 5,
+  "scan_mode": "SHADOW_DIAGNOSTIC_ONLY",
+  "assets": [
+    "BTC",
+    "ETH",
+    "SOL",
+    "XRP"
+  ],
+  "five_minute_live_allowed": {
+    "BTC": false,
+    "ETH": false,
+    "SOL": false,
+    "XRP": false
+  },
+  "weather_mode": "DAILY_PAPER_CALIBRATION"
+}

@@ -1,0 +1,27 @@
+{
+  "timestamp": "2026-06-16T00:10:24.602277+00:00",
+  "weather_mode": "DAILY_PAPER_CALIBRATION",
+  "weather_live_allowed": false,
+  "weather_markets_found": 0,
+  "paper_trades": 0,
+  "resolved": 0,
+  "wins": 0,
+  "losses": 0,
+  "wr": 0.0,
+  "net_pnl": 0.0,
+  "ev_per_trade": 0.0,
+  "pf": 0.0,
+  "calibration_error": null,
+  "settlement_errors": 0,
+  "promotion_requirements": {
+    "resolved_paper_events": 0,
+    "required": 25,
+    "wr": 0.0,
+    "required_gt_baseline": true,
+    "ev": 0.0,
+    "required_gt_0": true,
+    "pf": 0.0,
+    "required_gte_1_25": true
+  },
+  "status": "INSUFFICIENT_SAMPLE"
+}
