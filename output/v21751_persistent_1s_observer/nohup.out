@@ -1,0 +1,24 @@
+2026-06-16 06:10:47,392 [INFO] Starting persistent observer (PID=30156)
+2026-06-16 06:10:47,392 [INFO] Duration: 86400s = 24.0h
+2026-06-16 06:10:47,392 [INFO] Live scope: BTC 15m DOWN only. 5m=shadow. Weather=quarantined.
+2026-06-16 06:10:47,392 [INFO] Manual observations: input/manual_market_observations.jsonl
+2026-06-16 06:10:47,392 [INFO] V21.7.51 — Persistent 1-Second Market Observer
+2026-06-16 06:10:47,392 [INFO] Run duration: 86400s (24.0h)
+2026-06-16 06:10:47,392 [INFO] PID: 30156
+2026-06-16 06:10:47,392 [INFO] ============================================================
+2026-06-16 06:10:47,392 [INFO] Loaded 1 manual observations
+2026-06-16 06:10:49,181 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-16 06:10:49,182 [INFO] Market discovery: 8 markets (8 new)
+2026-06-16 06:11:01,503 [INFO] Heartbeat: loop=1 p50=14111ms tier=TIER_0_IDLE touches=0 scalps=0/0 mem=38.7MB
+2026-06-16 06:11:29,144 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-16 06:11:29,144 [INFO] Market discovery: 8 markets (0 new)
+2026-06-16 06:12:04,227 [INFO] Heartbeat: loop=6 p50=13400ms tier=TIER_0_IDLE touches=0 scalps=0/0 mem=39.1MB
+2026-06-16 06:12:05,137 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-16 06:12:05,137 [INFO] Market discovery: 8 markets (0 new)
+2026-06-16 06:12:38,399 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-16 06:12:38,399 [INFO] Market discovery: 8 markets (0 new)
+2026-06-16 06:12:44,348 [INFO] Signal 15 received, shutting down gracefully...
+2026-06-16 06:12:51,374 [INFO] Final report written. Classification: V21.7.51_PERSISTENT_1S_OBSERVER_ACTIVE
+2026-06-16 06:12:51,374 [INFO] Loops: 10  Touches: 0  P50: 12270ms
+2026-06-16 06:12:51,374 [INFO] Manual: 0 confirmed / 0 missed
+2026-06-16 06:12:51,374 [INFO] Observer shutdown complete
