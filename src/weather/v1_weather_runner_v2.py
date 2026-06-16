@@ -492,6 +492,7 @@ def compute_reality_anchored_probability(
     local_hour: float,  # Current local time (decimal hours)
     is_cooling: bool = False,  # Whether temperature is falling from recent METARs
     sigma_override: Optional[float] = None,
+    day_offset: int = 0,  # V21.7.52: days from today to target date
 ) -> Tuple[float, float, str]:
     """
     Compute reality-anchored probability using PolyWeather's approach.
@@ -543,25 +544,43 @@ def compute_reality_anchored_probability(
                 mu = max_so_far + (0.3 if not is_cooling else 0.0)
 
     # ─── Compute σ (spread) ───
-    # Base σ: spread of forecasts or fallback
-    if len(valid_forecasts) > 1:
-        sigma = max(0.6, (max(valid_forecasts.values()) - min(valid_forecasts.values())) / 2.0)
+    # V21.7.52 FIX: Use ensemble standard deviation as primary sigma source.
+    # Previous bug: used spread of 2-4 derived forecast values (range/2) which
+    # vastly understated uncertainty. sigma=0.3°C led to claimed P>95% on all
+    # 5 trades that lost — actual errors were 3-12°C.
+    
+    ensemble_std = valid_forecasts.get("Ensemble-std")
+    ensemble_n = valid_forecasts.get("Ensemble-n", 0)
+    
+    if ensemble_std is not None and ensemble_n is not None and int(ensemble_n) >= 10:
+        # Primary: ensemble spread (typically 1-4°C for 30+ members)
+        sigma = max(1.0, float(ensemble_std))
+    elif len(valid_forecasts) > 2:
+        # Fallback: spread of forecast sources (less reliable)
+        vals = [v for k, v in valid_forecasts.items() if not k.startswith("Ensemble-std") and not k.startswith("Ensemble-n")]
+        sigma = max(1.0, (max(vals) - min(vals)) / 2.0) if vals else 2.0
     else:
-        sigma = 1.5
+        # Last resort: conservative default
+        sigma = 2.0
 
-    # Risk adjustments
+    # Risk tier adjustments
     sigma += risk_profile["sigma_add"]
-    # Distance adjustment: airport-city bias
-    if dist_km > 30:
-        sigma += 0.3
-
-    # Peak-time σ reduction
+    
+    # Resolution uncertainty: airport-city distance
+    if dist_km > 10:
+        sigma += 0.5 * (dist_km / 10.0)  # +0.5°C per 10km
+    
+    # V21.7.52: Forecast horizon penalty — further days are more uncertain
+    if day_offset > 0:
+        sigma += 0.5 * day_offset  # +0.5°C per day of forecast horizon
+    
+    # Peak-time σ reduction (V21.7.52: gentler than before — was 0.3x/0.7x/0.85x)
     if peak_status == "past" and local_hour >= 21:
-        sigma *= 0.3
+        sigma *= 0.6  # Was 0.3 — too aggressive
     elif peak_status == "past" and local_hour > last_peak_h:
-        sigma *= 0.7
+        sigma *= 0.8  # Was 0.7
     elif peak_status == "in_window":
-        sigma *= 0.85
+        sigma *= 0.9  # Was 0.85
 
     # ─── Dead market detection ───
     is_dead = False
@@ -572,7 +591,7 @@ def compute_reality_anchored_probability(
             is_dead = True
 
     if is_dead:
-        sigma = 0.3  # Nearly certain outcome
+        sigma = max(1.0, sigma * 0.5)  # V21.7.52 FIX: was 0.3°C absolute — catastrophically understated. Even dead markets need realistic sigma for bucket boundaries.
 
     if sigma_override:
         sigma = sigma_override
@@ -591,7 +610,10 @@ def compute_reality_anchored_probability(
         prob = phi(z_high) - phi(z_low)
 
     # Or-higher / or-lower bucket handling would go here if needed
-    prob = max(0.01, min(0.99, prob))
+    # V21.7.52 FIX: Cap at 0.85 — never claim P>85% on a weather forecast.
+    # Previous 0.99 cap allowed the bot to claim 95-99% certainty on trades
+    # where actual outcomes were near 50/50.
+    prob = max(0.01, min(0.85, prob))
 
     info = (f"μ={mu:.1f} σ={sigma:.1f} peak={peak_status}"
             f" dead={is_dead} max={max_so_far} cur={current_temp}"
@@ -605,7 +627,8 @@ def compute_edge_v2(forecast_temps: Dict[str, float], buckets: List[Dict],
                      city: str, max_so_far: Optional[float] = None,
                      current_temp: Optional[float] = None,
                      local_hour: float = 12.0, is_cooling: bool = False,
-                     min_edge_pp: float = 15.0, min_volume: float = 500.0) -> List[Dict]:
+                     min_edge_pp: float = 15.0, min_volume: float = 500.0,
+                     day_offset: int = 0) -> List[Dict]:
     """
     Compute edge using reality-anchored probability engine.
     Returns signals sorted by edge.
@@ -626,6 +649,7 @@ def compute_edge_v2(forecast_temps: Dict[str, float], buckets: List[Dict],
         our_prob, sigma_used, prob_info = compute_reality_anchored_probability(
             forecast_temps, b["temp"], max_so_far, current_temp,
             city, local_hour, is_cooling,
+            day_offset=day_offset,  # V21.7.52: forecast horizon penalty
         )
 
         edge_pp = (our_prob - market_prob) * 100.0
@@ -1203,9 +1227,13 @@ class WeatherBotV2:
                                 except (ValueError, TypeError):
                                     pass
                     if ens_highs:
-                        forecast_temps["Ensemble-avg"] = sum(ens_highs) / len(ens_highs)
+                        ens_avg = sum(ens_highs) / len(ens_highs)
+                        ens_std = (sum((x - ens_avg)**2 for x in ens_highs) / len(ens_highs)) ** 0.5
+                        forecast_temps["Ensemble-avg"] = ens_avg
                         forecast_temps["Ensemble-max"] = max(ens_highs)
                         forecast_temps["Ensemble-min"] = min(ens_highs)
+                        forecast_temps["Ensemble-std"] = ens_std  # V21.7.52: actual ensemble spread
+                        forecast_temps["Ensemble-n"] = len(ens_highs)
 
                 # ─── Fetch METAR for reality anchor ───
                 metar = fetch_metar(icao) if icao else None
@@ -1243,7 +1271,8 @@ class WeatherBotV2:
                     forecast_temps, buckets, city,
                     max_so_far=max_so_far, current_temp=current_temp,
                     local_hour=local_hour, is_cooling=is_cooling,
-                    min_edge_pp=15.0, min_volume=500.0
+                    min_edge_pp=15.0, min_volume=500.0,
+                    day_offset=day_offset  # V21.7.52: forecast horizon penalty
                 )
 
                 for sig in signals:

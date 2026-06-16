@@ -1,6 +1,6 @@
 {
   "version": "V21.7.12",
-  "timestamp": "2026-06-15T11:01:08.902790+00:00",
+  "timestamp": "2026-06-16T15:12:51.970985+00:00",
   "crypto_live_real_allowed": false,
   "weather_live_allowed": false,
   "scalper_micro_live_allowed": false,
@@ -21,7 +21,7 @@
   "hard_blocks": [
     "ETH/SOL/XRP live",
     "UP profiles",
-    "12-20\u00a2 live bucket",
+    "12-20¢ live bucket",
     "larger sizing",
     "Kelly/martingale/pyramiding",
     "weather live",

@@ -206,7 +206,7 @@ def log_candidate(signal: Dict, meta: Dict, forecast_temps: Dict,
         "edge_pp": signal.get("edge_pp", 0),
         "no_edge_pp": signal.get("no_edge_pp", 0),
         "best_edge": signal.get("best_edge", 0),
-        "sigma_used": signal.get("sigma_used", 0),
+        "sigma_used": signal.get("sigma_used", 2.0),  # V21.7.52 FIX: was 0 — absurd default
         "prob_info": signal.get("prob_info", ""),
         # Liquidity
         "volume": signal.get("volume", 0),

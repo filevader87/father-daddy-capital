@@ -1,6 +1,6 @@
 {
   "version": "V21.7.47",
-  "timestamp": "2026-06-16T11:37:22.437913+00:00",
+  "timestamp": "2026-06-16T17:31:13.678088+00:00",
   "mode": "MICRO_LIVE_ARMED_ADAPTIVE_SCAN",
   "adaptive_scan_enabled": true,
   "current_scan_tier": 0,
@@ -14,8 +14,8 @@
   "down_token_valid": true,
   "underlying_quote_source": "PM_CLOB_READ",
   "normalized_price_source": "NORMALIZED_BOOK",
-  "quote_age_ms": 3108,
-  "tte_seconds": 1361,
+  "quote_age_ms": 2040,
+  "tte_seconds": 1728,
   "wallet_balance": null,
   "daily_live_trades": 0,
   "open_positions": 0,
