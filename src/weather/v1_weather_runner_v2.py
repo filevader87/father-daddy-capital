@@ -936,6 +936,9 @@ class WeatherBotV2:
                          f"actual={actual_temp}°C settled={settled_temp}°C "
                          f"outcome={pos.outcome} PnL=${pnl:.2f}")
 
+        # Clean settled positions from self.positions so they don't block new entries
+        self.positions = [p for p in self.positions if not p.settled]
+
     def force_settle_open_positions(self):
         """V2.2 §9: Force-settle open positions by checking Polymarket resolution.
         
@@ -1091,6 +1094,8 @@ class WeatherBotV2:
 
         if settled_count > 0:
             log.info(f"V2.2 force_settle: resolved {settled_count} stale positions")
+            # Remove settled positions from self.positions so they don't block new entries
+            self.positions = [p for p in self.positions if not p.settled]
             self.save_state()
 
         return settled_count

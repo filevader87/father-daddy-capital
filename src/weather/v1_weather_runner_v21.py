@@ -559,9 +559,13 @@ class WeatherBotV21(WeatherBotV2):
                                     except (ValueError, TypeError):
                                         pass
                         if ens_highs:
-                            forecast_temps["Ensemble-avg"] = round(sum(ens_highs) / len(ens_highs), 1)
+                            ens_avg = sum(ens_highs) / len(ens_highs)
+                            ens_std = (sum((x - ens_avg)**2 for x in ens_highs) / len(ens_highs)) ** 0.5
+                            forecast_temps["Ensemble-avg"] = round(ens_avg, 1)
                             forecast_temps["Ensemble-max"] = round(max(ens_highs), 1)
                             forecast_temps["Ensemble-min"] = round(min(ens_highs), 1)
+                            forecast_temps["Ensemble-std"] = round(ens_std, 2)  # V21.7.52 FIX: actual ensemble spread
+                            forecast_temps["Ensemble-n"] = len(ens_highs)
 
                     if metar and metar.get("temp_c") is not None:
                         forecast_temps["METAR-current"] = metar["temp_c"]
