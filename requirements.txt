@@ -28,6 +28,6 @@ sqlalchemy>=2.0.0
 
 cvxpy>=1.1.0
 matplotlib>=3.4.0
-seaborn>=0.11.0
+seaborn>=0.13.2
 discord.py>=2.3.2
 solana>=0.26.0
