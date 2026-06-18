@@ -159,14 +159,14 @@ class WeatherPosition:
     token_id: str
     condition_id: str
     market_slug: str
-    shares: float
-    entry_price: float  # per share
-    cost_usd: float     # total cost
-    forecast_temp: float # DEB blended forecast at entry
-    forecast_prob: float # our derived probability
-    market_prob: float   # PM implied probability at entry
-    edge_pp: float       # forecast_prob - market_prob in pp
-    entry_ts: str
+    shares: float = 0.0
+    entry_price: float = 0.0  # per share
+    cost_usd: float = 0.0     # total cost
+    forecast_temp: float = 0.0 # DEB blended forecast at entry
+    forecast_prob: float = 0.0 # our derived probability
+    market_prob: float = 0.0   # PM implied probability at entry
+    edge_pp: float = 0.0       # forecast_prob - market_prob in pp
+    entry_ts: str = ""
     risk_level: str = "medium"  # city risk level
     max_so_far: float = 0.0    # highest observed temp at entry
     entry_sigma: float = 1.5   # σ used at entry

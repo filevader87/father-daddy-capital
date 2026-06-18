@@ -77,6 +77,15 @@ except ImportError as e:
     HAS_V2 = False
     sys.exit(1)
 
+# §V22: DEB multi-model integration
+sys.path.insert(0, str(PROJECT_ROOT / "src" / "polyweather_analysis"))
+try:
+    from fdeb_integration import deb_enhanced_probability, fetch_multi_model_forecasts, fetch_ensemble_forecast, build_deb_forecasts, record_actual_high
+    HAS_FDEB = True
+except ImportError as e:
+    print(f"WARNING: fdeb_integration not available: {e}")
+    HAS_FDEB = False
+
 try:
     from fdc_pm_live import (
         check_wallet, get_tick_size, get_neg_risk, validate_price, round_to_tick,
@@ -176,6 +185,170 @@ def generate_city_risk_report() -> Dict:
     return report
 
 # ═══════════════════════════════════════════════════════════════
+# V22 DEB-ENHANCED EDGE COMPUTATION
+# ═══════════════════════════════════════════════════════════════
+
+def compute_edge_v22(
+    lat: float, lon: float, city: str, target_date: str,
+    buckets: List[Dict], max_so_far: Optional[float] = None,
+    current_temp: Optional[float] = None, local_hour: float = 12.0,
+    is_cooling: bool = False, day_offset: int = 0,
+    min_edge_pp: float = 15.0, min_volume: float = 200.0,
+    multi_model: Dict = None, ensemble: Dict = None,
+) -> List[Dict]:
+    """
+    V22 edge computation using DEB multi-model probability engine.
+    Optimized: fetches multi-model + ensemble ONCE, then computes
+    probabilities for all buckets from the same data.
+    """
+    if not HAS_FDEB or not buckets:
+        return []
+
+    meta = CITY_REGISTRY.get(city, {})
+    risk = meta.get("risk", "medium")
+    dist_km = meta.get("dist", 0)
+
+    # Fetch multi-model + ensemble ONCE for this city (if not provided)
+    if multi_model is None:
+        multi_model = fetch_multi_model_forecasts(lat, lon, forecast_days=3)
+    if ensemble is None:
+        ensemble = fetch_ensemble_forecast(lat, lon, forecast_days=3)
+
+    # Build forecast dict for target date
+    forecasts = build_deb_forecasts(multi_model, ensemble, target_date)
+    if not forecasts:
+        return []
+
+    deb_input = {k: v for k, v in forecasts.items() if not k.startswith("Ensemble-")}
+    if not deb_input:
+        return []
+
+    # Run DEB prediction ONCE for this city
+    from deb_algorithm import calculate_deb_prediction, bootstrap_recent_daily_history_if_missing
+    try:
+        bootstrap_recent_daily_history_if_missing(city, lookback_days=14)
+    except Exception:
+        pass
+
+    try:
+        deb_result = calculate_deb_prediction(
+            city_name=city, current_forecasts=deb_input,
+            lookback_days=7, decay_factor=0.85,
+            bias_lookback_days=30, bias_min_samples=3,
+        )
+    except Exception:
+        valid = [v for v in deb_input.values() if v is not None]
+        center = sorted(valid)[len(valid) // 2] if valid else 20.0
+        deb_result = {"prediction": center, "raw_prediction": center, "version": "fallback", "weights_info": "", "bias_adjustment": 0, "bias_samples": 0}
+
+    center = deb_result.get("prediction") or deb_result.get("raw_prediction")
+    if center is None:
+        valid = [v for v in deb_input.values() if v is not None]
+        center = sorted(valid)[len(valid) // 2] if valid else 20.0
+
+    # Sigma from ensemble
+    ensemble_std = forecasts.get("Ensemble-std")
+    ensemble_n = int(forecasts.get("Ensemble-n", 0))
+    if ensemble_std is not None and ensemble_n >= 10:
+        sigma = max(1.0, float(ensemble_std))
+    elif len(deb_input) > 2:
+        vals = [v for v in deb_input.values() if v is not None]
+        sigma = max(1.0, (max(vals) - min(vals)) / 2.0) if vals else 2.0
+    else:
+        sigma = 2.0
+
+    sigma += {"low": 0.0, "medium": 0.3, "high": 0.8}.get(risk, 0.3)
+    if dist_km > 10:
+        sigma += 0.5 * (dist_km / 10.0)
+    if day_offset > 0:
+        sigma += 0.5 * day_offset
+
+    # Peak-time sigma reduction
+    lat_abs = abs(lat)
+    if lat_abs > 55: first_peak, last_peak = 10.0, 16.0
+    elif lat_abs > 35: first_peak, last_peak = 11.0, 15.0
+    elif lat_abs > 20: first_peak, last_peak = 11.5, 14.5
+    else: first_peak, last_peak = 12.0, 14.0
+
+    peak_status = "before"
+    if local_hour >= first_peak and local_hour <= last_peak: peak_status = "in_window"
+    elif local_hour > last_peak: peak_status = "past"
+
+    if peak_status == "past" and local_hour >= 21: sigma *= 0.6
+    elif peak_status == "past" and local_hour > last_peak: sigma *= 0.8
+    elif peak_status == "in_window": sigma *= 0.9
+
+    # Dead market
+    is_dead = False
+    if max_so_far is not None and current_temp is not None:
+        if local_hour >= 21 and max_so_far - current_temp >= 3.0: is_dead = True
+        elif peak_status == "past" and max_so_far - current_temp >= 1.5: is_dead = True
+    if is_dead: sigma = max(1.0, sigma * 0.5)
+
+    # Reality anchor
+    mu = float(center)
+    forecast_median = sorted([v for v in deb_input.values() if v is not None])[len(deb_input) // 2] if deb_input else center
+    if max_so_far is not None:
+        if peak_status in ("past", "in_window") and max_so_far < forecast_median - 2.0:
+            mu = float(max_so_far) if (is_cooling or peak_status == "past") else float(max_so_far) + 0.5
+        elif peak_status in ("past", "in_window"):
+            mu = forecast_median * 0.7 + float(center) * 0.3
+            if max_so_far > mu: mu = float(max_so_far) + (0.3 if not is_cooling else 0.0)
+
+    # Compute probability per bucket
+    from settlement_rounding import apply_city_settlement
+    import math
+    phi = lambda z: 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+    signals = []
+    for b in buckets:
+        market_prob = b.get("prob", b.get("yes_price", 0))
+        if market_prob is None or market_prob == 0:
+            market_prob = b.get("yes_price", 0)
+        if market_prob < 0.03 or market_prob > 0.97: continue
+        if b.get("volume", 0) < min_volume: continue
+
+        bucket_temp = b["temp"]
+        if is_dead and max_so_far is not None:
+            settled_temp = apply_city_settlement(city, max_so_far)
+            our_prob = 1.0 if bucket_temp == settled_temp else 0.01
+        else:
+            z_low = (bucket_temp - 0.5 - mu) / sigma
+            z_high = (bucket_temp + 0.5 - mu) / sigma
+            our_prob = phi(z_high) - phi(z_low)
+        our_prob = max(0.01, min(0.85, our_prob))
+
+        yes_edge = our_prob - market_prob
+        no_edge = (1 - our_prob) - (1 - market_prob)
+        best_edge = max(yes_edge, no_edge)
+        recommended_side = "YES" if yes_edge >= no_edge else "NO"
+
+        min_edge_adjusted = min_edge_pp + RISK_PROFILES.get(risk, RISK_PROFILES["medium"])["edge_add"]
+
+        signal = {
+            "city": city, "temp": bucket_temp,
+            "our_prob": round(our_prob, 4), "market_prob": market_prob,
+            "yes_price": b.get("yes_price", 0), "no_price": b.get("no_price", 0),
+            "yes_edge_pp": round(yes_edge * 100, 1), "no_edge_pp": round(no_edge * 100, 1),
+            "best_edge": round(best_edge * 100, 1), "recommended_side": recommended_side,
+            "edge_pp": round(best_edge * 100, 1),
+            "yes_token_id": b.get("yes_token_id", ""), "no_token_id": b.get("no_token_id", ""),
+            "condition_id": b.get("condition_id", ""), "market_id": b.get("market_id", ""),
+            "neg_risk": True, "risk_level": risk,
+            "sigma_used": round(sigma, 2),
+            "prob_info": f"μ={mu:.1f} σ={sigma:.1f} peak={peak_status} dead={is_dead} DEB[{deb_result.get('version','?')}] models={len(deb_input)} ens_n={ensemble_n}",
+            "deb_version": deb_result.get("version", "unknown"),
+            "deb_prediction": deb_result.get("prediction"),
+            "deb_bias_adjustment": deb_result.get("bias_adjustment", 0),
+            "deb_bias_samples": deb_result.get("bias_samples", 0),
+        }
+        if signal["best_edge"] >= min_edge_adjusted:
+            signals.append(signal)
+
+    return sorted(signals, key=lambda s: s["best_edge"], reverse=True)
+
+
+# ═══════════════════════════════════════════════════════════════
 # FULL CANDIDATE AUDIT LOG
 # ═══════════════════════════════════════════════════════════════
 
@@ -252,7 +425,8 @@ def audit_settlement(pos: WeatherPosition, actual_temp: float, city_meta: Dict) 
     else:
         payout_per_share = 0.0 if bucket_hit else 1.0
 
-    total_payout = round(payout_per_share * pos.shares, 2)
+    shares = pos.shares if pos.shares is not None else 0
+    total_payout = round(payout_per_share * shares, 2)
     pnl = round(total_payout - pos.cost_usd, 2)
 
     audit = {
@@ -582,6 +756,21 @@ class WeatherBotV21(WeatherBotV2):
                                               local_hour=local_hour, is_cooling=is_cooling,
                                               min_edge_pp=15.0, min_volume=200.0)
 
+                    # §V22: DEB-enhanced edge computation (replaces above when available)
+                    if HAS_FDEB:
+                        # Fetch multi-model + ensemble ONCE for this city+day
+                        mm = fetch_multi_model_forecasts(lat, lon, forecast_days=3)
+                        ens = fetch_ensemble_forecast(lat, lon, forecast_days=3)
+                        deb_signals = compute_edge_v22(
+                            lat=lat, lon=lon, city=city, target_date=target_date,
+                            buckets=buckets, max_so_far=max_so_far, current_temp=current_temp,
+                            local_hour=local_hour, is_cooling=is_cooling, day_offset=day_offset,
+                            min_edge_pp=15.0, min_volume=200.0,
+                            multi_model=mm, ensemble=ens,
+                        )
+                        if deb_signals:
+                            signals = deb_signals  # Override with DEB-enhanced signals
+
                     for sig in signals:
                         sig["forecast_max"] = local_day_high
                         sig["date"] = target_date
@@ -778,6 +967,18 @@ class WeatherBotV21(WeatherBotV2):
                      f"actual={actual_temp}°C settled={settled_temp}°C "
                      f"hit={bucket_hit} PnL=${pnl:.2f} "
                      f"rule={audit['rounding_rule']} src={audit['settlement_source']}")
+
+            # §V22: Record actual high for DEB learning
+            if HAS_FDEB:
+                try:
+                    record_actual_high(
+                        city=pos.city,
+                        date_str=pos.date,
+                        actual_high=float(actual_temp),
+                        forecasts={"Open-Meteo": pos.forecast_temp} if pos.forecast_temp else {},
+                    )
+                except Exception as e:
+                    log.debug(f"DEB record error: {e}")
 
         self.save_state()
 
