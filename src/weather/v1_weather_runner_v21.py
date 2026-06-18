@@ -185,6 +185,95 @@ def generate_city_risk_report() -> Dict:
     return report
 
 # ═══════════════════════════════════════════════════════════════
+# V22.1 ENTRY GATE — BLOCK REASON LOGGING
+# ═══════════════════════════════════════════════════════════════
+
+ENTRY_GATE_LOG = OUTPUT_DIR / "v22_1_entry_gate_log.jsonl"
+
+BLOCK_REASONS = [
+    "NO_MARKET_FOUND", "DEAD_MARKET", "LOW_LIQUIDITY", "WIDE_SPREAD",
+    "NO_BUCKET_EDGE", "MODEL_DISAGREEMENT_TOO_HIGH", "METAR_ANCHOR_MISSING",
+    "SETTLEMENT_RULE_UNCLEAR", "PRICE_TOO_HIGH", "PRICE_TOO_LOW",
+    "DUPLICATE_CITY_DATE_BUCKET", "MAX_ACTIVE_POSITIONS",
+    "MISSING_FORECAST_MODEL", "MISSING_OBSERVATION",
+]
+
+def log_entry_gate(city: str, market_slug: str, market_date: str,
+                   bucket: int, side: str, market_price: float,
+                   deb_probability: float, edge: float, sigma_c: float,
+                   model_count: int, metar_anchor_present: bool,
+                   liquidity_ok: bool, spread_ok: bool,
+                   entry_allowed: bool, block_reason: str = ""):
+    """Log every candidate with entry decision and block reason."""
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "city": city, "market_slug": market_slug, "market_date": market_date,
+        "bucket": bucket, "side": side, "market_price": round(market_price, 4),
+        "deb_probability": round(deb_probability, 4), "edge": round(edge, 2),
+        "sigma_c": round(sigma_c, 2), "model_count": model_count,
+        "metar_anchor_present": metar_anchor_present,
+        "liquidity_ok": liquidity_ok, "spread_ok": spread_ok,
+        "entry_allowed": entry_allowed, "block_reason": block_reason,
+    }
+    with open(ENTRY_GATE_LOG, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+    return entry
+
+
+# ═══════════════════════════════════════════════════════════════
+# V22.1 WEATHER VALIDATION BOARD GENERATOR
+# ═══════════════════════════════════════════════════════════════
+
+def generate_v22_1_validation_board() -> Dict:
+    """Generate V22.1 validation board separating pre-DEB and post-DEB."""
+    all_trades = []
+    if PAPER_TRADES.exists():
+        with open(PAPER_TRADES) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        all_trades.append(json.loads(line))
+                    except:
+                        pass
+
+    pre_deb = [t for t in all_trades if "V22" not in str(t.get("version", "")) and "deb_v" not in str(t.get("deb_version", ""))]
+    post_deb = [t for t in all_trades if "V22" in str(t.get("version", "")) or "deb_v" in str(t.get("deb_version", ""))]
+
+    pre_resolved = [t for t in pre_deb if t.get("settled")]
+    post_resolved = [t for t in post_deb if t.get("settled")]
+
+    board = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "post_deb_v22": {
+            "paper_trades": len(post_deb),
+            "active": len([t for t in post_deb if not t.get("settled")]),
+            "resolved": len(post_resolved),
+            "wins": sum(1 for t in post_resolved if t.get("pnl", 0) > 0),
+            "losses": sum(1 for t in post_resolved if t.get("pnl", 0) <= 0),
+            "pnl": round(sum(t.get("pnl", 0) for t in post_resolved), 2),
+            "pf": None,
+            "ready_for_review": False,
+            "live_allowed": False,
+        },
+        "pre_deb_sigma_bug": {
+            "resolved": len(pre_resolved),
+            "wins": sum(1 for t in pre_resolved if t.get("pnl", 0) > 0),
+            "losses": sum(1 for t in pre_resolved if t.get("pnl", 0) <= 0),
+            "pnl": round(sum(t.get("pnl", 0) for t in pre_resolved), 2),
+            "excluded_from_deb_promotion": True,
+        },
+        "requirements": {
+            "min_resolved": 25,
+            "min_profit_factor": 1.25,
+            "positive_pnl_required": True,
+            "settlement_errors_allowed": 0,
+        }
+    }
+    return board
+
+
+# ═══════════════════════════════════════════════════════════════
 # V22 DEB-ENHANCED EDGE COMPUTATION
 # ═══════════════════════════════════════════════════════════════
 
@@ -630,8 +719,8 @@ def run_hindcast(days_back: int = 7) -> str:
 class WeatherBotV21(WeatherBotV2):
     """V2.1 adds full audit trail, settlement validation, live block."""
 
-    # Scan budget per cycle — prevents API timeout
-    MAX_CITIES_PER_CYCLE = 12  # Rotate through cities across cycles
+    # Scan budget per cycle — V22.1: FULL_REGISTRY_SCAN_MODE
+    MAX_CITIES_PER_CYCLE = 50  # V22.1: Scan all eligible cities per cycle
     MAX_DAY_OFFSETS = 2        # Only check today + tomorrow
 
     def __init__(self, bankroll: float = 20.0):
