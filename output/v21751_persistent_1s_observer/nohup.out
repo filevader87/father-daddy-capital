@@ -602,3 +602,163 @@
 2026-06-17 19:17:57,804 [INFO] Heartbeat: loop=3828 p50=2095ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=232.4MB
 2026-06-17 19:18:08,294 [INFO] Discovered 8 crypto Up/Down markets
 2026-06-17 19:18:08,295 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:18:58,477 [INFO] Heartbeat: loop=3855 p50=2096ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=233.0MB
+2026-06-17 19:20:01,864 [INFO] Heartbeat: loop=3882 p50=2099ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=233.9MB
+2026-06-17 19:20:08,923 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:20:08,923 [INFO] ROLLOVER: eth-updown-5m-1781738400 expired
+2026-06-17 19:20:08,924 [INFO] ROLLOVER: xrp-updown-5m-1781738400 expired
+2026-06-17 19:20:08,924 [INFO] ROLLOVER: sol-updown-5m-1781738400 expired
+2026-06-17 19:20:08,924 [INFO] ROLLOVER: btc-updown-5m-1781738400 expired
+2026-06-17 19:20:08,925 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 19:21:03,126 [INFO] Heartbeat: loop=3908 p50=2101ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=236.0MB
+2026-06-17 19:22:04,114 [INFO] Heartbeat: loop=3935 p50=2105ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=237.3MB
+2026-06-17 19:22:10,435 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:22:10,436 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:23:03,865 [INFO] Heartbeat: loop=3962 p50=2106ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=239.1MB
+2026-06-17 19:24:05,140 [INFO] Heartbeat: loop=3986 p50=2109ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=240.2MB
+2026-06-17 19:24:11,623 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:24:11,624 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:25:04,681 [INFO] Heartbeat: loop=4011 p50=2110ms tier=TIER_0_IDLE touches=366 scalps=36/0 mem=240.1MB
+2026-06-17 19:26:06,850 [INFO] Heartbeat: loop=4039 p50=2111ms tier=TIER_0_IDLE touches=376 scalps=39/0 mem=242.7MB
+2026-06-17 19:26:10,661 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:26:10,661 [INFO] ROLLOVER: sol-updown-5m-1781738700 expired
+2026-06-17 19:26:10,661 [INFO] ROLLOVER: btc-updown-5m-1781738700 expired
+2026-06-17 19:26:10,661 [INFO] ROLLOVER: xrp-updown-5m-1781738700 expired
+2026-06-17 19:26:10,661 [INFO] ROLLOVER: eth-updown-5m-1781738700 expired
+2026-06-17 19:26:10,661 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 19:27:05,680 [INFO] Heartbeat: loop=4064 p50=2115ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=244.1MB
+2026-06-17 19:28:11,161 [INFO] Heartbeat: loop=4092 p50=2116ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=245.6MB
+2026-06-17 19:28:11,781 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:28:11,782 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:29:11,461 [INFO] Heartbeat: loop=4116 p50=2118ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=246.7MB
+2026-06-17 19:30:12,087 [INFO] Heartbeat: loop=4142 p50=2121ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=248.3MB
+2026-06-17 19:30:12,712 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: xrp-updown-15m-1781739000 expired
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: xrp-updown-5m-1781739000 expired
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: btc-updown-5m-1781739000 expired
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: sol-updown-15m-1781739000 expired
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: eth-updown-15m-1781739000 expired
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: eth-updown-5m-1781739000 expired
+2026-06-17 19:30:12,712 [INFO] ROLLOVER: sol-updown-5m-1781739000 expired
+2026-06-17 19:30:12,713 [INFO] ROLLOVER: btc-updown-15m-1781739000 expired
+2026-06-17 19:30:12,713 [INFO] Market discovery: 8 markets (8 new)
+2026-06-17 19:31:11,448 [INFO] Heartbeat: loop=4169 p50=2120ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=249.5MB
+2026-06-17 19:32:12,932 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:32:12,934 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:32:15,046 [INFO] Heartbeat: loop=4196 p50=2122ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=250.4MB
+2026-06-17 19:33:14,745 [INFO] Heartbeat: loop=4222 p50=2124ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=252.3MB
+2026-06-17 19:34:15,490 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:34:15,490 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:34:18,075 [INFO] Heartbeat: loop=4248 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=253.3MB
+2026-06-17 19:35:15,565 [INFO] Heartbeat: loop=4276 p50=2125ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=254.6MB
+2026-06-17 19:36:14,746 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:36:14,747 [INFO] ROLLOVER: eth-updown-5m-1781739300 expired
+2026-06-17 19:36:14,747 [INFO] ROLLOVER: xrp-updown-5m-1781739300 expired
+2026-06-17 19:36:14,747 [INFO] ROLLOVER: sol-updown-5m-1781739300 expired
+2026-06-17 19:36:14,747 [INFO] ROLLOVER: btc-updown-5m-1781739300 expired
+2026-06-17 19:36:14,748 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 19:36:19,231 [INFO] Heartbeat: loop=4302 p50=2127ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=256.1MB
+2026-06-17 19:37:22,393 [INFO] Heartbeat: loop=4329 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=256.5MB
+2026-06-17 19:38:15,378 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:38:15,378 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:38:25,149 [INFO] Heartbeat: loop=4356 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=258.9MB
+2026-06-17 19:39:25,069 [INFO] Heartbeat: loop=4382 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=260.3MB
+2026-06-17 19:40:15,748 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:40:15,748 [INFO] ROLLOVER: sol-updown-5m-1781739600 expired
+2026-06-17 19:40:15,748 [INFO] ROLLOVER: btc-updown-5m-1781739600 expired
+2026-06-17 19:40:15,748 [INFO] ROLLOVER: eth-updown-5m-1781739600 expired
+2026-06-17 19:40:15,748 [INFO] ROLLOVER: xrp-updown-5m-1781739600 expired
+2026-06-17 19:40:15,748 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 19:40:27,667 [INFO] Heartbeat: loop=4408 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=261.5MB
+2026-06-17 19:41:27,798 [INFO] Heartbeat: loop=4434 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=262.5MB
+2026-06-17 19:42:15,789 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:42:15,789 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:42:27,825 [INFO] Heartbeat: loop=4460 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=262.2MB
+2026-06-17 19:43:26,518 [INFO] Heartbeat: loop=4486 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=265.0MB
+2026-06-17 19:44:17,926 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:44:17,926 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:44:30,888 [INFO] Heartbeat: loop=4513 p50=2126ms tier=TIER_0_IDLE touches=378 scalps=39/0 mem=266.9MB
+2026-06-17 19:45:29,373 [INFO] Heartbeat: loop=4540 p50=2126ms tier=TIER_0_IDLE touches=379 scalps=40/0 mem=267.3MB
+2026-06-17 19:46:18,762 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:46:18,763 [INFO] ROLLOVER: eth-updown-5m-1781739900 expired
+2026-06-17 19:46:18,763 [INFO] ROLLOVER: sol-updown-15m-1781739900 expired
+2026-06-17 19:46:18,763 [INFO] ROLLOVER: xrp-updown-5m-1781739900 expired
+2026-06-17 19:46:18,764 [INFO] ROLLOVER: sol-updown-5m-1781739900 expired
+2026-06-17 19:46:18,764 [INFO] ROLLOVER: eth-updown-15m-1781739900 expired
+2026-06-17 19:46:18,765 [INFO] ROLLOVER: btc-updown-15m-1781739900 expired
+2026-06-17 19:46:18,765 [INFO] ROLLOVER: btc-updown-5m-1781739900 expired
+2026-06-17 19:46:18,766 [INFO] ROLLOVER: xrp-updown-15m-1781739900 expired
+2026-06-17 19:46:18,767 [INFO] Market discovery: 8 markets (8 new)
+2026-06-17 19:46:37,585 [INFO] Heartbeat: loop=4565 p50=2127ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=268.7MB
+2026-06-17 19:47:34,333 [INFO] Heartbeat: loop=4590 p50=2128ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=269.4MB
+2026-06-17 19:48:19,117 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:48:19,117 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:48:36,438 [INFO] Heartbeat: loop=4616 p50=2128ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=271.9MB
+2026-06-17 19:49:36,858 [INFO] Heartbeat: loop=4641 p50=2128ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=272.5MB
+2026-06-17 19:50:18,772 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:50:18,772 [INFO] ROLLOVER: btc-updown-5m-1781740200 expired
+2026-06-17 19:50:18,772 [INFO] ROLLOVER: eth-updown-5m-1781740200 expired
+2026-06-17 19:50:18,772 [INFO] ROLLOVER: sol-updown-5m-1781740200 expired
+2026-06-17 19:50:18,773 [INFO] ROLLOVER: xrp-updown-5m-1781740200 expired
+2026-06-17 19:50:18,773 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 19:50:39,224 [INFO] Heartbeat: loop=4668 p50=2128ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=273.9MB
+2026-06-17 19:51:37,999 [INFO] Heartbeat: loop=4693 p50=2129ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=271.7MB
+2026-06-17 19:52:20,341 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:52:20,341 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:52:41,269 [INFO] Heartbeat: loop=4720 p50=2129ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=273.8MB
+2026-06-17 19:53:42,569 [INFO] Heartbeat: loop=4744 p50=2129ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=275.2MB
+2026-06-17 19:54:21,619 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:54:21,619 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:54:42,348 [INFO] Heartbeat: loop=4768 p50=2130ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=275.3MB
+2026-06-17 19:55:42,635 [INFO] Heartbeat: loop=4793 p50=2131ms tier=TIER_0_IDLE touches=389 scalps=43/0 mem=277.5MB
+2026-06-17 19:56:21,575 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:56:21,576 [INFO] ROLLOVER: eth-updown-5m-1781740500 expired
+2026-06-17 19:56:21,576 [INFO] ROLLOVER: xrp-updown-5m-1781740500 expired
+2026-06-17 19:56:21,576 [INFO] ROLLOVER: sol-updown-5m-1781740500 expired
+2026-06-17 19:56:21,576 [INFO] ROLLOVER: btc-updown-5m-1781740500 expired
+2026-06-17 19:56:21,578 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 19:56:43,131 [INFO] Heartbeat: loop=4820 p50=2130ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=278.8MB
+2026-06-17 19:57:45,279 [INFO] Heartbeat: loop=4847 p50=2130ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=279.9MB
+2026-06-17 19:58:21,747 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 19:58:21,748 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 19:58:46,973 [INFO] Heartbeat: loop=4873 p50=2132ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=281.8MB
+2026-06-17 19:59:47,956 [INFO] Heartbeat: loop=4899 p50=2130ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=282.4MB
+2026-06-17 20:00:22,841 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: btc-updown-5m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: eth-updown-15m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: eth-updown-5m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: sol-updown-5m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: btc-updown-15m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: sol-updown-15m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: xrp-updown-5m-1781740800 expired
+2026-06-17 20:00:22,842 [INFO] ROLLOVER: xrp-updown-15m-1781740800 expired
+2026-06-17 20:00:22,843 [INFO] Market discovery: 8 markets (8 new)
+2026-06-17 20:00:51,317 [INFO] Heartbeat: loop=4926 p50=2130ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=284.4MB
+2026-06-17 20:01:52,717 [INFO] Heartbeat: loop=4950 p50=2130ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=284.9MB
+2026-06-17 20:02:23,336 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 20:02:23,336 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 20:02:53,463 [INFO] Heartbeat: loop=4976 p50=2131ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=286.9MB
+2026-06-17 20:03:54,696 [INFO] Heartbeat: loop=5002 p50=2132ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=287.3MB
+2026-06-17 20:04:25,460 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 20:04:25,460 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 20:04:54,281 [INFO] Heartbeat: loop=5027 p50=2133ms tier=TIER_0_IDLE touches=432 scalps=47/0 mem=289.1MB
+2026-06-17 20:05:56,429 [INFO] Heartbeat: loop=5053 p50=2132ms tier=TIER_0_IDLE touches=455 scalps=50/0 mem=290.6MB
+2026-06-17 20:06:26,607 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 20:06:26,608 [INFO] ROLLOVER: btc-updown-5m-1781741100 expired
+2026-06-17 20:06:26,608 [INFO] ROLLOVER: sol-updown-5m-1781741100 expired
+2026-06-17 20:06:26,608 [INFO] ROLLOVER: eth-updown-5m-1781741100 expired
+2026-06-17 20:06:26,608 [INFO] ROLLOVER: xrp-updown-5m-1781741100 expired
+2026-06-17 20:06:26,608 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 20:06:56,556 [INFO] Heartbeat: loop=5078 p50=2135ms tier=TIER_0_IDLE touches=458 scalps=50/0 mem=292.6MB
+2026-06-17 20:07:57,494 [INFO] Heartbeat: loop=5105 p50=2137ms tier=TIER_0_IDLE touches=458 scalps=50/0 mem=294.0MB
+2026-06-17 20:08:29,450 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 20:08:29,450 [INFO] Market discovery: 8 markets (0 new)
+2026-06-17 20:08:55,526 [INFO] Heartbeat: loop=5132 p50=2137ms tier=TIER_0_IDLE touches=458 scalps=50/0 mem=295.6MB
+2026-06-17 20:10:00,356 [INFO] Heartbeat: loop=5154 p50=2140ms tier=TIER_0_IDLE touches=458 scalps=50/0 mem=295.8MB
+2026-06-17 20:10:28,855 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-17 20:10:28,855 [INFO] ROLLOVER: eth-updown-5m-1781741400 expired
+2026-06-17 20:10:28,855 [INFO] ROLLOVER: xrp-updown-5m-1781741400 expired
+2026-06-17 20:10:28,855 [INFO] ROLLOVER: btc-updown-5m-1781741400 expired
+2026-06-17 20:10:28,856 [INFO] ROLLOVER: sol-updown-5m-1781741400 expired
+2026-06-17 20:10:28,856 [INFO] Market discovery: 8 markets (4 new)
+2026-06-17 20:11:03,376 [INFO] Heartbeat: loop=5181 p50=2141ms tier=TIER_0_IDLE touches=458 scalps=50/0 mem=297.3MB
