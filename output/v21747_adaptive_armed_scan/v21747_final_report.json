@@ -1,6 +1,6 @@
 {
   "version": "V21.7.47",
-  "timestamp": "2026-06-18T00:45:48.653462+00:00",
+  "timestamp": "2026-06-18T00:57:39.406759+00:00",
   "classification": "V21.7.47_ADAPTIVE_ARMED_SCAN_ACTIVE",
   "mode": "MICRO_LIVE_ARMED_ADAPTIVE_SCAN",
   "adaptive_scan_enabled": true,
@@ -15,8 +15,8 @@
   "max_order_size_usd": 5.0,
   "post_fill_freeze": true,
   "audit": {
-    "total_windows_observed": 894,
-    "tier_0_scans": 894,
+    "total_windows_observed": 896,
+    "tier_0_scans": 896,
     "tier_1_scans": 0,
     "tier_2_scans": 0,
     "tier_3_candidates": 0,
