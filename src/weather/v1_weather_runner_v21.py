@@ -398,14 +398,32 @@ def compute_edge_v22(
         if b.get("volume", 0) < min_volume: continue
 
         bucket_temp = b["temp"]
+        b_is_threshold = b.get("is_threshold", False)
+        b_threshold_dir = "higher" if "or higher" in b.get("question", "") else ("lower" if "or lower" in b.get("question", "") else "")
+
         if is_dead and max_so_far is not None:
             settled_temp = apply_city_settlement(city, max_so_far)
-            our_prob = 1.0 if bucket_temp == settled_temp else 0.01
+            if b_is_threshold:
+                if b_threshold_dir == "higher":
+                    our_prob = 1.0 if settled_temp >= bucket_temp else 0.01
+                else:
+                    our_prob = 1.0 if settled_temp <= bucket_temp else 0.01
+            else:
+                our_prob = 1.0 if bucket_temp == settled_temp else 0.01
+        elif b_is_threshold:
+            # V21.7.53: One-tailed CDF for threshold markets
+            if b_threshold_dir == "higher":
+                z = (bucket_temp - 0.5 - mu) / sigma
+                our_prob = 1.0 - phi(z)
+            else:
+                z = (bucket_temp + 0.5 - mu) / sigma
+                our_prob = phi(z)
         else:
             z_low = (bucket_temp - 0.5 - mu) / sigma
             z_high = (bucket_temp + 0.5 - mu) / sigma
             our_prob = phi(z_high) - phi(z_low)
-        our_prob = max(0.01, min(0.85, our_prob))
+        cap = 0.90 if b_is_threshold else 0.85
+        our_prob = max(0.01, min(cap, our_prob))
 
         yes_edge = our_prob - market_prob
         no_edge = (1 - our_prob) - (1 - market_prob)
@@ -416,11 +434,17 @@ def compute_edge_v22(
 
         signal = {
             "city": city, "temp": bucket_temp,
+            "is_threshold": b_is_threshold,  # V21.7.53
+            "threshold_direction": b_threshold_dir,
             "our_prob": round(our_prob, 4), "market_prob": market_prob,
             "yes_price": b.get("yes_price", 0), "no_price": b.get("no_price", 0),
             "yes_edge_pp": round(yes_edge * 100, 1), "no_edge_pp": round(no_edge * 100, 1),
             "best_edge": round(best_edge * 100, 1), "recommended_side": recommended_side,
             "edge_pp": round(best_edge * 100, 1),
+            # V21.7.53: Value-tier scoring
+            "entry_price": b.get("yes_price", 0) if recommended_side == "YES" else b.get("no_price", 0),
+            "payout_ratio": round(1.0 / max(b.get("yes_price", 0) if recommended_side == "YES" else b.get("no_price", 0), 0.01), 1),
+            "ev_per_dollar": round(our_prob / max(b.get("yes_price", 0) if recommended_side == "YES" else b.get("no_price", 0), 0.01), 2),
             "yes_token_id": b.get("yes_token_id", ""), "no_token_id": b.get("no_token_id", ""),
             "condition_id": b.get("condition_id", ""), "market_id": b.get("market_id", ""),
             "neg_risk": True, "risk_level": risk,
@@ -434,7 +458,21 @@ def compute_edge_v22(
         if signal["best_edge"] >= min_edge_adjusted:
             signals.append(signal)
 
-    return sorted(signals, key=lambda s: s["best_edge"], reverse=True)
+    # V21.7.53: Composite ranking score — edge + value-tier + threshold boost
+    # Instead of sorting purely by edge_pp, we compute a composite score:
+    #   composite = edge_pp + threshold_boost + value_bonus
+    # where:
+    #   threshold_boost = 5.0 if threshold market (one-tailed, structurally easier)
+    #   value_bonus = min(payout_ratio * 0.5, 10.0) — rewards low-price entries
+    # This biases toward badatmath-style 2-15¢ entries with high payout ratios
+    for s in signals:
+        threshold_boost = 5.0 if s.get("is_threshold") else 0.0
+        value_bonus = min(s.get("payout_ratio", 1.0) * 0.5, 10.0)
+        s["composite_score"] = round(s["best_edge"] + threshold_boost + value_bonus, 1)
+        s["threshold_boost"] = threshold_boost
+        s["value_bonus"] = value_bonus
+
+    return sorted(signals, key=lambda s: s["composite_score"], reverse=True)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -470,6 +508,14 @@ def log_candidate(signal: Dict, meta: Dict, forecast_temps: Dict,
         "best_edge": signal.get("best_edge", 0),
         "sigma_used": signal.get("sigma_used", 2.0),  # V21.7.52 FIX: was 0 — absurd default
         "prob_info": signal.get("prob_info", ""),
+        # V21.7.53: Threshold + value-tier audit
+        "is_threshold": signal.get("is_threshold", False),
+        "threshold_direction": signal.get("threshold_direction", ""),
+        "payout_ratio": signal.get("payout_ratio", 1.0),
+        "ev_per_dollar": signal.get("ev_per_dollar", 0),
+        "composite_score": signal.get("composite_score", signal.get("best_edge", 0)),
+        "threshold_boost": signal.get("threshold_boost", 0),
+        "value_bonus": signal.get("value_bonus", 0),
         # Liquidity
         "volume": signal.get("volume", 0),
         "liquidity": signal.get("liquidity", 0),
@@ -722,6 +768,9 @@ class WeatherBotV21(WeatherBotV2):
     # Scan budget per cycle — V22.1: FULL_REGISTRY_SCAN_MODE
     MAX_CITIES_PER_CYCLE = 50  # V22.1: Scan all eligible cities per cycle
     MAX_DAY_OFFSETS = 2        # Only check today + tomorrow
+    # V21.7.53: Multi-bucket portfolio — max adjacent buckets per city
+    MAX_ADJACENT_BUCKETS = 3   # Buy up to 3 adjacent temp buckets for same city+date
+    PORTFOLIO_BUDGET_PER_CITY = 6.0  # Max $6 spread across adjacent buckets
 
     def __init__(self, bankroll: float = 20.0):
         super().__init__(paper_only=True, bankroll=bankroll)
@@ -731,6 +780,88 @@ class WeatherBotV21(WeatherBotV2):
             pass
         # Override output paths for V2.1
         self._state_file = STATE_FILE
+
+    def run_once(self):
+        """V21.7.53: Override with multi-bucket portfolio selection.
+        Instead of just taking top 3 signals, we:
+        1. Take the top signal by composite score
+        2. Look for adjacent temp buckets (±1°C, ±2°C) for same city+date
+        3. Enter up to MAX_ADJACENT_BUCKETS positions, budget capped at PORTFOLIO_BUDGET_PER_CITY
+        4. Then take next top signal from a different city
+        """
+        if not self.check_circuit_breakers():
+            return []
+
+        self.force_settle_open_positions()
+        self.settle_positions()
+        signals = self.scan_cycle()
+
+        if not signals:
+            return []
+
+        entered = []
+        used_city_dates = set()  # Track (city, date) pairs already covered
+
+        for sig in signals:
+            if len(entered) >= 5:  # MAX_CONCURRENT
+                break
+
+            city = sig.get("city", "?")
+            date = sig.get("date", "")
+            city_date_key = (city, date)
+
+            if city_date_key in used_city_dates:
+                continue  # Already covered this city+date with a portfolio
+
+            # V21.7.53: Build portfolio — top signal + adjacent buckets
+            portfolio = [sig]
+            base_temp = sig["temp"]
+
+            # Find adjacent buckets from same city+date
+            for adj_sig in signals:
+                if len(portfolio) >= self.MAX_ADJACENT_BUCKETS:
+                    break
+                if adj_sig is sig:
+                    continue
+                if adj_sig.get("city") != city or adj_sig.get("date") != date:
+                    continue
+                if adj_sig.get("is_threshold", False) != sig.get("is_threshold", False):
+                    continue  # Don't mix threshold and non-threshold
+                # Only pick adjacent temps (±2°C)
+                if abs(adj_sig["temp"] - base_temp) <= 2:
+                    # Check we don't already have this temp
+                    if adj_sig["temp"] not in [p["temp"] for p in portfolio]:
+                        portfolio.append(adj_sig)
+
+            # Calculate per-bucket allocation (split budget across buckets)
+            n_buckets = len(portfolio)
+            per_bucket = min(self.PORTFOLIO_BUDGET_PER_CITY / n_buckets, MAX_POSITION_USD)
+
+            # V21.7.53: Cap per-bucket at MAX_POSITION_USD
+            per_bucket = min(per_bucket, MAX_POSITION_USD)
+
+            portfolio_budget = 0
+            for psig in portfolio:
+                if portfolio_budget + per_bucket > self.state.bankroll:
+                    break
+                self.force_settle_open_positions()
+                pos = self.enter_position(psig, {}, psig.get("forecast_max", 0),
+                                          psig["date"], psig.get("day_offset", 1))
+                if pos:
+                    entered.append(psig)
+                    portfolio_budget += per_bucket
+
+            used_city_dates.add(city_date_key)
+
+            # Log portfolio composition
+            if len(portfolio) > 1:
+                temps = [str(p["temp"]) for p in portfolio]
+                log.info(f"PORTFOLIO {city} {date}: buckets {','.join(temps)}°C "
+                         f"({len(portfolio)} positions, ${portfolio_budget:.2f} budget)")
+
+        self.save_state()
+        self.generate_v22_reports()
+        return entered
 
     def scan_cycle(self) -> List[Dict]:
         """Override: rotate through cities, limit per cycle to avoid timeout."""
@@ -885,26 +1016,37 @@ class WeatherBotV21(WeatherBotV2):
             return results
 
         # Execute with thread pool for parallel API calls
+        # V21.7.53: Handle timeout gracefully — collect partial results
         with ThreadPoolExecutor(max_workers=6) as executor:
             futures = {executor.submit(process_city, item): item[0] for item in batch}
-            for future in as_completed(futures, timeout=120):
-                city = futures[future]
-                try:
-                    results = future.result(timeout=30)
-                    all_signals.extend(results)
-                except Exception as e:
-                    log.warning(f"Future error for {city}: {e}")
+            try:
+                for future in as_completed(futures, timeout=120):
+                    city = futures[future]
+                    try:
+                        results = future.result(timeout=30)
+                        all_signals.extend(results)
+                    except Exception as e:
+                        log.warning(f"Future error for {city}: {e}")
+            except Exception as timeout_err:
+                # V21.7.53: Don't lose partial results on timeout
+                unfinished = sum(1 for f in futures if not f.done())
+                log.warning(f"Scan timeout: {unfinished} of {len(batch)} cities unfinished — keeping {len(all_signals)} partial signals")
+                # Cancel remaining futures
+                for f in futures:
+                    if not f.done():
+                        f.cancel()
 
-        # Deduplicate by city+date+temp+side (keep highest edge)
+        # Deduplicate by city+date+temp+side (keep highest composite score)
         seen = {}
         for sig in all_signals:
             key = f"{sig['city']}_{sig['date']}_{sig['temp']}_{sig['recommended_side']}"
-            if key not in seen or sig["best_edge"] > seen[key]["best_edge"]:
+            comp = sig.get("composite_score", sig["best_edge"])
+            if key not in seen or comp > seen[key].get("composite_score", seen[key]["best_edge"]):
                 seen[key] = sig
 
         log.info(f"Cycle {self._cycle_count}: scanned {len(batch)} cities | {len(seen)} signals | "
                  f"rotation {start_idx}-{start_idx+len(batch)-1}")
-        return sorted(seen.values(), key=lambda s: s["best_edge"], reverse=True)
+        return sorted(seen.values(), key=lambda s: s.get("composite_score", s["best_edge"]), reverse=True)
 
     def enter_position(self, signal: Dict, forecast_temps: Dict,
                        forecast_max: float, date_str: str, day_offset: int):

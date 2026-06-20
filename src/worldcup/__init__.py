@@ -1,0 +1,1 @@
+# FDC World Cup Bot module

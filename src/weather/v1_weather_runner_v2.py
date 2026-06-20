@@ -493,6 +493,8 @@ def compute_reality_anchored_probability(
     is_cooling: bool = False,  # Whether temperature is falling from recent METARs
     sigma_override: Optional[float] = None,
     day_offset: int = 0,  # V21.7.52: days from today to target date
+    is_threshold: bool = False,  # V21.7.53: "or higher"/"or lower" market
+    threshold_direction: str = "",  # "higher" or "lower"
 ) -> Tuple[float, float, str]:
     """
     Compute reality-anchored probability using PolyWeather's approach.
@@ -603,21 +605,39 @@ def compute_reality_anchored_probability(
     if is_dead and max_so_far is not None:
         # Dead market: temperature already locked
         settled_temp = apply_city_settlement(city, max_so_far)
-        prob = 1.0 if bucket_temp == settled_temp else 0.01
+        if is_threshold:
+            if threshold_direction == "higher":
+                prob = 1.0 if settled_temp >= bucket_temp else 0.01
+            else:  # "lower"
+                prob = 1.0 if settled_temp <= bucket_temp else 0.01
+        else:
+            prob = 1.0 if bucket_temp == settled_temp else 0.01
+    elif is_threshold:
+        # V21.7.53: One-tailed CDF for threshold markets
+        # "or higher": P(T >= bucket_temp) = 1 - Phi((bucket_temp - 0.5 - mu) / sigma)
+        # "or lower":  P(T <= bucket_temp) = Phi((bucket_temp + 0.5 - mu) / sigma)
+        if threshold_direction == "higher":
+            z = (bucket_temp - 0.5 - mu) / sigma
+            prob = 1.0 - phi(z)
+        else:  # "lower"
+            z = (bucket_temp + 0.5 - mu) / sigma
+            prob = phi(z)
     else:
         z_low = (bucket_temp - 0.5 - mu) / sigma
         z_high = (bucket_temp + 0.5 - mu) / sigma
         prob = phi(z_high) - phi(z_low)
 
-    # Or-higher / or-lower bucket handling would go here if needed
     # V21.7.52 FIX: Cap at 0.85 — never claim P>85% on a weather forecast.
-    # Previous 0.99 cap allowed the bot to claim 95-99% certainty on trades
-    # where actual outcomes were near 50/50.
-    prob = max(0.01, min(0.85, prob))
+    # V21.7.53: For threshold markets, allow cap at 0.90 since one-tailed
+    # distributions are structurally more confident than two-tailed buckets.
+    cap = 0.90 if is_threshold else 0.85
+    prob = max(0.01, min(cap, prob))
 
     info = (f"μ={mu:.1f} σ={sigma:.1f} peak={peak_status}"
             f" dead={is_dead} max={max_so_far} cur={current_temp}"
             f" h={local_hour:.0f}")
+    if is_threshold:
+        info = f"THRESHOLD[{threshold_direction}] {info}"
     if deb_info:
         info = f"DEB({deb_info}) {info}"
 
@@ -650,6 +670,8 @@ def compute_edge_v2(forecast_temps: Dict[str, float], buckets: List[Dict],
             forecast_temps, b["temp"], max_so_far, current_temp,
             city, local_hour, is_cooling,
             day_offset=day_offset,  # V21.7.52: forecast horizon penalty
+            is_threshold=b.get("is_threshold", False),  # V21.7.53
+            threshold_direction="higher" if "or higher" in b.get("question", "") else ("lower" if "or lower" in b.get("question", "") else ""),
         )
 
         edge_pp = (our_prob - market_prob) * 100.0
@@ -659,6 +681,8 @@ def compute_edge_v2(forecast_temps: Dict[str, float], buckets: List[Dict],
             "city": city,
             "temp": b["temp"],
             "question": b["question"],
+            "is_threshold": b.get("is_threshold", False),  # V21.7.53
+            "threshold_direction": "higher" if "or higher" in b.get("question", "") else ("lower" if "or lower" in b.get("question", "") else ""),
             "yes_price": b["yes_price"],
             "no_price": b["no_price"],
             "our_prob": round(our_prob, 4),
@@ -667,6 +691,10 @@ def compute_edge_v2(forecast_temps: Dict[str, float], buckets: List[Dict],
             "no_edge_pp": round(no_edge_pp, 1),
             "recommended_side": "YES" if edge_pp > no_edge_pp else "NO",
             "best_edge": round(max(edge_pp, no_edge_pp), 1),
+            # V21.7.53: Value-tier scoring — payout ratio for low-price entries
+            "entry_price": b["yes_price"] if edge_pp > no_edge_pp else b["no_price"],
+            "payout_ratio": round(1.0 / max(b["yes_price"] if edge_pp > no_edge_pp else b["no_price"], 0.01), 1),
+            "ev_per_dollar": round(our_prob / max(b["yes_price"] if edge_pp > no_edge_pp else b["no_price"], 0.01), 2),
             "volume": b["volume"],
             "liquidity": b.get("liquidity", 0),
             "yes_token_id": b["yes_token_id"],
