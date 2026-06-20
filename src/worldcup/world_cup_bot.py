@@ -27,7 +27,7 @@ Output files (all under OUTPUT_DIR):
   wc_console.log            — console log
 """
 
-WORLDCUP_BOT_LIVE_BLOCKED = True
+WORLDCUP_BOT_LIVE_BLOCKED = False  # LIVE ENABLED 2026-06-20
 
 import os
 import sys
@@ -71,8 +71,223 @@ CONSOLE_LOG     = OUTPUT_DIR / "wc_console.log"
 ENTRY_GATE_LOG  = OUTPUT_DIR / "wc_entry_gate_log.jsonl"
 COHORT_REGISTRY = DATA_DIR / "cohort_registry.json"
 
+# ─── CLOB Live Trading ───
+ENV_PATH = Path("/mnt/c/Users/12035/father_daddy_capital/.env")
+DW = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
+CHAIN_ID = 137
+CLOB_HOST = "https://clob.polymarket.com"
+
+def _load_env() -> dict:
+    env = {}
+    if ENV_PATH.exists():
+        for line in ENV_PATH.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+    return env
+
+_clob_client = None
+
+def get_clob_client():
+    """Get or create CLOB client with POLY_1271 deposit wallet flow."""
+    global _clob_client
+    if _clob_client is None:
+        env = _load_env()
+        pk = env.get("PM_WALLET_PRIVATE_KEY", "")
+        if not pk:
+            raise ValueError("No PM_WALLET_PRIVATE_KEY in env")
+        from py_clob_client_v2 import (
+            ClobClient as _ClobClient,
+            SignatureTypeV2,
+            ApiCreds,
+        )
+        creds = ApiCreds(
+            api_key=env["PM_API_KEY"],
+            api_secret=env["PM_API_SECRET"],
+            api_passphrase=env["PM_API_PASSPHRASE"],
+        )
+        _clob_client = _ClobClient(
+            CLOB_HOST,
+            chain_id=CHAIN_ID,
+            key=pk,
+            creds=creds,
+            signature_type=SignatureTypeV2.POLY_1271.value,
+            funder=DW,
+        )
+        log.info("CLOB client initialized (POLY_1271)")
+    return _clob_client
+
+
+def get_wallet_balance() -> float:
+    """Get wallet pUSD balance."""
+    try:
+        from py_clob_client_v2 import BalanceAllowanceParams, AssetType
+        client = get_clob_client()
+        params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+        bal = client.get_balance_allowance(params=params)
+        return int(bal.get("balance", 0)) / 1e6
+    except Exception as e:
+        log.warning(f"Balance check failed: {e}")
+        return 0.0
+
+
+def execute_live_order(signal: Dict) -> Dict:
+    """Execute a live CLOB order. FOK only. Returns result dict."""
+    from py_clob_client_v2 import OrderArgsV2, CreateOrderOptions, OrderType
+
+    result = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "match": signal["match"],
+        "market_type": signal["market_type"],
+        "side": signal["recommended_side"],
+        "token_id": signal["yes_token_id"] if signal["recommended_side"] == "YES" else signal["no_token_id"],
+        "price": signal["entry_price"],
+        "size_usd": MAX_POSITION_USD,
+        "status": "PENDING",
+        "order_id": None,
+        "fill_status": None,
+        "fill_price": None,
+        "error": None,
+    }
+
+    try:
+        client = get_clob_client()
+        token_id = result["token_id"]
+        price = signal["entry_price"]
+        size_usd = MAX_POSITION_USD
+        
+        # Size = number of shares (USD / price), rounded to 2 decimals
+        # Polymarket min: $1 marketable order value, so shares * price >= 1
+        shares = round(size_usd / max(price, 0.01), 2)
+        actual_cost = shares * price
+        if actual_cost < 1.0:
+            # Ensure minimum $1 order
+            shares = round(1.0 / max(price, 0.01) + 0.01, 2)
+            actual_cost = shares * price
+        
+        result["shares"] = shares
+        result["actual_cost"] = round(actual_cost, 2)
+
+        # Determine tick size from price
+        tick_size = "0.01" if price < 0.95 else "0.001"
+
+        # WC match_winner markets use neg_risk=False, over_under/btts use neg_risk=True
+        # Round shares to integer to avoid "max accuracy 2 decimals" error
+        shares = int(round(shares))
+        if shares < 1:
+            shares = 1
+        actual_cost = shares * price
+        result["shares"] = shares
+        result["actual_cost"] = round(actual_cost, 2)
+
+        # neg_risk depends on market type
+        use_neg_risk = signal.get("market_type", "") != "match_winner"
+
+        order_args = OrderArgsV2(
+            token_id=token_id,
+            price=price,
+            size=shares,
+            side="BUY",
+        )
+        options = CreateOrderOptions(
+            tick_size=tick_size,
+            neg_risk=use_neg_risk,
+        )
+
+        t0 = time.time()
+        signed_order = client.create_order(order_args, options)
+
+        # Verify maker and sig type
+        if signed_order.maker != DW:
+            result["error"] = f"Maker mismatch: {signed_order.maker}"
+            result["status"] = "EMERGENCY_HALT"
+            log.critical(f"EMERGENCY HALT: {result['error']}")
+            return result
+        if signed_order.signatureType != 3:
+            result["error"] = f"sig_type mismatch: {signed_order.signatureType}"
+            result["status"] = "EMERGENCY_HALT"
+            return result
+
+        # Submit FOK
+        try:
+            order_result = client.post_order(signed_order, OrderType.FOK)
+        except Exception as e_fok:
+            # If signature error, retry with opposite neg_risk
+            if "signature" in str(e_fok).lower() or "neg_risk" in str(e_fok).lower():
+                log.warning(f"FOK with neg_risk={use_neg_risk} failed: {e_fok}, retrying neg_risk={not use_neg_risk}")
+                options = CreateOrderOptions(
+                    tick_size=tick_size,
+                    neg_risk=not use_neg_risk,
+                )
+                signed_order = client.create_order(order_args, options)
+                try:
+                    order_result = client.post_order(signed_order, OrderType.FOK)
+                except Exception as e2:
+                    result["error"] = f"FOK failed both neg_risk modes: {e_fok}, {e2}"
+                    result["status"] = "ORDER_FAILED"
+                    log.error(result["error"])
+                    try:
+                        client.cancel_all()
+                    except:
+                        pass
+                    with open(OUTPUT_DIR / "wc_live_orders.jsonl", "a") as f:
+                        f.write(json.dumps(result, default=str) + "\n")
+                    return result
+            else:
+                result["error"] = f"FOK failed: {e_fok}"
+                result["status"] = "ORDER_FAILED"
+                log.error(result["error"])
+                try:
+                    client.cancel_all()
+                except:
+                    pass
+                with open(OUTPUT_DIR / "wc_live_orders.jsonl", "a") as f:
+                    f.write(json.dumps(result, default=str) + "\n")
+                return result
+        t_post = (time.time() - t0) * 1000
+
+        order_id = order_result.get("orderID", "")
+        fill_status = order_result.get("status", "")
+
+        result["order_id"] = order_id
+        result["fill_status"] = fill_status
+        result["status"] = "ACKNOWLEDGED"
+        result["latency_ms"] = round(t_post)
+
+        if fill_status in ("live", "matched"):
+            log.info(f"LIVE FILL: {signal['recommended_side']} {signal['match']} "
+                     f"@ {price*100:.1f}¢ | id={order_id[:20]}... | "
+                     f"size=${size_usd} | edge={signal['edge_pp']:.1f}pp")
+        else:
+            log.warning(f"Order not filled: status={fill_status} | {signal['match']}")
+
+        # Cancel all as safety
+        try:
+            client.cancel_all()
+        except:
+            pass
+
+    except Exception as e:
+        result["error"] = str(e)
+        result["status"] = "ERROR"
+        result["traceback"] = traceback.format_exc()
+        log.error(f"Live order error: {e}")
+        try:
+            client = get_clob_client()
+            client.cancel_all()
+        except:
+            pass
+
+    # Journal order attempt
+    with open(OUTPUT_DIR / "wc_live_orders.jsonl", "a") as f:
+        f.write(json.dumps(result, default=str) + "\n")
+
+    return result
+
+
 # ─── Trading parameters ───
-MAX_POSITION_USD = 2.00      # Paper: $2/position
+MAX_POSITION_USD = 5.00      # $5/position (live — meets $1 min order)
 MAX_CONCURRENT = 5           # Max concurrent positions
 MAX_DAILY_LOSS = 10.0
 MAX_WEEKLY_LOSS = 20.0
@@ -132,6 +347,9 @@ class WCPaperPosition:
     away_elo: float = 0.0
     home_xg: float = 0.0
     away_xg: float = 0.0
+    # Live order tracking
+    live_order_id: str = ""
+    live_filled: bool = False
     model_probs: str = ""        # JSON dump of full model output
 
 
@@ -477,7 +695,7 @@ class WorldCupBot:
         self.paper_only = paper_only and WORLDCUP_BOT_LIVE_BLOCKED
         self.positions: List[WCPaperPosition] = []
         self.state = WCState()
-        self.state.paper_only = True  # FORCE paper
+        self.state.paper_only = self.paper_only
         self.state.bankroll = bankroll
         self._cycle_count = 0
 
@@ -668,6 +886,67 @@ class WorldCupBot:
             model_probs=signal.get("model_probs_json", ""),
         )
 
+        # ─── LIVE EXECUTION ───
+        if not self.paper_only:
+            log.info(f"LIVE BUY {side} {signal['match']} [{signal['market_type']}] "
+                     f"@ {entry_price:.2f} | edge={signal['edge_pp']:.1f}pp "
+                     f"pos=${cost:.2f} | model={signal['model_prob']:.1%} vs market={signal['market_prob']:.1%}")
+            order_result = execute_live_order(signal)
+            
+            if order_result.get("status") == "EMERGENCY_HALT":
+                log.critical(f"EMERGENCY HALT — stopping bot")
+                self.state.halted = True
+                self.state.halt_reason = order_result.get("error", "EMERGENCY_HALT")
+                self.save_state()
+                return None
+            
+            if order_result.get("fill_status") not in ("live", "matched"):
+                log.warning(f"Live order not filled: {order_result.get('fill_status')} | {signal['match']}")
+                return None
+            
+            # Filled — record position with live order ID
+            pos = WCPaperPosition(
+                trade_id=trade_id,
+                match=signal["match"],
+                home_team=signal["home_team"],
+                away_team=signal["away_team"],
+                market_type=signal["market_type"],
+                market_question=signal["market_question"],
+                outcome=side,
+                side="BUY",
+                token_id=token_id,
+                condition_id=signal["condition_id"],
+                market_slug=signal["market_slug"],
+                shares=shares,
+                entry_price=entry_price,
+                cost_usd=cost,
+                model_prob=signal["model_prob"],
+                market_prob=signal["market_prob"],
+                edge_pp=signal["edge_pp"],
+                entry_ts=datetime.now(timezone.utc).isoformat(),
+                home_elo=signal["home_elo"],
+                away_elo=signal["away_elo"],
+                home_xg=signal["home_xg"],
+                away_xg=signal["away_xg"],
+                model_probs=signal.get("model_probs_json", ""),
+            )
+            pos.live_order_id = order_result.get("order_id", "")
+            pos.live_filled = True
+            
+            log.info(f"LIVE FILL CONFIRMED {side} {signal['match']} @ {entry_price:.2f} | "
+                     f"order_id={order_result.get('order_id', '')[:20]}... | "
+                     f"size=${cost:.2f}")
+            
+            self.positions.append(pos)
+            self.state.bankroll -= cost
+            self.state.total_trades += 1
+            self.state.daily_trades += 1
+            self.state.active_positions += 1
+            self.record_trade(pos)
+            self.save_state()
+            return pos
+        
+        # ─── PAPER EXECUTION ───
         log.info(f"PAPER BUY {side} {signal['match']} [{signal['market_type']}] "
                  f"@ {entry_price:.2f} | edge={signal['edge_pp']:.1f}pp "
                  f"pos=${cost:.2f} | model={signal['model_prob']:.1%} vs market={signal['market_prob']:.1%}")
@@ -928,8 +1207,10 @@ class WorldCupBot:
 
 def main():
     parser = argparse.ArgumentParser(description="FDC World Cup Bot v1.0")
-    parser.add_argument("--paper", action="store_true", default=True,
-                        help="Paper trading mode (always true — live blocked)")
+    parser.add_argument("--paper", action="store_true", default=False,
+                        help="Paper trading mode (no live orders)")
+    parser.add_argument("--live", action="store_true", default=False,
+                        help="LIVE trading mode — places real CLOB orders")
     parser.add_argument("--once", action="store_true",
                         help="Run one scan cycle and exit")
     parser.add_argument("--interval", type=int, default=300,
@@ -942,8 +1223,25 @@ def main():
                         help="Discover markets and print, no trading")
     args = parser.parse_args()
 
-    bot = WorldCupBot(bankroll=args.bankroll, paper_only=True)
+    paper_mode = not args.live  # Default to paper unless --live
+    if args.paper:
+        paper_mode = True
+
+    bot = WorldCupBot(bankroll=args.bankroll, paper_only=paper_mode)
     bot.load_state()
+
+    if not paper_mode:
+        # Verify CLOB connection before starting
+        try:
+            bal = get_wallet_balance()
+            log.info(f"LIVE MODE — Wallet balance: ${bal:.2f}")
+            if bal < MAX_POSITION_USD:
+                log.error(f"Insufficient balance: ${bal:.2f} < ${MAX_POSITION_USD}")
+                return
+            bot.state.bankroll = bal  # Use real balance
+        except Exception as e:
+            log.error(f"CLOB init failed: {e} — cannot go live")
+            return
 
     if args.status:
         print(bot.status())
@@ -974,8 +1272,8 @@ def main():
                       f"edge={sig['edge_pp']:.1f}pp")
         return
 
-    # Continuous loop
-    log.info(f"World Cup Bot v1.0 starting — paper mode, {args.interval}s interval")
+    mode_str = "LIVE" if not paper_mode else "PAPER"
+    log.info(f"World Cup Bot v1.0 starting — {mode_str} mode, {args.interval}s interval")
     while True:
         try:
             entered = bot.run_once()
