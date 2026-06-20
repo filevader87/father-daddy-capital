@@ -280,6 +280,7 @@ def parse_match_markets(event: Dict) -> List[Dict]:
     """
     markets = event.get("markets", [])
     parsed = []
+    event_teams = parse_teams_from_event(event)
 
     for m in markets:
         question = m.get("question", "")
@@ -290,12 +291,40 @@ def parse_match_markets(event: Dict) -> List[Dict]:
 
         yes_price, no_price = prices
         mtype = classify_market(question)
+        q_lower = question.lower()
 
-        # Extract over/under line if present
+        # Extract over/under line — try multiple patterns
         ou_line = None
-        ou_match = re.search(r'(\d+\.?\d*)\s*goals', question.lower())
-        if ou_match and mtype == "over_under":
+        ou_match = re.search(r'o/u\s+(\d+\.?\d*)', q_lower)
+        if ou_match:
             ou_line = float(ou_match.group(1))
+        else:
+            ou_match = re.search(r'(\d+\.?\d*)\s*goals', q_lower)
+            if ou_match and mtype == "over_under":
+                ou_line = float(ou_match.group(1))
+            else:
+                ou_match = re.search(r'over.*?(\d+\.?\d*)|under.*?(\d+\.?\d*)', q_lower)
+                if ou_match:
+                    ou_line = float(ou_match.group(1) or ou_match.group(2))
+
+        # Extract team-specific O/U
+        team_ou = None
+        is_half = False
+        if mtype == "over_under":
+            # Check for 1st half / 2nd half
+            if "1st half" in q_lower or "first half" in q_lower:
+                is_half = True
+            # Try to extract team name from "Team O/U X.X" pattern
+            # PM format: "Germany vs. Côte d'Ivoire: Côte d'Ivoire 1st Half O/U 0.5"
+            # or "Paraguay vs. Australia: O/U 1.5" (total goals)
+            colon_split = question.split(":")
+            if len(colon_split) > 1:
+                after_colon = colon_split[1].strip()
+                # Check if a team name appears after the colon
+                for t in event_teams or []:
+                    if t.lower() in after_colon.lower():
+                        team_ou = t
+                        break
 
         # Extract spread line if present
         spread_line = None
@@ -306,9 +335,8 @@ def parse_match_markets(event: Dict) -> List[Dict]:
         # Extract team name from match winner question
         winner_team = None
         if mtype == "match_winner":
-            teams = parse_teams_from_event(event)
-            if teams:
-                for t in teams:
+            if event_teams:
+                for t in event_teams:
                     if t.lower() in question.lower():
                         winner_team = t
                         break
@@ -327,6 +355,8 @@ def parse_match_markets(event: Dict) -> List[Dict]:
             "neg_risk": True,
             "slug": event.get("slug", ""),
             "ou_line": ou_line,
+            "team_ou": team_ou,
+            "is_half": is_half,
             "spread_line": spread_line,
             "winner_team": winner_team,
             "event_title": event.get("title", ""),
@@ -551,9 +581,23 @@ def _parse_single_market(m: Dict, event: Dict) -> Optional[Dict]:
 
     # Extract team-specific O/U
     team_ou = None
-    team_ou_match = re.search(r"(.+?)\s+o/u\s+(\d+\.?\d*)", q_lower)
-    if team_ou_match and mtype == "over_under":
-        team_ou = team_ou_match.group(1).strip()
+    is_half = False
+    if mtype == "over_under":
+        # Check for 1st half / 2nd half
+        if "1st half" in q_lower or "first half" in q_lower:
+            is_half = True
+        # Extract team name from question
+        # PM format: "Germany vs. Côte d'Ivoire: Côte d'Ivoire 1st Half O/U 0.5"
+        colon_split = question.split(":")
+        if len(colon_split) > 1:
+            after_colon = colon_split[1].strip()
+            # Get event teams
+            ev_teams = parse_teams_from_event(event)
+            if ev_teams:
+                for t in ev_teams:
+                    if t.lower() in after_colon.lower():
+                        team_ou = t
+                        break
 
     # Extract correct score
     score = None
@@ -582,6 +626,7 @@ def _parse_single_market(m: Dict, event: Dict) -> Optional[Dict]:
         "slug": event.get("slug", ""),
         "ou_line": ou_line,
         "team_ou": team_ou,
+        "is_half": is_half,
         "spread_line": None,
         "winner_team": winner_team,
         "event_title": event.get("title", ""),

@@ -544,49 +544,51 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
     elif mtype == "over_under":
         if ou_line is None:
             return None
-        # Determine if question asks over or under
-        # PM O/U markets: YES = over, NO = under (typically)
-        # But some are team-specific: "Brazil vs Haiti: Haiti O/U 1.5"
-        # which means P(Haiti scores over 1.5)
+        # PM O/U markets: YES = over, NO = under (always)
+        # "Team O/U X.X" — YES means team scores over X, NO means under
+        # "O/U X.X" (total) — YES means total goals over X, NO means under
         team_ou = market.get("team_ou")
+        is_half = market.get("is_half", False)
         if team_ou:
-            # Team-specific O/U — need Poisson for single team
-            # Use the team's xG as lambda
+            # Team-specific O/U — Poisson with team's xG as lambda
             if home_team.lower() in team_ou.lower():
                 lam = model_probs["home_xg"]
             elif away_team.lower() in team_ou.lower():
                 lam = model_probs["away_xg"]
             else:
                 return None
-            # P(team scores > line) = 1 - P(team scores ≤ floor(line))
+            # Halve xG for 1st half markets
+            if is_half:
+                lam = lam * 0.5
             from .match_model import poisson_pmf
             floor_line = int(ou_line)
             p_under = sum(poisson_pmf(k, lam) for k in range(floor_line + 1))
             p_over = 1 - p_under
-            # Check if question says "over" or "under"
-            if "under" in question:
-                model_prob = p_under
-            else:
-                model_prob = p_over
+            # YES = over, NO = under
+            model_prob_yes = p_over
+            model_prob_no = p_under
         else:
             # Total goals O/U
             ou_key_over = f"over_{ou_line}"
             ou_key_under = f"under_{ou_line}"
             if ou_key_over not in model_probs["over_under"]:
                 return None
-            if "under" in question:
-                model_prob = model_probs["over_under"][ou_key_under]
-            else:
-                model_prob = model_probs["over_under"][ou_key_over]
+            p_over = model_probs["over_under"][ou_key_over]
+            p_under = model_probs["over_under"][ou_key_under]
+            # YES = over, NO = under
+            model_prob_yes = p_over
+            model_prob_no = p_under
 
-        market_prob = yes_price
-        edge_pp = (model_prob - market_prob) * 100
-        if edge_pp > 0:
+        # Compute edge: try YES first
+        edge_yes = (model_prob_yes - yes_price) * 100
+        edge_no = (model_prob_no - no_price) * 100
+        if edge_yes >= edge_no and edge_yes > 0:
             return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob, market_prob, edge_pp, "YES", yes_price, teams)
-        else:
+                                model_prob_yes, yes_price, edge_yes, "YES", yes_price, teams)
+        elif edge_no > 0:
             return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                1-model_prob, no_price, -edge_pp, "NO", no_price, teams)
+                                model_prob_no, no_price, edge_no, "NO", no_price, teams)
+        return None
 
     # ─── BTTS ───
     elif mtype == "btts":
