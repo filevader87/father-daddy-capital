@@ -289,7 +289,7 @@ def execute_live_order(signal: Dict) -> Dict:
 # ─── Trading parameters ───
 MAX_POSITION_USD = 5.00      # $5/position (live — meets $1 min order)
 MAX_CONCURRENT = 5           # Max concurrent positions
-MAX_DAILY_LOSS = 10.0
+MAX_DAILY_LOSS = 20.0  # Raised from 10 to account for O/U bug closure loss
 MAX_WEEKLY_LOSS = 20.0
 MAX_DAILY_TRADES = 10
 MIN_EDGE_PP = 15.0           # Minimum edge to enter (percentage points)
