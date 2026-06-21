@@ -1034,10 +1034,30 @@ def canary_loop(state: CanaryState, paper_mode: bool):
 
             # ─── Check expired positions (resolve paper trades) ───
             for pos in list(state.positions):
-                tte_remaining = pos.get("tte_at_entry", 0) - (time.time() - loop_start)
-                if tte_remaining <= 0 or pos.get("resolved"):
+                # Fix: calculate remaining time from entry timestamp, not loop start
+                # TTE at entry = seconds until market expiry from the moment we entered
+                # So market expires at: entry_timestamp + tte_at_entry
+                entry_ts_str = pos.get("timestamp", "")
+                try:
+                    from datetime import datetime as _dt
+                    entry_ts = _dt.fromisoformat(entry_ts_str.replace("Z", "+00:00")).timestamp()
+                except (ValueError, AttributeError):
+                    # Fallback: estimate from position age (should not happen)
+                    log.warning(f"Could not parse entry timestamp for position, skipping: {entry_ts_str}")
+                    continue
+
+                tte_at_entry = pos.get("tte_at_entry", 0)
+                now_ts = time.time()
+                # Time remaining until market expires
+                # Market expires at entry_ts + tte_at_entry (TTE is relative to entry time)
+                # But TTE is "time to expiry" from the Polymarket API at the moment of entry
+                # which was seconds from entry to market close
+                tte_remaining = (entry_ts + tte_at_entry) - now_ts
+                market_expired = tte_remaining <= 0
+                already_resolved = pos.get("resolved")
+
+                if market_expired or already_resolved:
                     # Position should be settled
-                    # Get current price to determine outcome
                     asset = pos["asset"]
                     current_price = get_asset_price(asset)
                     entry_price = pos.get("entry_price", 0)
