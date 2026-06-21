@@ -542,6 +542,7 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
 
     # ─── Over/Under ───
     elif mtype == "over_under":
+        from .match_model import poisson_pmf
         if ou_line is None:
             return None
         # PM O/U markets: YES = over, NO = under (always)
@@ -560,7 +561,6 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
             # Halve xG for 1st half markets
             if is_half:
                 lam = lam * 0.5
-            from .match_model import poisson_pmf
             floor_line = int(ou_line)
             p_under = sum(poisson_pmf(k, lam) for k in range(floor_line + 1))
             p_over = 1 - p_under
@@ -569,12 +569,20 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
             model_prob_no = p_under
         else:
             # Total goals O/U
-            ou_key_over = f"over_{ou_line}"
-            ou_key_under = f"under_{ou_line}"
-            if ou_key_over not in model_probs["over_under"]:
-                return None
-            p_over = model_probs["over_under"][ou_key_over]
-            p_under = model_probs["over_under"][ou_key_under]
+            if is_half:
+                # 1st half: total xG halved
+                half_total_xg = model_probs["home_xg"] + model_probs["away_xg"]
+                lam = half_total_xg * 0.5
+                floor_line = int(ou_line)
+                p_under = sum(poisson_pmf(k, lam) for k in range(floor_line + 1))
+                p_over = 1 - p_under
+            else:
+                ou_key_over = f"over_{ou_line}"
+                ou_key_under = f"under_{ou_line}"
+                if ou_key_over not in model_probs["over_under"]:
+                    return None
+                p_over = model_probs["over_under"][ou_key_over]
+                p_under = model_probs["over_under"][ou_key_under]
             # YES = over, NO = under
             model_prob_yes = p_over
             model_prob_no = p_under
