@@ -994,51 +994,57 @@ def canary_loop(state: CanaryState, paper_mode: bool):
             # ─── Execute best signal ───
             if can_trade and signals:
                 best = signals[0]
-                log.info(f"🎯 EXECUTING: {best['side']} {best['market']['asset']} | "
-                         f"{best['market']['question'][:45]} | @ {best['best_ask']*100:.1f}¢")
-                order_result = execute_order(
-                    best["market"], best["side"], best["token_id"], best["best_ask"],
-                    clob, paper_mode, best["neural_pred"], best["indicators"], best["confidence"]
-                )
-
-                if order_result["status"] in ("PAPER_FILLED", "ACKNOWLEDGED"):
-                    state.orders_submitted += 1
-                    state.daily_trades += 1
-                    state.open_positions += 1
-
-                    pos = {
-                        "timestamp": now.isoformat(),
-                        "entry_timestamp": now.isoformat(),
-                        "market_slug": best["market"]["slug"],
-                        "asset": best["market"]["asset"],
-                        "question": best["market"]["question"],
-                        "side": best["side"],
-                        "token_id": best["token_id"],
-                        "entry_price": best["best_ask"],
-                        "size_usd": CANARY_CONFIG["position_size_usd"],
-                        "direction": best["direction"],
-                        "confidence": best["confidence"],
-                        "edge_pp": best["edge_pp"],
-                        "neural_pred": best["neural_pred"],
-                        "calibrated_prob": best["calibrated_prob"],
-                        "rsi_at_entry": best["indicators"]["rsi"],
-                        "macd_at_entry": best["indicators"]["macd"],
-                        "trend_at_entry": best["indicators"]["trend"],
-                        "momentum_at_entry": best["indicators"]["momentum"],
-                        "tte_at_entry": best["tte"],
-                        "features_at_entry": best["indicators"],
-                        "order_status": order_result["status"],
-                        "order_id": order_result.get("order_id"),
-                    }
-                    state.positions.append(pos)
-
-                    with open(OUT / "positions.jsonl", "a") as f:
-                        f.write(json.dumps(pos, default=str) + "\n")
-
-                    if order_result["status"] == "ACKNOWLEDGED" and order_result.get("fill_status") in ("live", "matched"):
-                        state.orders_filled += 1
+                
+                # Deduplication: skip if we already have an open position on this market
+                existing_slugs = {p.get("market_slug", "") for p in state.positions}
+                if best["market"]["slug"] in existing_slugs:
+                    log.info(f"Skipping {best['market']['slug'][:40]} — already have open position")
                 else:
-                    state.orders_rejected += 1
+                    log.info(f"🎯 EXECUTING: {best['side']} {best['market']['asset']} | "
+                             f"{best['market']['question'][:45]} | @ {best['best_ask']*100:.1f}¢")
+                    order_result = execute_order(
+                        best["market"], best["side"], best["token_id"], best["best_ask"],
+                        clob, paper_mode, best["neural_pred"], best["indicators"], best["confidence"]
+                    )
+    
+                    if order_result["status"] in ("PAPER_FILLED", "ACKNOWLEDGED"):
+                        state.orders_submitted += 1
+                        state.daily_trades += 1
+                        state.open_positions += 1
+    
+                        pos = {
+                            "timestamp": now.isoformat(),
+                            "entry_timestamp": now.isoformat(),
+                            "market_slug": best["market"]["slug"],
+                            "asset": best["market"]["asset"],
+                            "question": best["market"]["question"],
+                            "side": best["side"],
+                            "token_id": best["token_id"],
+                            "entry_price": best["best_ask"],
+                            "size_usd": CANARY_CONFIG["position_size_usd"],
+                            "direction": best["direction"],
+                            "confidence": best["confidence"],
+                            "edge_pp": best["edge_pp"],
+                            "neural_pred": best["neural_pred"],
+                            "calibrated_prob": best["calibrated_prob"],
+                            "rsi_at_entry": best["indicators"]["rsi"],
+                            "macd_at_entry": best["indicators"]["macd"],
+                            "trend_at_entry": best["indicators"]["trend"],
+                            "momentum_at_entry": best["indicators"]["momentum"],
+                            "tte_at_entry": best["tte"],
+                            "features_at_entry": best["indicators"],
+                            "order_status": order_result["status"],
+                            "order_id": order_result.get("order_id"),
+                        }
+                        state.positions.append(pos)
+    
+                        with open(OUT / "positions.jsonl", "a") as f:
+                            f.write(json.dumps(pos, default=str) + "\n")
+    
+                        if order_result["status"] == "ACKNOWLEDGED" and order_result.get("fill_status") in ("live", "matched"):
+                            state.orders_filled += 1
+                    else:
+                        state.orders_rejected += 1
 
             # ─── Check expired positions (resolve paper trades) ───
             for pos in list(state.positions):
@@ -1368,6 +1374,35 @@ if __name__ == "__main__":
             sys.exit(1)
 
     state = CanaryState(paper_mode=paper_mode)
+    
+    # Recover open positions from positions.jsonl on restart
+    pos_file = OUT / "positions.jsonl"
+    if pos_file.exists():
+        try:
+            recovered = 0
+            resolved_slugs = set()
+            # Also check resolved positions to avoid re-tracking settled trades
+            resolved_file = OUT / "resolved_positions.jsonl"
+            if resolved_file.exists():
+                with open(resolved_file) as rf:
+                    for line in rf:
+                        if line.strip():
+                            rd = json.loads(line)
+                            resolved_slugs.add(rd.get("market_slug", ""))
+            
+            with open(pos_file) as pf:
+                for line in pf:
+                    if line.strip():
+                        pd = json.loads(line)
+                        slug = pd.get("market_slug", "")
+                        if slug and slug not in resolved_slugs and pd.get("order_status") != "SETTLED":
+                            state.positions.append(pd)
+                            recovered += 1
+            if recovered:
+                state.open_positions = len(state.positions)
+                log.info(f"Recovered {recovered} open positions from positions.jsonl")
+        except Exception as e:
+            log.warning(f"Failed to recover positions: {e}")
     try:
         canary_loop(state, paper_mode)
     except KeyboardInterrupt:

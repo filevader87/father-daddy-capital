@@ -1066,15 +1066,17 @@ def scan_loop(state: EngineState, paper_mode: bool):
                                 if len(prices) < 2 or len(outcomes) < 2:
                                     continue
                                 
-                                # Determine winning outcome
+                                # Determine winning outcome by index (outcome with highest price)
                                 winning_idx = 0 if prices[0] > prices[1] else 1
                                 winning_outcome = str(outcomes[winning_idx]).upper()
                                 our_side = pos.get("side", "").upper()
                                 
-                                # For YES/NO markets
-                                if our_side == winning_outcome or \
-                                   (our_side == "NO" and winning_outcome == "NO") or \
-                                   (our_side == "YES" and winning_outcome == "YES"):
+                                # We bought the YES or NO token. If our side matches the winning outcome, we win.
+                                # For YES/NO markets: winning_idx 0=YES wins, 1=NO wins
+                                # If we bought YES and YES wins (prices[0] > prices[1]), WIN
+                                # If we bought NO and NO wins (prices[1] > prices[0]), WIN
+                                our_token_idx = 0 if our_side == "YES" else 1  # YES=token0, NO=token1
+                                if our_token_idx == winning_idx:
                                     outcome = "WIN"
                                     pnl = (1.0 - pos["entry_price"]) * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
                                 else:
@@ -1288,6 +1290,34 @@ if __name__ == "__main__":
             sys.exit(1)
     
     state = EngineState(paper_mode=paper_mode)
+    
+    # Recover open positions from positions.jsonl on restart
+    pos_file = OUT / "positions.jsonl"
+    if pos_file.exists():
+        try:
+            recovered = 0
+            resolved_slugs = set()
+            resolved_file = OUT / "resolved_positions.jsonl"
+            if resolved_file.exists():
+                with open(resolved_file) as rf:
+                    for line in rf:
+                        if line.strip():
+                            rd = json.loads(line)
+                            resolved_slugs.add(rd.get("market_slug", ""))
+            
+            with open(pos_file) as pf:
+                for line in pf:
+                    if line.strip():
+                        pd = json.loads(line)
+                        slug = pd.get("market_slug", "")
+                        if slug and slug not in resolved_slugs and pd.get("order_status") != "SETTLED":
+                            state.positions.append(pd)
+                            recovered += 1
+            if recovered:
+                state.open_positions = len(state.positions)
+                log.info(f"Recovered {recovered} open positions from positions.jsonl")
+        except Exception as e:
+            log.warning(f"Failed to recover positions: {e}")
     
     try:
         scan_loop(state, paper_mode)
