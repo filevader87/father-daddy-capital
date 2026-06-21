@@ -4018,3 +4018,14 @@
 2026-06-21 16:24:55,983 [INFO] Discovered 8 crypto Up/Down markets
 2026-06-21 16:24:55,983 [INFO] Market discovery: 8 markets (0 new)
 2026-06-21 16:25:40,991 [INFO] Heartbeat: loop=24187 p50=2864ms tier=TIER_0_IDLE touches=1898 scalps=235/3 mem=363.5MB
+2026-06-21 16:26:46,617 [INFO] Heartbeat: loop=24206 p50=2865ms tier=TIER_0_IDLE touches=1899 scalps=236/3 mem=363.5MB
+2026-06-21 16:26:59,201 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-21 16:26:59,201 [INFO] ROLLOVER: sol-updown-5m-1782073500 expired
+2026-06-21 16:26:59,201 [INFO] ROLLOVER: eth-updown-5m-1782073500 expired
+2026-06-21 16:26:59,201 [INFO] ROLLOVER: xrp-updown-5m-1782073500 expired
+2026-06-21 16:26:59,201 [INFO] ROLLOVER: btc-updown-5m-1782073500 expired
+2026-06-21 16:26:59,201 [INFO] Market discovery: 8 markets (4 new)
+2026-06-21 16:27:45,858 [INFO] Heartbeat: loop=24221 p50=2871ms tier=TIER_0_IDLE touches=1899 scalps=236/3 mem=363.5MB
+2026-06-21 16:28:48,298 [INFO] Heartbeat: loop=24238 p50=2876ms tier=TIER_0_IDLE touches=1899 scalps=236/3 mem=363.5MB
+2026-06-21 16:28:58,805 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-21 16:28:58,805 [INFO] Market discovery: 8 markets (0 new)

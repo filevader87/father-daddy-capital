@@ -789,11 +789,13 @@ class WeatherBotV21(WeatherBotV2):
         3. Enter up to MAX_ADJACENT_BUCKETS positions, budget capped at PORTFOLIO_BUDGET_PER_CITY
         4. Then take next top signal from a different city
         """
-        if not self.check_circuit_breakers():
-            return []
-
+        # Force-settle stale positions BEFORE circuit breaker check
+        # so they don't count against max_positions
         self.force_settle_open_positions()
         self.settle_positions()
+        
+        if not self.check_circuit_breakers():
+            return []
         signals = self.scan_cycle()
 
         if not signals:
@@ -1279,6 +1281,8 @@ class WeatherBotV21(WeatherBotV2):
                      f"actual={actual_temp}°C settled={settled_temp}°C "
                      f"hit={bucket_hit} PnL=${pnl:.2f}")
 
+        # Remove settled positions from list so they don't count against max_positions
+        self.positions = [p for p in self.positions if not getattr(p, 'settled', False)]
         self.save_state()
 
     def save_state(self):

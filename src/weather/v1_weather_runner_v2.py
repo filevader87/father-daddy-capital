@@ -833,7 +833,7 @@ class WeatherBotV2:
         if self.state.daily_trades >= 10:
             log.warning("Daily trade limit reached")
             return False
-        if len(self.positions) >= 5:
+        if len([p for p in self.positions if not getattr(p, 'settled', False)]) >= 5:
             log.warning("Max positions reached")
             return False
         return True
