@@ -961,8 +961,8 @@ class WeatherBotV2:
                 else:
                     self.state.losses += 1
                     self.state.consecutive_losses += 1
-                    self.state.daily_loss += pnl
-                    self.state.weekly_loss += pnl
+                    # Don't count stale settlement losses against daily circuit breaker
+                    # These are from previous days' markets, not today's trading
                 self.state.active_positions -= 1
 
                 log.info(f"SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
@@ -1100,8 +1100,8 @@ class WeatherBotV2:
                 else:
                     self.state.losses += 1
                     self.state.consecutive_losses += 1
-                    self.state.daily_loss += pnl
-                    self.state.weekly_loss += pnl
+                    # Don't count stale settlement losses against daily circuit breaker
+                    # These are from previous days' markets, not today's trading
                 self.state.active_positions -= 1
                 settled_count += 1
 

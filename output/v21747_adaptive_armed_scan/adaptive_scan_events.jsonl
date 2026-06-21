@@ -2686,3 +2686,4 @@
 {"timestamp": "2026-06-21T17:30:16.311724+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 50.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1788, "next_interval_s": 120}
 {"timestamp": "2026-06-21T17:33:10.373204+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 49.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1614, "next_interval_s": 120}
 {"timestamp": "2026-06-21T17:36:04.379986+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 49.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1439, "next_interval_s": 120}
+{"timestamp": "2026-06-21T17:38:57.265857+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 46.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1266, "next_interval_s": 120}

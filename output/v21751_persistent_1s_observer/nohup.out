@@ -3222,3 +3222,8 @@
 2026-06-21 13:36:39,489 [INFO] Heartbeat: loop=21309 p50=2811ms tier=TIER_0_IDLE touches=1726 scalps=209/2 mem=363.0MB
 2026-06-21 13:37:03,192 [INFO] Discovered 8 crypto Up/Down markets
 2026-06-21 13:37:03,192 [INFO] Market discovery: 8 markets (0 new)
+2026-06-21 13:37:40,407 [INFO] Heartbeat: loop=21330 p50=2817ms tier=TIER_0_IDLE touches=1726 scalps=209/2 mem=362.9MB
+2026-06-21 13:38:45,374 [INFO] Heartbeat: loop=21351 p50=2816ms tier=TIER_0_IDLE touches=1726 scalps=209/2 mem=362.9MB
+2026-06-21 13:39:07,298 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-21 13:39:07,299 [INFO] Market discovery: 8 markets (0 new)
+2026-06-21 13:39:47,635 [INFO] Heartbeat: loop=21373 p50=2818ms tier=TIER_0_IDLE touches=1726 scalps=209/2 mem=363.0MB

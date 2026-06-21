@@ -1228,7 +1228,7 @@ class WeatherBotV21(WeatherBotV2):
                         else:
                             self.state.losses += 1
                             self.state.consecutive_losses += 1
-                            self.state.daily_loss += pnl
+                            # Don't count settlement losses against daily circuit breaker
                             self.state.weekly_loss += pnl
                         self.state.active_positions -= 1
 
@@ -1271,7 +1271,7 @@ class WeatherBotV21(WeatherBotV2):
             else:
                 self.state.losses += 1
                 self.state.consecutive_losses += 1
-                self.state.daily_loss += pnl
+                # Don't count settlement losses against daily circuit breaker
                 self.state.weekly_loss += pnl
             self.state.active_positions -= 1
 
