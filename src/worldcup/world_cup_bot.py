@@ -427,11 +427,12 @@ def update_cohort_stats(trade: WCPaperPosition):
     cohort["trades"] = cohort.get("trades", 0) + 1
     if trade.settled:
         cohort["resolved"] = cohort.get("resolved", 0) + 1
-        if trade.settlement_result == "WIN":
+        result = (trade.settlement_result or "").upper()
+        if "WIN" in result:
             cohort["wins"] = cohort.get("wins", 0) + 1
-        elif trade.settlement_result == "LOSS":
+        elif "LOSS" in result:
             cohort["losses"] = cohort.get("losses", 0) + 1
-        elif trade.settlement_result == "PUSH":
+        elif "PUSH" in result:
             cohort["pushes"] = cohort.get("pushes", 0) + 1
         cohort["pnl"] = round(cohort.get("pnl", 0.0) + trade.pnl, 4)
     with open(COHORT_REGISTRY, "w") as f:
@@ -854,9 +855,21 @@ class WorldCupBot:
         """Enter a paper position based on a signal."""
         position_size = MAX_POSITION_USD
         entry_price = signal["entry_price"]
-
-        if self.state.bankroll < position_size:
-            log.warning(f"Insufficient bankroll: ${self.state.bankroll:.2f} < ${position_size:.2f}")
+        
+        # Calculate committed capital from existing positions
+        committed = sum(p.cost_usd for p in self.positions if not p.settled)
+        available = self.state.bankroll - committed
+        
+        if available < position_size:
+            log.warning(f"Insufficient available capital: ${available:.2f} available "
+                       f"(bankroll=${self.state.bankroll:.2f} - committed=${committed:.2f}) < ${position_size:.2f}")
+            return None
+        
+        # Deduplication: skip if we already have an open position on this market
+        existing_slugs = {p.market_slug for p in self.positions if not p.settled}
+        slug = signal.get("market_slug", "")
+        if slug in existing_slugs:
+            log.info(f"Skipping {slug[:50]} — already have open position")
             return None
 
         side = signal["recommended_side"]
@@ -1252,6 +1265,18 @@ def main():
         except Exception as e:
             log.error(f"CLOB init failed: {e} — cannot go live")
             return
+        
+        # Check live readiness gate — DO NOT go live without passing validation
+        readiness = bot.generate_live_readiness()
+        if not readiness.get("all_pass", False):
+            log.error(f"LIVE GATE FAILED — cannot go live. "
+                      f"resolved={readiness['stats']['resolved']}/{readiness['gate']['min_resolved']} "
+                      f"WR={readiness['stats']['win_rate']:.0%} PF={readiness['stats']['profit_factor']} "
+                      f"EV=${readiness['stats']['ev_per_trade']:.2f}")
+            log.error("Falling back to paper mode until gates are met.")
+            paper_mode = True
+            bot.paper_only = True
+            bot.state.paper_only = True
 
     if args.status:
         print(bot.status())
