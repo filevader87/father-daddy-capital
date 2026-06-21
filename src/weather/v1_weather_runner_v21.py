@@ -1149,27 +1149,107 @@ class WeatherBotV21(WeatherBotV2):
         return pos
 
     def settle_positions(self):
-        """Settle with full resolution audit."""
-        import urllib.request
+        """Settle positions via Polymarket Gamma API resolution (primary) or METAR fallback."""
+        import requests as _requests
         now = datetime.now(timezone.utc)
 
         for pos in [p for p in self.positions if not p.settled]:
-            meta = CITY_REGISTRY.get(pos.city, {})
-            icao = meta.get("icao", "")
-            tz_offset = meta.get("tz", 0)
-
+            # Check if enough time has passed for PM to resolve (6h grace)
             target_dt = datetime.strptime(pos.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            if now < target_dt + timedelta(hours=24):
+            if now < target_dt + timedelta(hours=6):
                 continue
 
+            # ─── Primary: Polymarket Gamma API resolution ───
+            city = pos.city
+            dt = datetime.strptime(pos.date, "%Y-%m-%d")
+            month_name = dt.strftime("%B").lower()
+            day = dt.day
+            slug = f"highest-temperature-in-{city}-on-{month_name}-{day}-2026"
+
+            try:
+                r = _requests.get(
+                    "https://gamma-api.polymarket.com/events",
+                    params={"slug": slug},
+                    timeout=15,
+                )
+                if r.status_code == 200 and r.json():
+                    ev = r.json()[0]
+                    pos_cid = getattr(pos, "condition_id", "") or ""
+                    for m in ev.get("markets", []):
+                        mk_cid = m.get("conditionId", m.get("condition_id", ""))
+                        # Match by condition_id or by temperature bucket
+                        matched = False
+                        if pos_cid and mk_cid:
+                            matched = (mk_cid == pos_cid)
+                        if not matched:
+                            import re
+                            temp_match = re.search(r'(\d+)°C', m.get("question", ""))
+                            if temp_match and hasattr(pos, "bucket_temp"):
+                                matched = (int(temp_match.group(1)) == pos.bucket_temp)
+                            if not matched:
+                                continue
+
+                        closed = m.get("closed", False)
+                        if not closed:
+                            continue  # PM hasn't resolved yet
+
+                        # Resolution from outcomePrices
+                        prices_raw = m.get("outcomePrices", "[]")
+                        outcomes_raw = m.get("outcomes", "[]")
+                        try:
+                            prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
+                            outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                        except Exception:
+                            prices, outcomes = [], []
+
+                        if len(prices) < 2 or len(outcomes) < 2:
+                            continue
+
+                        winning_idx = 0 if prices[0] > prices[1] else 1
+                        winning_outcome = str(outcomes[winning_idx]).strip().upper()
+                        our_outcome = pos.outcome.upper()
+
+                        payout_per_share = 1.0 if our_outcome == winning_outcome else 0.0
+                        total_payout = payout_per_share * pos.shares
+                        cost = pos.entry_price * pos.shares
+                        pnl = total_payout - cost
+
+                        pos.exit_ts = now.isoformat()
+                        pos.exit_price = payout_per_share
+                        pos.pnl = pnl
+                        pos.settled = True
+                        pos.settlement_source = "PM_GAMMA_RESOLUTION"
+
+                        self.state.bankroll += total_payout
+                        self.state.total_pnl += pnl
+                        if pnl > 0:
+                            self.state.wins += 1
+                            self.state.consecutive_losses = 0
+                        else:
+                            self.state.losses += 1
+                            self.state.consecutive_losses += 1
+                            self.state.daily_loss += pnl
+                            self.state.weekly_loss += pnl
+                        self.state.active_positions -= 1
+
+                        log.info(f"✅ PM SETTLED {pos.trade_id}: {pos.city} {pos.outcome} @ {pos.entry_price} | "
+                                 f"winning={winning_outcome} | PnL=${pnl:.2f}")
+                        break  # Position settled, move to next
+            except Exception as e:
+                log.warning(f"PM Gamma settlement check failed for {slug}: {e}")
+
+            # If not settled by PM, try METAR fallback
+            if pos.settled:
+                continue
+
+            meta = CITY_REGISTRY.get(pos.city, {})
+            icao = meta.get("icao", "")
             metar = fetch_metar(icao) if icao else None
             if not metar or metar.get("temp_c") is None:
                 continue
 
             actual_temp = metar["temp_c"]
             audit = audit_settlement(pos, actual_temp, meta)
-
-            # Apply settlement
             settled_temp = audit["settled_temp"]
             bucket_hit = audit["bucket_hit"]
             payout_per_share = audit["payout_per_share"]
@@ -1181,6 +1261,7 @@ class WeatherBotV21(WeatherBotV2):
             pos.pnl = pnl
             pos.settled = True
             pos.settlement_temp = actual_temp
+            pos.settlement_source = "METAR"
 
             self.state.bankroll += total_payout
             self.state.total_pnl += pnl
@@ -1194,22 +1275,9 @@ class WeatherBotV21(WeatherBotV2):
                 self.state.weekly_loss += pnl
             self.state.active_positions -= 1
 
-            log.info(f"SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
+            log.info(f"METAR SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
                      f"actual={actual_temp}°C settled={settled_temp}°C "
-                     f"hit={bucket_hit} PnL=${pnl:.2f} "
-                     f"rule={audit['rounding_rule']} src={audit['settlement_source']}")
-
-            # §V22: Record actual high for DEB learning
-            if HAS_FDEB:
-                try:
-                    record_actual_high(
-                        city=pos.city,
-                        date_str=pos.date,
-                        actual_high=float(actual_temp),
-                        forecasts={"Open-Meteo": pos.forecast_temp} if pos.forecast_temp else {},
-                    )
-                except Exception as e:
-                    log.debug(f"DEB record error: {e}")
+                     f"hit={bucket_hit} PnL=${pnl:.2f}")
 
         self.save_state()
 

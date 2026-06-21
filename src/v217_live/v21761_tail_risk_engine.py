@@ -104,11 +104,16 @@ MARKET_TYPES = {
 # Risk limits (conservative for initial deployment)
 RISK_LIMITS = {
     "max_position_usd": 5.00,
-    "max_open_positions": 5,  # Max 5 concurrent positions
-    "max_daily_trades": 3,
-    "max_daily_loss_usd": 10.0,
-    "max_total_engine_loss_usd": 25.0,
-    "max_consecutive_losses": 3,
+    "max_open_positions": 10,  # Increased for paper validation (was 5)
+    "max_daily_trades": 10,    # Increased for paper validation (was 3)
+    "max_daily_loss_usd": 15.0,
+    "max_total_engine_loss_usd": 50.0,
+    "max_consecutive_losses": 5,  # Increased (was 3, too conservative for paper)
+    # ─── Live promotion gates ───
+    "live_min_resolved_trades": 25,
+    "live_min_win_rate": 0.55,
+    "live_min_profit_factor": 1.25,
+    "live_min_pnl_usd": 25.0,
 }
 
 # Assets we trade
@@ -630,7 +635,10 @@ class EngineState:
     wallet_balance: float = 0.0
     opportunities: List[Dict] = field(default_factory=list)
     positions: List[Dict] = field(default_factory=list)
+    closed_positions: List[Dict] = field(default_factory=list)
     scan_latency_ms: List[float] = field(default_factory=list)
+    wins: int = 0
+    losses: int = 0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -892,7 +900,7 @@ def scan_loop(state: EngineState, paper_mode: bool):
                     if best_opp["best_ask"] > 0.98:
                         log.info(f"Skipping {best_opp['question'][:40]} — ask too close to $1 (no edge)")
                         continue
-                    elif best_opp["tte_seconds"] < 3600:
+                    elif best_opp["tte_seconds"] < 1800:  # Skip <30min (was 1hr, too restrictive)
                         log.info(f"Skipping {best_opp['question'][:40]} — TTE too short ({best_opp['tte_seconds']/60:.0f}m)")
                         continue
                     elif best_opp["volume_24h"] < 500:
@@ -910,8 +918,11 @@ def scan_loop(state: EngineState, paper_mode: bool):
                             # Track position
                             pos = {
                                 "timestamp": now.isoformat(),
+                                "entry_timestamp": now.isoformat(),
                                 "market_slug": best_opp["market_slug"],
                                 "question": best_opp["question"],
+                                "asset": best_opp.get("asset", ""),
+                                "condition_id": best_opp.get("condition_id", ""),
                                 "side": best_opp["side"],
                                 "entry_price": best_opp["best_ask"],
                                 "token_id": best_opp["token_id"],
@@ -936,7 +947,152 @@ def scan_loop(state: EngineState, paper_mode: bool):
                                 state.consecutive_losses += 1
                                 state.daily_loss_usd += best_opp["position_size_usd"]
                         
-                        break  # Only take one trade per scan cycle
+                        break  # Only take top opportunity per scan cycle
+            
+            # ─── Settle expired positions via Polymarket Gamma API ───
+            for pos in list(state.positions):
+                slug = pos.get("market_slug", "")
+                
+                # Compute expiry: for updown slugs (btc-updown-5m-EPOCH), use epoch+300
+                # For date-based slugs (june-22-2026), parse the date and add 24h
+                # Fallback to entry_timestamp + tte
+                market_expired = False
+                try:
+                    last_part = slug.split("-")[-1]
+                    # Check if it's a genuine epoch (10-digit number > 1_700_000_000)
+                    slug_epoch = int(last_part)
+                    if slug_epoch > 1_700_000_000:
+                        # Genuine epoch — updown market
+                        market_expired = time.time() >= (slug_epoch + 300)
+                    else:
+                        # Not an epoch — likely a year or other non-epoch suffix
+                        # Parse the date from the slug (e.g., june-22-2026)
+                        import re
+                        date_match = re.search(r'(\w+)-(\d{1,2})-(\d{4})$', slug)
+                        if date_match:
+                            month_str, day_str, year_str = date_match.groups()
+                            from datetime import datetime as _dt2
+                            try:
+                                expiry_date = _dt2.strptime(f"{month_str} {day_str} {year_str}", "%B %d %Y")
+                                # Market expires at end of that day UTC
+                                market_expired = time.time() >= (expiry_date.replace(hour=23, minute=59).timestamp() + 3600)  # +1h grace
+                            except ValueError:
+                                market_expired = False
+                        else:
+                            # Unknown format — use entry_timestamp + tte
+                            entry_ts_str = pos.get("entry_timestamp", pos.get("timestamp", ""))
+                            tte_at_entry = pos.get("tte_at_entry", 0)
+                            try:
+                                from datetime import datetime as _dt
+                                entry_ts = _dt.fromisoformat(entry_ts_str.replace("Z", "+00:00")).timestamp()
+                                market_expired = time.time() >= (entry_ts + tte_at_entry + 300)
+                            except (ValueError, AttributeError):
+                                log.warning(f"Cannot determine expiry for {slug}, skipping settlement")
+                                continue
+                except (ValueError, IndexError):
+                    # Fallback for non-updown markets
+                    entry_ts_str = pos.get("entry_timestamp", pos.get("timestamp", ""))
+                    tte_at_entry = pos.get("tte_at_entry", 0)
+                    try:
+                        from datetime import datetime as _dt
+                        entry_ts = _dt.fromisoformat(entry_ts_str.replace("Z", "+00:00")).timestamp()
+                        market_expired = time.time() >= (entry_ts + tte_at_entry + 300)  # 5min grace
+                    except (ValueError, AttributeError):
+                        log.warning(f"Cannot determine expiry for {slug}, skipping settlement")
+                        continue
+                
+                if not market_expired:
+                    continue  # Position not yet expired
+                
+                # Market expired — check Polymarket resolution
+                outcome = "UNKNOWN"
+                pnl = 0.0
+                try:
+                    r = requests.get(
+                        f"{GAMMA_HOST}/events",
+                        params={"slug": slug},
+                        timeout=10,
+                    )
+                    if r.status_code == 200:
+                        events = r.json()
+                        if events:
+                            ev = events[0]
+                            pos_cid = pos.get("condition_id", "")
+                            for mk in ev.get("markets", []):
+                                # Match by condition_id (most reliable) or question
+                                mk_cid = mk.get("conditionId", mk.get("condition_id", ""))
+                                mk_question = mk.get("question", "").lower()
+                                pos_question = pos.get("question", "").lower()
+                                
+                                # Match condition_id first
+                                if pos_cid and mk_cid and mk_cid != pos_cid:
+                                    continue
+                                elif not pos_cid:
+                                    # Fallback: match by question substring
+                                    if mk_question not in pos_question and pos_question not in mk_question:
+                                        continue
+                                
+                                closed = mk.get("closed", False)
+                                if not closed:
+                                    continue  # PM hasn't resolved yet, retry later
+                                
+                                # Get resolution from outcomePrices
+                                prices_raw = mk.get("outcomePrices", "[]")
+                                outcomes_raw = mk.get("outcomes", "[]")
+                                try:
+                                    prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
+                                    outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                                except:
+                                    prices, outcomes = [], []
+                                
+                                if len(prices) < 2 or len(outcomes) < 2:
+                                    continue
+                                
+                                # Determine winning outcome
+                                winning_idx = 0 if prices[0] > prices[1] else 1
+                                winning_outcome = str(outcomes[winning_idx]).upper()
+                                our_side = pos.get("side", "").upper()
+                                
+                                # For YES/NO markets
+                                if our_side == winning_outcome or \
+                                   (our_side == "NO" and winning_outcome == "NO") or \
+                                   (our_side == "YES" and winning_outcome == "YES"):
+                                    outcome = "WIN"
+                                    pnl = (1.0 - pos["entry_price"]) * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
+                                else:
+                                    outcome = "LOSS"
+                                    pnl = -pos["entry_price"] * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
+                                
+                                log.info(f"PM RESOLVED: {slug} | our_side={our_side} winning={winning_outcome} | {outcome} | PnL=${pnl:.2f}")
+                                break
+                except Exception as e:
+                    log.warning(f"Gamma API settlement check failed for {slug}: {e}")
+                
+                # If PM hasn't resolved yet, skip — retry next cycle
+                if outcome == "UNKNOWN":
+                    log.info(f"PM market not yet resolved for {slug}, will retry next cycle")
+                    continue
+                
+                # Apply settlement result
+                pos["outcome"] = outcome
+                pos["pnl"] = round(pnl, 4)
+                pos["resolved_timestamp"] = datetime.now(timezone.utc).isoformat()
+                state.closed_positions.append(pos)
+                state.positions.remove(pos)
+                state.open_positions -= 1
+                state.total_pnl += pnl
+                
+                if outcome == "WIN":
+                    state.wins += 1
+                    state.consecutive_losses = 0
+                else:
+                    state.losses += 1
+                    state.consecutive_losses += 1
+                    state.daily_loss_usd += abs(pnl)
+                
+                log.info(f"RESOLVED: {pos.get('side','?')} {pos.get('asset','?')} | {outcome} | PnL=${pnl:.2f} | slug={slug}")
+                with open(OUT / "resolved_positions.jsonl", "a") as f:
+                    f.write(json.dumps(pos, default=str) + "\n")
             
             # ─── Heartbeat ───
             loop_ms = (time.time() - loop_start) * 1000
@@ -993,6 +1149,56 @@ def scan_loop(state: EngineState, paper_mode: bool):
             }
             with open(SUP / "v21761_tail_risk_engine_status.json", "w") as f:
                 json.dump(sup_status, f, indent=2, default=str)
+            
+            # ─── Live promotion readiness ───
+            total_resolved = state.wins + state.losses
+            wr = state.wins / total_resolved if total_resolved > 0 else 0
+            total_wins_pnl = sum(
+                (1.0 - p.get("entry_price", 0.5)) * (p.get("size_usd", RISK_LIMITS["max_position_usd"]) / p.get("entry_price", 0.5))
+                for p in state.closed_positions if p.get("outcome") == "WIN"
+            ) if state.closed_positions else 0
+            total_losses_pnl = abs(sum(
+                p.get("entry_price", 0.5) * (p.get("size_usd", RISK_LIMITS["max_position_usd"]) / p.get("entry_price", 0.5))
+                for p in state.closed_positions if p.get("outcome") == "LOSS"
+            )) if state.closed_positions else 0.01
+            pf = total_wins_pnl / total_losses_pnl if total_losses_pnl > 0 else float("inf")
+            
+            readiness = {
+                "timestamp": now.isoformat(),
+                "version": "V21.7.61",
+                "resolved_paper_trades": total_resolved,
+                "wins": state.wins,
+                "losses": state.losses,
+                "win_rate": round(wr, 4),
+                "profit_factor": round(pf, 2),
+                "total_pnl": round(state.total_pnl, 2),
+                "live_blocked": not (
+                    total_resolved >= RISK_LIMITS["live_min_resolved_trades"]
+                    and wr >= RISK_LIMITS["live_min_win_rate"]
+                    and pf >= RISK_LIMITS["live_min_profit_factor"]
+                    and state.total_pnl >= RISK_LIMITS["live_min_pnl_usd"]
+                ),
+                "promotion_criteria_met": (
+                    total_resolved >= RISK_LIMITS["live_min_resolved_trades"]
+                    and wr >= RISK_LIMITS["live_min_win_rate"]
+                    and pf >= RISK_LIMITS["live_min_profit_factor"]
+                    and state.total_pnl >= RISK_LIMITS["live_min_pnl_usd"]
+                ),
+                "classification": "LIVE_READY" if (
+                    total_resolved >= RISK_LIMITS["live_min_resolved_trades"]
+                    and wr >= RISK_LIMITS["live_min_win_rate"]
+                    and pf >= RISK_LIMITS["live_min_profit_factor"]
+                    and state.total_pnl >= RISK_LIMITS["live_min_pnl_usd"]
+                ) else "PAPER_VALIDATION",
+                "gates": {
+                    "min_resolved_trades": {"required": RISK_LIMITS["live_min_resolved_trades"], "actual": total_resolved},
+                    "min_win_rate": {"required": RISK_LIMITS["live_min_win_rate"], "actual": round(wr, 4)},
+                    "min_profit_factor": {"required": RISK_LIMITS["live_min_profit_factor"], "actual": round(pf, 2)},
+                    "min_pnl_usd": {"required": RISK_LIMITS["live_min_pnl_usd"], "actual": round(state.total_pnl, 2)},
+                },
+            }
+            with open(OUT / "live_readiness.json", "w") as f:
+                json.dump(readiness, f, indent=2, default=str)
             
             state.loop_count += 1
             

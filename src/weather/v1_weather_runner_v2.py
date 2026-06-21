@@ -811,6 +811,11 @@ class WeatherBotV2:
             self.state.daily_reset = today
             self.state.daily_loss = 0.0
             self.state.daily_trades = 0
+            # Un-halt on new day — circuit breaker resets daily
+            if self.state.halted and "Daily loss" in (self.state.halt_reason or ""):
+                self.state.halted = False
+                self.state.halt_reason = ""
+                log.info("Circuit breaker: daily reset — halt cleared")
         if self.state.weekly_reset != week_start:
             self.state.weekly_reset = week_start
             self.state.weekly_loss = 0.0

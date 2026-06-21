@@ -20,6 +20,7 @@ import csv
 import logging
 import argparse
 import traceback
+import requests
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -475,6 +476,59 @@ class V1WeatherBot:
         self.state.timestamp = datetime.now(timezone.utc).isoformat()
         with open(STATE_FILE, "w") as f:
             json.dump(asdict(self.state), f, indent=2, default=str)
+        
+        # ─── Live promotion readiness ───
+        resolved = [p for p in self.positions if p.settled]
+        wins = sum(1 for p in resolved if p.pnl and p.pnl > 0)
+        losses = len(resolved) - wins
+        total_resolved = len(resolved)
+        wr = wins / total_resolved if total_resolved > 0 else 0
+        total_pnl = sum(p.pnl for p in resolved if p.pnl is not None)
+        wins_pnl = sum(p.pnl for p in resolved if p.pnl and p.pnl > 0)
+        losses_pnl = abs(sum(p.pnl for p in resolved if p.pnl and p.pnl < 0)) or 0.01
+        pf = wins_pnl / losses_pnl if losses_pnl > 0 else float("inf")
+        
+        MIN_TRADES = 25
+        MIN_WR = 0.55
+        MIN_PF = 1.25
+        MIN_PNL = 25.0
+        
+        readiness = {
+            "timestamp": self.state.timestamp,
+            "version": "V2.2",
+            "resolved_paper_trades": total_resolved,
+            "wins": wins,
+            "losses": losses,
+            "win_rate": round(wr, 4),
+            "profit_factor": round(pf, 2),
+            "total_pnl": round(total_pnl, 2),
+            "live_blocked": not (
+                total_resolved >= MIN_TRADES
+                and wr >= MIN_WR
+                and pf >= MIN_PF
+                and total_pnl >= MIN_PNL
+            ),
+            "promotion_criteria_met": (
+                total_resolved >= MIN_TRADES
+                and wr >= MIN_WR
+                and pf >= MIN_PF
+                and total_pnl >= MIN_PNL
+            ),
+            "classification": "LIVE_READY" if (
+                total_resolved >= MIN_TRADES
+                and wr >= MIN_WR
+                and pf >= MIN_PF
+                and total_pnl >= MIN_PNL
+            ) else "PAPER_VALIDATION",
+            "gates": {
+                "min_resolved_trades": {"required": MIN_TRADES, "actual": total_resolved, "met": total_resolved >= MIN_TRADES},
+                "min_win_rate": {"required": MIN_WR, "actual": round(wr, 4), "met": wr >= MIN_WR},
+                "min_profit_factor": {"required": MIN_PF, "actual": round(pf, 2), "met": pf >= MIN_PF},
+                "min_pnl_usd": {"required": MIN_PNL, "actual": round(total_pnl, 2), "met": total_pnl >= MIN_PNL},
+            },
+        }
+        with open(Path(OUTPUT_DIR) / "v2_2_live_readiness.json", "w") as f:
+            json.dump(readiness, f, indent=2, default=str)
     
     def _load_positions(self):
         if TRADES_FILE.exists():
@@ -768,7 +822,11 @@ class V1WeatherBot:
         return pos
     
     def settle_positions(self):
-        """Check if any positions have resolved and settle them."""
+        """Check if any positions have resolved and settle them.
+        
+        Uses Polymarket Gamma API to check resolution via outcomePrices.
+        Winning outcome has price=1.0, losing outcome has price=0.0.
+        """
         now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
         
@@ -777,56 +835,69 @@ class V1WeatherBot:
             return
         
         for pos in unsettled:
-            # Only check dates that have passed (with 24h grace for resolution)
+            # Only check dates that have passed (with 6h grace for resolution)
             target_dt = datetime.strptime(pos.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            if now < target_dt + timedelta(hours=24):  # Give 24h for resolution
+            if now < target_dt + timedelta(hours=6):
                 continue
             
-            # Try to get settlement temperature
-            # In production, this would fetch Wunderground "Forecast" column
-            # For paper sim, use Open-Meteo's actual max for that date
-            city_cfg = CITIES.get(pos.city, {})
-            if not city_cfg or city_cfg.get("skip", False):
-                # Don't skip settlement even for skip cities
-                pass
+            # Check Polymarket for resolution using slug
+            city = pos.city
+            dt = datetime.strptime(pos.date, "%Y-%m-%d")
+            month_name = dt.strftime("%B").lower()
+            day = dt.day
+            slug = f"highest-temperature-in-{city}-on-{month_name}-{day}-2026"
             
-            # Placeholder: Open-Meteo historical is not available in free API
-            # For now, check actual resolution status from Polymarket
-            # TODO: implement Wunderground scrape for resolution temperature
-            
-            # Check Polymarket for resolution
-            event = discover_weather_markets(pos.city, pos.date)
-            if not event:
+            try:
+                r = requests.get(
+                    f"https://gamma-api.polymarket.com/events",
+                    params={"slug": slug},
+                    timeout=15,
+                )
+                if r.status_code != 200 or not r.json():
+                    continue
+                ev = r.json()[0]
+            except Exception as e:
+                log.warning(f"Settlement API call failed for {slug}: {e}")
                 continue
             
-            for m in event.get("markets", []):
-                m_condition_id = m.get("conditionId", m.get("condition_id", ""))
-                if m_condition_id != pos.condition_id:
+            # Find our specific market by condition_id
+            pos_cid = pos.condition_id
+            for m in ev.get("markets", []):
+                mk_cid = m.get("conditionId", m.get("condition_id", ""))
+                if mk_cid != pos_cid:
                     continue
                 
-                # Check if resolved
-                tokens = m.get("tokens", [])
-                winning = None
-                for tok in tokens:
-                    if tok.get("winner", False):
-                        winning = tok.get("outcome", "?")
-                        break
-                
-                if not winning:
+                closed = m.get("closed", False)
+                if not closed:
                     continue  # Not resolved yet
                 
-                # Determine P&L
-                if (pos.outcome == "YES" and winning == "Yes") or \
-                   (pos.outcome == "NO" and winning == "No"):
-                    # Won
+                # Get resolution from outcomePrices
+                # Closed market: winning outcome price = 1.0, losing = 0.0
+                prices_raw = m.get("outcomePrices", "[]")
+                outcomes_raw = m.get("outcomes", "[]")
+                try:
+                    prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
+                    outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                except:
+                    continue
+                
+                if len(prices) < 2 or len(outcomes) < 2:
+                    continue
+                
+                # Determine which outcome won
+                winning_idx = 0 if prices[0] > prices[1] else 1
+                winning_outcome = str(outcomes[winning_idx]).strip().upper()
+                our_outcome = pos.outcome.upper()
+                
+                if our_outcome == winning_outcome:
                     pos.exit_price = 1.0
                     pos.pnl = pos.cost_usd * (1.0 / pos.entry_price - 1.0)
                     pos.settled = True
                     self.state.wins += 1
                     self.state.consecutive_losses = 0
-                    log.info(f"✅ WON: {pos.trade_id} | P&L: +${pos.pnl:.2f}")
+                    log.info(f"✅ WON: {pos.trade_id} {pos.city} {pos.outcome} @ {pos.entry_price} | "
+                             f"winning={winning_outcome} | P&L: +${pos.pnl:.2f}")
                 else:
-                    # Lost
                     pos.exit_price = 0.0
                     pos.pnl = -pos.cost_usd
                     pos.settled = True
@@ -834,7 +905,8 @@ class V1WeatherBot:
                     self.state.consecutive_losses += 1
                     self.state.daily_loss += pos.pnl
                     self.state.weekly_loss += pos.pnl
-                    log.info(f"❌ LOST: {pos.trade_id} | P&L: ${pos.pnl:.2f}")
+                    log.info(f"❌ LOST: {pos.trade_id} {pos.city} {pos.outcome} @ {pos.entry_price} | "
+                             f"winning={winning_outcome} | P&L: ${pos.pnl:.2f}")
                 
                 pos.exit_ts = now.isoformat()
                 self.state.total_pnl += pos.pnl

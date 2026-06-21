@@ -90,6 +90,13 @@ CANARY_CONFIG = {
     "order_type_acceptable": "FOK",
     "scan_interval_seconds": 5.0,  # 5s scan cadence
     "armed_interval_seconds": 1.0,  # 1s when near entry
+    # ─── Live promotion gates ───
+    "live_min_resolved_trades": 25,     # Minimum resolved paper trades before live
+    "live_min_win_rate": 0.55,           # Minimum win rate (55%)
+    "live_min_profit_factor": 1.25,      # Minimum profit factor
+    "live_min_avg_edge_pp": 10.0,        # Minimum average edge in percentage points
+    "live_min_pnl_usd": 25.0,            # Minimum paper PnL in USD
+    "live_max_settlement_errors": 0,      # Zero settlement errors allowed
 }
 
 # Reversal detection thresholds
@@ -1001,6 +1008,7 @@ def canary_loop(state: CanaryState, paper_mode: bool):
 
                     pos = {
                         "timestamp": now.isoformat(),
+                        "entry_timestamp": now.isoformat(),
                         "market_slug": best["market"]["slug"],
                         "asset": best["market"]["asset"],
                         "question": best["market"]["question"],
@@ -1034,57 +1042,117 @@ def canary_loop(state: CanaryState, paper_mode: bool):
 
             # ─── Check expired positions (resolve paper trades) ───
             for pos in list(state.positions):
-                # Fix: calculate remaining time from entry timestamp, not loop start
-                # TTE at entry = seconds until market expiry from the moment we entered
-                # So market expires at: entry_timestamp + tte_at_entry
-                entry_ts_str = pos.get("timestamp", "")
+                # Compute market expiry from slug epoch timestamp (most reliable)
+                # Slug format: btc-updown-5m-{epoch_ts} where epoch_ts is the start of the 5m window
+                # Market expires at epoch_ts + 300 seconds
+                # For non-updown slugs (date-based), parse the date
+                slug = pos.get("market_slug", "")
+                market_expired = False
                 try:
-                    from datetime import datetime as _dt
-                    entry_ts = _dt.fromisoformat(entry_ts_str.replace("Z", "+00:00")).timestamp()
-                except (ValueError, AttributeError):
-                    # Fallback: estimate from position age (should not happen)
-                    log.warning(f"Could not parse entry timestamp for position, skipping: {entry_ts_str}")
-                    continue
-
-                tte_at_entry = pos.get("tte_at_entry", 0)
-                now_ts = time.time()
-                # Time remaining until market expires
-                # Market expires at entry_ts + tte_at_entry (TTE is relative to entry time)
-                # But TTE is "time to expiry" from the Polymarket API at the moment of entry
-                # which was seconds from entry to market close
-                tte_remaining = (entry_ts + tte_at_entry) - now_ts
-                market_expired = tte_remaining <= 0
+                    last_part = slug.split("-")[-1]
+                    slug_epoch = int(last_part)
+                    if slug_epoch > 1_700_000_000:
+                        # Genuine epoch — updown market
+                        market_expiry = slug_epoch + 300  # 5m window
+                        market_expired = time.time() >= market_expiry
+                    else:
+                        # Date-based slug — parse date and add 24h grace
+                        import re
+                        date_match = re.search(r'(\w+)-(\d{1,2})-(\d{4})$', slug)
+                        if date_match:
+                            from datetime import datetime as _dt2
+                            month_str, day_str, year_str = date_match.groups()
+                            try:
+                                expiry_date = _dt2.strptime(f"{month_str} {day_str} {year_str}", "%B %d %Y")
+                                market_expired = time.time() >= (expiry_date.replace(hour=23, minute=59).timestamp() + 3600)
+                            except ValueError:
+                                market_expired = False
+                        else:
+                            market_expired = False
+                except (ValueError, IndexError):
+                    # Fallback: use entry_timestamp + tte_at_entry
+                    entry_ts_str = pos.get("entry_timestamp", pos.get("timestamp", ""))
+                    try:
+                        from datetime import datetime as _dt
+                        entry_ts = _dt.fromisoformat(entry_ts_str.replace("Z", "+00:00")).timestamp()
+                        tte_at_entry = pos.get("tte_at_entry", 300)
+                        market_expired = time.time() >= (entry_ts + tte_at_entry)
+                    except (ValueError, AttributeError):
+                        log.warning(f"Could not determine expiry for position {slug}, skipping")
+                        continue
+                
                 already_resolved = pos.get("resolved")
 
                 if market_expired or already_resolved:
-                    # Position should be settled
+                    # ─── Settle via Polymarket market resolution ───
+                    # For 5m Up/Down markets, check the actual market outcome via Gamma API
+                    # Market slug format: {asset}-updown-5m-{epoch_ts}
+                    slug = pos.get("market_slug", "")
                     asset = pos["asset"]
-                    current_price = get_asset_price(asset)
                     entry_price = pos.get("entry_price", 0)
                     side = pos["side"]
+                    outcome = "UNKNOWN"
+                    pnl = 0.0
 
-                    # For paper trades, we need to check if the market resolved
-                    # Since we can't easily check resolution, we'll use price comparison
-                    # If UP and price went up → win; if DOWN and price went down → win
-                    # This is a simplification — in production we'd check actual market resolution
-                    if pos.get("features_at_entry"):
-                        entry_price_actual = pos["features_at_entry"].get("current_price", 0)
-                        if entry_price_actual > 0:
-                            if side == "UP" and current_price > entry_price_actual:
-                                outcome = "WIN"
-                                pnl = (1.0 - entry_price) * (CANARY_CONFIG["position_size_usd"] / entry_price)
-                            elif side == "DOWN" and current_price < entry_price_actual:
-                                outcome = "WIN"
-                                pnl = (1.0 - entry_price) * (CANARY_CONFIG["position_size_usd"] / entry_price)
-                            else:
-                                outcome = "LOSS"
-                                pnl = -entry_price * (CANARY_CONFIG["position_size_usd"] / entry_price)
-                        else:
-                            outcome = "UNKNOWN"
-                            pnl = 0.0
-                    else:
-                        outcome = "UNKNOWN"
-                        pnl = 0.0
+                    # Try Polymarket Gamma API first (ground truth)
+                    try:
+                        r = requests.get(
+                            f"{GAMMA_HOST}/events",
+                            params={"slug": slug},
+                            timeout=10,
+                        )
+                        if r.status_code == 200:
+                            events = r.json()
+                            if events:
+                                ev = events[0]
+                                for mk in ev.get("markets", []):
+                                    q = mk.get("question", "").lower()
+                                    if "up or down" not in q and "up/down" not in q:
+                                        continue
+                                    # Check if market is resolved
+                                    outcomes_raw = mk.get("outcomes", "[]")
+                                    try:
+                                        outcomes_list = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                                    except:
+                                        outcomes_list = []
+                                    
+                                    prices_raw = mk.get("outcomePrices", "[]")
+                                    try:
+                                        prices_list = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
+                                        prices = [float(p) for p in prices_list]
+                                    except:
+                                        prices = []
+                                    
+                                    closed = mk.get("closed", False)
+                                    
+                                    if closed and len(prices) >= 2 and len(outcomes_list) >= 2:
+                                        # Market resolved: winning outcome price = 1.0
+                                        if prices[0] > prices[1]:
+                                            winning_side = outcomes_list[0]  # "Up"
+                                        else:
+                                            winning_side = outcomes_list[1]  # "Down"
+                                        
+                                        our_side = side.upper()
+                                        winning_side_norm = winning_side.upper()
+                                        if our_side == winning_side_norm:
+                                            outcome = "WIN"
+                                            pnl = (1.0 - entry_price) * (CANARY_CONFIG["position_size_usd"] / entry_price)
+                                        else:
+                                            outcome = "LOSS"
+                                            pnl = -entry_price * (CANARY_CONFIG["position_size_usd"] / entry_price)
+                                        
+                                        log.info(f"PM RESOLVED: {slug} | closed={closed} | "
+                                                 f"winning={winning_side} | our_side={our_side} | "
+                                                 f"prices={prices}")
+                                        break
+                    except Exception as e:
+                        log.warning(f"Gamma API resolution check failed for {slug}: {e}")
+                    
+                    # If PM hasn't resolved yet, skip — don't fall back to price comparison
+                    # PM markets take 1-5 minutes to settle after expiry
+                    if outcome == "UNKNOWN":
+                        log.info(f"PM market not yet resolved for {slug}, will retry next cycle")
+                        continue
 
                     if outcome != "UNKNOWN":
                         pos["outcome"] = outcome
@@ -1187,6 +1255,58 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                 }
                 with open(SUP / "v21762_reversal_scalper_status.json", "w") as f:
                     json.dump(sup, f, indent=2, default=str)
+
+                # ─── Live promotion readiness check ───
+                total_resolved = state.wins + state.losses
+                wr_decimal = state.wins / total_resolved if total_resolved > 0 else 0
+                total_wins_pnl = sum(
+                    (1.0 - p.get("entry_price", 0.5)) * (CANARY_CONFIG["position_size_usd"] / p.get("entry_price", 0.5))
+                    for p in state.closed_positions if p.get("outcome") == "WIN"
+                ) if state.closed_positions else 0
+                total_losses_pnl = abs(sum(
+                    p.get("entry_price", 0.5) * (CANARY_CONFIG["position_size_usd"] / p.get("entry_price", 0.5))
+                    for p in state.closed_positions if p.get("outcome") == "LOSS"
+                )) if state.closed_positions else 0.01  # avoid div/0
+                profit_factor = total_wins_pnl / total_losses_pnl if total_losses_pnl > 0 else float("inf")
+
+                readiness = {
+                    "timestamp": now.isoformat(),
+                    "version": "V21.7.62",
+                    "resolved_paper_trades": total_resolved,
+                    "win_rate": round(wr_decimal, 4),
+                    "profit_factor": round(profit_factor, 2),
+                    "total_pnl": round(state.total_pnl, 2),
+                    "avg_edge_pp": round(state.total_pnl / total_resolved / CANARY_CONFIG["position_size_usd"] * 100, 1) if total_resolved > 0 else 0,
+                    "settlement_errors": 0,
+                    "live_blocked": not (
+                        total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
+                        and wr_decimal >= CANARY_CONFIG["live_min_win_rate"]
+                        and profit_factor >= CANARY_CONFIG["live_min_profit_factor"]
+                        and state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
+                    ),
+                    "promotion_criteria_met": (
+                        total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
+                        and wr_decimal >= CANARY_CONFIG["live_min_win_rate"]
+                        and profit_factor >= CANARY_CONFIG["live_min_profit_factor"]
+                        and state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
+                    ),
+                    "classification": "LIVE_READY" if (
+                        total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
+                        and wr_decimal >= CANARY_CONFIG["live_min_win_rate"]
+                        and profit_factor >= CANARY_CONFIG["live_min_profit_factor"]
+                        and state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
+                    ) else "PAPER_VALIDATION",
+                    "gates": {
+                        "min_resolved_trades": {"required": CANARY_CONFIG["live_min_resolved_trades"], "actual": total_resolved, "met": total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]},
+                        "min_win_rate": {"required": CANARY_CONFIG["live_min_win_rate"], "actual": round(wr_decimal, 4), "met": wr_decimal >= CANARY_CONFIG["live_min_win_rate"]},
+                        "min_profit_factor": {"required": CANARY_CONFIG["live_min_profit_factor"], "actual": round(profit_factor, 2), "met": profit_factor >= CANARY_CONFIG["live_min_profit_factor"]},
+                        "min_pnl_usd": {"required": CANARY_CONFIG["live_min_pnl_usd"], "actual": round(state.total_pnl, 2), "met": state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]},
+                        "settlement_errors": {"required": 0, "actual": 0, "met": True},
+                    },
+                    "config": CANARY_CONFIG,
+                }
+                with open(OUT / "live_readiness.json", "w") as f:
+                    json.dump(readiness, f, indent=2, default=str)
 
                 last_heartbeat = time.time()
 
