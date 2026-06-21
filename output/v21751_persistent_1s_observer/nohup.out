@@ -3227,3 +3227,26 @@
 2026-06-21 13:39:07,298 [INFO] Discovered 8 crypto Up/Down markets
 2026-06-21 13:39:07,299 [INFO] Market discovery: 8 markets (0 new)
 2026-06-21 13:39:47,635 [INFO] Heartbeat: loop=21373 p50=2818ms tier=TIER_0_IDLE touches=1726 scalps=209/2 mem=363.0MB
+2026-06-21 13:40:50,838 [INFO] Heartbeat: loop=21395 p50=2820ms tier=TIER_0_IDLE touches=1727 scalps=210/2 mem=362.9MB
+2026-06-21 13:41:07,747 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-21 13:41:07,747 [INFO] ROLLOVER: btc-updown-5m-1782063600 expired
+2026-06-21 13:41:07,747 [INFO] ROLLOVER: sol-updown-5m-1782063600 expired
+2026-06-21 13:41:07,747 [INFO] ROLLOVER: eth-updown-5m-1782063600 expired
+2026-06-21 13:41:07,747 [INFO] ROLLOVER: xrp-updown-5m-1782063600 expired
+2026-06-21 13:41:07,748 [INFO] Market discovery: 8 markets (4 new)
+2026-06-21 13:41:52,473 [INFO] Heartbeat: loop=21415 p50=2821ms tier=TIER_0_IDLE touches=1737 scalps=211/2 mem=362.9MB
+2026-06-21 13:42:53,987 [INFO] Heartbeat: loop=21437 p50=2822ms tier=TIER_0_IDLE touches=1737 scalps=211/2 mem=363.0MB
+2026-06-21 13:43:10,223 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-21 13:43:10,223 [INFO] Market discovery: 8 markets (0 new)
+2026-06-21 13:43:56,180 [INFO] Heartbeat: loop=21456 p50=2823ms tier=TIER_0_IDLE touches=1737 scalps=211/2 mem=363.0MB
+2026-06-21 13:44:57,957 [INFO] Heartbeat: loop=21477 p50=2820ms tier=TIER_0_IDLE touches=1737 scalps=211/2 mem=362.9MB
+2026-06-21 13:45:14,841 [INFO] Discovered 8 crypto Up/Down markets
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: xrp-updown-5m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: sol-updown-15m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: btc-updown-15m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: btc-updown-5m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: eth-updown-15m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: sol-updown-5m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: xrp-updown-15m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] ROLLOVER: eth-updown-5m-1782063900 expired
+2026-06-21 13:45:14,842 [INFO] Market discovery: 8 markets (8 new)

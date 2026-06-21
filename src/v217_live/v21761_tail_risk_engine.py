@@ -894,8 +894,25 @@ def scan_loop(state: EngineState, paper_mode: bool):
             
             # ─── Execute trades ───
             if can_trade and state.opportunities:
+                # Track which slugs we already have positions in
+                existing_slugs = set()
+                try:
+                    with open(OUT / "positions.jsonl", "r") as pf:
+                        for line in pf:
+                            if line.strip():
+                                pos_data = json.loads(line)
+                                if pos_data.get("order_status") != "SETTLED":
+                                    existing_slugs.add(pos_data.get("market_slug", ""))
+                except FileNotFoundError:
+                    pass
+                
                 # Try opportunities in order (highest edge first) until one passes all gates
                 for best_opp in state.opportunities:
+                    # Skip if we already have a position in this market
+                    if best_opp.get("market_slug", "") in existing_slugs:
+                        log.info(f"Skipping {best_opp['question'][:40]} — already have position")
+                        existing_slugs.add(best_opp["market_slug"])
+                        continue
                     # Additional risk checks
                     if best_opp["best_ask"] > 0.98:
                         log.info(f"Skipping {best_opp['question'][:40]} — ask too close to $1 (no edge)")
@@ -914,6 +931,7 @@ def scan_loop(state: EngineState, paper_mode: bool):
                             state.orders_submitted += 1
                             state.daily_trades += 1
                             state.open_positions += 1
+                            existing_slugs.add(best_opp["market_slug"])  # Prevent duplicate entries
                             
                             # Track position
                             pos = {

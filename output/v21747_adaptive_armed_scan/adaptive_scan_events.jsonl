@@ -2687,3 +2687,5 @@
 {"timestamp": "2026-06-21T17:33:10.373204+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 49.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1614, "next_interval_s": 120}
 {"timestamp": "2026-06-21T17:36:04.379986+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 49.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1439, "next_interval_s": 120}
 {"timestamp": "2026-06-21T17:38:57.265857+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 46.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1266, "next_interval_s": 120}
+{"timestamp": "2026-06-21T17:41:52.796094+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 45.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 1090, "next_interval_s": 120}
+{"timestamp": "2026-06-21T17:44:45.079427+00:00", "tier": 0, "tier_name": "IDLE_MIDZONE_SCAN", "down_ask_cents": 45.0, "zone": "MIDZONE", "signal": false, "can_submit": false, "tte_seconds": 921, "next_interval_s": 120}
