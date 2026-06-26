@@ -1819,48 +1819,58 @@ class WeatherBotV21(WeatherBotV2):
                         continue
 
         # V21.7.70: On-chain reconciliation in live mode
+        # V21.7.71: Filter to WEATHER positions only — wallet is shared across
+        # scalper, worldcup, and other bots. Counting all wallet positions
+        # fabricates weather bot's W/L and PnL.
         if not self.state.paper_only:
             try:
                 import requests as _req
                 proxy = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
                 r = _req.get(f"https://data-api.polymarket.com/positions?user={proxy}&limit=500", timeout=15)
                 if r.status_code == 200:
-                    chain_positions = r.json()
+                    all_positions = r.json()
+                    # Filter to weather markets only
+                    chain_positions = [
+                        p for p in all_positions
+                        if "temperature in" in p.get("title", "").lower()
+                        or "highest temp" in p.get("title", "").lower()
+                    ]
                     chain_pnl = sum(float(p.get("cashPnl", 0) or 0) for p in chain_positions)
                     chain_open = [p for p in chain_positions if float(p.get("curPrice", 0) or 0) > 0]
                     chain_open_value = sum(float(p.get("size", 0) or 0) * float(p.get("curPrice", 0) or 0) for p in chain_open)
 
-                    # Sync USDC balance
+                    # Sync USDC balance (shared wallet — informational)
                     try:
                         from src.weather.v1_weather_runner import get_onchain_usdc
                         actual_usdc = get_onchain_usdc()
                     except Exception:
                         actual_usdc = None
 
-                    log.info(f"V21.7.70 ON-CHAIN RECONCILIATION:")
-                    log.info(f"  State bankroll: ${self.state.bankroll:.2f} → on-chain USDC: ${actual_usdc:.2f}" if actual_usdc else f"  State bankroll: ${self.state.bankroll:.2f}")
-                    log.info(f"  State total_pnl: ${self.state.total_pnl:.2f} → on-chain cashPnl: ${chain_pnl:.2f}")
-                    log.info(f"  State active_pos: {self.state.active_positions} → on-chain open: {len(chain_open)}")
-                    log.info(f"  Open position value: ${chain_open_value:.2f}")
+                    log.info(f"V21.7.71 ON-CHAIN RECONCILIATION (weather-only):")
+                    log.info(f"  Wallet USDC: ${actual_usdc:.2f}" if actual_usdc else "  Wallet USDC: N/A")
+                    log.info(f"  Weather PnL: ${chain_pnl:.2f} | Open: {len(chain_open)} (${chain_open_value:.2f})")
+                    log.info(f"  Total weather positions: {len(chain_positions)} (of {len(all_positions)} on wallet)")
 
-                    # Override state with on-chain truth
-                    if actual_usdc is not None and actual_usdc > 0:
-                        self.state.bankroll = actual_usdc
-                        self.state.bankroll_actual_usd = actual_usdc
+                    # Override state with weather-only on-chain truth
                     self.state.total_pnl = chain_pnl
                     self.state.active_positions = len(chain_open)
                     self.state.total_trades = len(chain_positions)
 
-                    # Recount wins/losses from settled positions
+                    # Recount wins/losses from settled weather positions
                     settled = [p for p in chain_positions if float(p.get("curPrice", 0) or 0) == 0]
                     wins = sum(1 for p in settled if float(p.get("cashPnl", 0) or 0) > 0)
                     losses = sum(1 for p in settled if float(p.get("cashPnl", 0) or 0) <= 0)
                     self.state.wins = wins
                     self.state.losses = losses
 
-                    log.info(f"  Reconciled: W:{wins} L:{losses} | PnL: ${chain_pnl:.2f} | Cash: ${actual_usdc:.2f}" if actual_usdc else f"  Reconciled: W:{wins} L:{losses} | PnL: ${chain_pnl:.2f}")
+                    # bankroll = shared wallet USDC, but only if available
+                    if actual_usdc is not None and actual_usdc > 0:
+                        self.state.bankroll = actual_usdc
+                        self.state.bankroll_actual_usd = actual_usdc
+
+                    log.info(f"  Reconciled: W:{wins} L:{losses} | PnL: ${chain_pnl:.2f}")
             except Exception as e:
-                log.warning(f"V21.7.70 on-chain reconciliation failed: {e}")
+                log.warning(f"V21.7.71 on-chain reconciliation failed: {e}")
 
     def status_report(self):
         """Extended status with live readiness."""
