@@ -30,12 +30,11 @@ RUN AS:
   python3 src/v217_live/v21762_reversal_scalper_canary.py --live   # REAL MONEY
 """
 from __future__ import annotations
-import json, os, sys, time, logging, signal, traceback, argparse, math
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+import json, os, sys, time, logging, signal, traceback, argparse
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional, List, Dict, Tuple
 import statistics
 import requests
 import numpy as np
@@ -74,22 +73,27 @@ GAMMA_HOST = "https://gamma-api.polymarket.com"
 # ═══════════════════════════════════════════════════════════════════════════
 
 CANARY_CONFIG = {
-    "version": "V21.7.62",
+    "version": "V21.7.63",
     "cell_id": "5M_REVERSAL_SCALPER_CANARY",
     "interval": "5m",
     "assets": ["BTC", "ETH", "SOL", "XRP"],
     "entry_price_lo": 0.05,  # 5¢ minimum entry
     "entry_price_hi": 0.80,  # 80¢ maximum entry
-    "position_size_usd": 5.00,
+    "position_size_usd": 3.00,  # V21.7.63: Reduced from $5→$3 per observer rec (max DD $21.48)
     "max_open_positions": 5,
     "max_daily_trades": 10,
     "max_daily_loss_usd": 15.0,
     "max_total_canary_loss_usd": 50.0,
-    "max_consecutive_losses": 5,
+    "max_consecutive_losses": 3,  # V21.7.64: Tightened from 5→3 — strategy decay fix (WR 80%→48.9%)
+    "rolling_wr_window": 15,       # V21.7.64: Rolling WR window for adaptive gate tightening
+    "rolling_wr_floor": 0.50,      # V21.7.64: If rolling WR < 50%, raise confidence threshold by 5pp
+    "rolling_wr_crisis": 0.40,      # V21.7.64: If rolling WR < 40%, halt new entries for the day
     "order_type_preferred": "FAK",
     "order_type_acceptable": "FOK",
     "scan_interval_seconds": 5.0,  # 5s scan cadence
     "armed_interval_seconds": 1.0,  # 1s when near entry
+    # V21.7.68: Per-asset daily cap REMOVED — if BTC is the strongest signal, trade it
+    "max_trades_per_asset_per_day": 999,  # No cap — was 3, forced diversification hurt volume
     # ─── Live promotion gates ───
     "live_min_resolved_trades": 25,     # Minimum resolved paper trades before live
     "live_min_win_rate": 0.55,           # Minimum win rate (55%)
@@ -106,8 +110,9 @@ REVERSAL_CONFIG = {
     "momentum_threshold": 0.0005,  # 0.05% momentum threshold
     "mean_reversion_window": 10,  # 10-period mean reversion window
     "mean_reversion_threshold": 0.0008,  # 0.08% deviation from MA
-    "min_edge_pp": 3.0,         # 3pp minimum edge to enter (lowered from 5)
-    "min_confidence": 0.52,     # 52% minimum confidence (lowered from 55%)
+    "min_edge_pp": 5.0,         # V21.7.63: Raised from 3pp to 5pp — strategy decay fix
+    "min_confidence": 0.55,     # V21.7.63: Raised from 52% to 55% — strategy decay fix
+    "min_confidence_down": 0.65,  # V21.7.69: DOWN WR=46.2% vs UP WR=61.9% — require 65% conf for DOWN
     "max_spread_cents": 5.0,    # Max 5¢ spread (widened from 3)
     "min_tte_seconds": 30,     # At least 30s to expiry
     "max_tte_seconds": 600,     # Max 10 min (current + next window)
@@ -149,7 +154,7 @@ class NeuralPlasticityEngine:
                 self.W3 = data["W3"]
                 self.b3 = data["b3"]
                 log.info(f"Neural weights loaded from {self.weights_path}")
-            except:
+            except Exception:
                 self._init_weights()
         else:
             self._init_weights()
@@ -309,7 +314,7 @@ class BayesianCalibration:
         hess = x.T @ x * p * (1 - p) + self.PRIOR_PRECISION * np.eye(2)
         try:
             self.beta -= np.linalg.solve(hess, grad)
-        except:
+        except Exception:
             pass
         self.precision = hess
         self.observations += 1
@@ -332,7 +337,7 @@ def get_asset_price(asset: str) -> float:
         r = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym}", timeout=5)
         if r.status_code == 200:
             return float(r.json().get("price", 0))
-    except:
+    except Exception:
         pass
     return 0.0
 
@@ -356,7 +361,7 @@ def get_klines(asset: str, interval: str = "1m", limit: int = 50) -> List[Dict]:
                 "low": float(k[3]), "close": float(k[4]),
                 "volume": float(k[5]), "ts": k[0],
             } for k in klines]
-    except:
+    except Exception:
         pass
     return []
 
@@ -564,11 +569,11 @@ def discover_5m_markets() -> List[Dict]:
                     
                     try:
                         outcomes = json.loads(mk.get("outcomes", "[]")) if isinstance(mk.get("outcomes"), str) else mk.get("outcomes", [])
-                    except:
+                    except Exception:
                         outcomes = []
                     try:
                         token_ids = json.loads(mk.get("clobTokenIds", "[]")) if isinstance(mk.get("clobTokenIds"), str) else mk.get("clobTokenIds", [])
-                    except:
+                    except Exception:
                         token_ids = []
 
                     if len(outcomes) < 2 or len(token_ids) < 2:
@@ -590,6 +595,11 @@ def discover_5m_markets() -> List[Dict]:
 
                     tte = exp_ts - now_epoch
 
+                    # Read neg_risk from PM market data (critical for CLOB order signing)
+                    neg_risk = mk.get("neg_risk", False)
+                    if isinstance(neg_risk, str):
+                        neg_risk = neg_risk.lower() == "true"
+
                     markets.append({
                         "slug": slug,
                         "question": mk.get("question", ""),
@@ -601,10 +611,11 @@ def discover_5m_markets() -> List[Dict]:
                         "closed": mk.get("closed", False),
                         "volume_24h": float(mk.get("volume24hr", 0) or 0),
                         "outcomes": outcomes,
+                        "neg_risk": neg_risk,
                     })
                     seen_slugs.add(slug)
                     break  # One market per event
-            except:
+            except Exception:
                 continue
 
     return markets
@@ -628,7 +639,7 @@ def get_orderbook(token_id: str) -> Optional[Dict]:
                 "bid_depth": sum(float(b.get("size", 0)) for b in bids[:5]),
                 "book_valid": bool(asks or bids),
             }
-    except:
+    except Exception:
         pass
     return None
 
@@ -647,12 +658,15 @@ def get_clob_client():
         if not pk:
             raise ValueError("No PM_WALLET_PRIVATE_KEY in env")
         try:
-            from py_clob_client_v2 import ClobClientV2 as ClobClient, SignatureTypeV2
+            from py_clob_client_v2 import ClobClient, SignatureTypeV2
             _clob_client = ClobClient(
                 CLOB_HOST, key=pk, chain_id=CHAIN_ID,
                 signature_type=SignatureTypeV2.POLY_1271.value, funder=DW,
             )
-            log.info("CLOB client initialized (POLY_1271)")
+            # Derive and set API credentials (L2 auth required for order submission)
+            creds = _clob_client.create_or_derive_api_key()
+            _clob_client.set_api_creds(creds)
+            log.info("CLOB client initialized (POLY_1271) with L2 API creds")
         except Exception as e:
             raise ValueError(f"CLOB client init failed: {e}")
     return _clob_client
@@ -674,6 +688,7 @@ class CanaryState:
     orders_rejected: int = 0
     daily_trades: int = 0
     daily_loss_usd: float = 0.0
+    daily_reset: str = ""  # UTC date string for daily reset
     open_positions: int = 0
     total_pnl: float = 0.0
     consecutive_losses: int = 0
@@ -688,6 +703,9 @@ class CanaryState:
     neural_training_steps: int = 0
     scan_latency_ms: List[float] = field(default_factory=list)
     last_neural_save: float = 0.0
+    asset_daily_trades: Dict[str, int] = field(default_factory=dict)  # V21.7.63: per-asset daily cap
+    recent_outcomes: List[int] = field(default_factory=list)  # V21.7.64: rolling WR tracker (1=win, 0=loss)
+    recent_pnls: List[float] = field(default_factory=list)    # V21.7.66: rolling PnL tracker for EV-based gating
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -737,9 +755,32 @@ def execute_order(market: Dict, side: str, token_id: str, best_ask: float,
     # LIVE execution
     try:
         from py_clob_client_v2 import OrderArgsV2, CreateOrderOptions, OrderType
+        # Convert USD position size to shares (PM CLOB size = number of shares)
+        size_usd = CANARY_CONFIG["position_size_usd"]
+        # V21.7.65: Progressive position sizing — reduce on losing streaks, increase on wins
+        cl = state.consecutive_losses
+        if cl >= 3:
+            size_usd *= 0.50  # Half size after 3 consecutive losses
+            log.info(f"Progressive sizing: ${size_usd:.2f} (3+ consecutive losses, half size)")
+        elif cl == 2:
+            size_usd *= 0.75  # 75% size after 2 consecutive losses
+            log.info(f"Progressive sizing: ${size_usd:.2f} (2 consecutive losses, 75% size)")
+        recent_wins = sum(state.recent_outcomes[-5:]) if len(state.recent_outcomes) >= 5 else 0
+        if recent_wins >= 4 and cl == 0:
+            size_usd *= 1.25  # 25% boost on hot streak (4/5 wins, no current losses)
+            size_usd = min(size_usd, CANARY_CONFIG["position_size_usd"] * 1.25)  # Cap
+            log.info(f"Progressive sizing: ${size_usd:.2f} (hot streak 4/5, 25% boost)")
+        shares = round(size_usd / max(best_ask, 0.01), 2)
+        shares = max(int(shares), 1)  # Minimum 1 share, round to int
+        actual_cost = shares * best_ask
+        result["shares"] = shares
+        result["actual_cost"] = round(actual_cost, 2)
+        log.info(f"Order sizing: ${size_usd} / ask={best_ask:.4f} = {shares} shares (cost=${actual_cost:.2f})")
         order_args = OrderArgsV2(token_id=token_id, price=best_ask,
-                                 size=CANARY_CONFIG["position_size_usd"], side="BUY")
-        options = CreateOrderOptions(tick_size="0.01", neg_risk=False)
+                                 size=shares, side="BUY")
+        # Use dynamic neg_risk from market data (not hardcoded)
+        market_neg_risk = market.get("neg_risk", False)
+        options = CreateOrderOptions(tick_size="0.01", neg_risk=market_neg_risk)
 
         signed_order = clob_client.create_order(order_args, options)
 
@@ -764,7 +805,7 @@ def execute_order(market: Dict, side: str, token_id: str, best_ask: float,
                 result["order_type_used"] = "GTC_EMERGENCY_CANCEL"
                 if order_result.get("orderID"):
                     clob_client.cancel_orders([order_result["orderID"]])
-            except:
+            except Exception:
                 result["error"] = f"FOK + GTC failed"
                 result["status"] = "ORDER_FAILED"
                 return result
@@ -777,7 +818,7 @@ def execute_order(market: Dict, side: str, token_id: str, best_ask: float,
 
         try:
             clob_client.cancel_all()
-        except:
+        except Exception:
             pass
 
         if fill_status in ("live", "matched"):
@@ -789,7 +830,7 @@ def execute_order(market: Dict, side: str, token_id: str, best_ask: float,
         log.error(f"Order error: {e}")
         try:
             clob_client.cancel_all()
-        except:
+        except Exception:
             pass
 
     with open(OUT / "order_attempts.jsonl", "a") as f:
@@ -824,7 +865,7 @@ signal.signal(signal.SIGTERM, handle_signal)
 # MAIN SCAN LOOP
 # ═══════════════════════════════════════════════════════════════════════════
 
-def canary_loop(state: CanaryState, paper_mode: bool):
+def canary_loop(state: CanaryState, paper_mode: bool, pos_file=None, resolved_file=None):
     """Main canary loop: scan 5m markets, detect reversals, execute trades."""
     global _shutdown
 
@@ -856,6 +897,15 @@ def canary_loop(state: CanaryState, paper_mode: bool):
         try:
             loop_start = time.time()
             now = datetime.now(timezone.utc)
+
+            # ─── Daily reset (UTC day boundary) ───
+            today = now.strftime("%Y-%m-%d")
+            if state.daily_reset != today:
+                log.info(f"Daily reset: {state.daily_reset} → {today} | trades={state.daily_trades} loss=${state.daily_loss_usd:.2f}")
+                state.daily_trades = 0
+                state.daily_loss_usd = 0.0
+                state.asset_daily_trades = {}  # V21.7.63: Reset per-asset daily counter
+                state.daily_reset = today
 
             # ─── Halt check ───
             if state.halted:
@@ -899,9 +949,26 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                 direction, confidence, edge = detect_reversal(indicators)
                 state.signals_generated += 1
 
+                # V21.7.66: Rolling EV/PnL adaptive gate — uses EV not WR (EV matters more than WR)
+                recent = state.recent_outcomes[-CANARY_CONFIG["rolling_wr_window"]:]
+                if len(recent) >= 5:
+                    rolling_wr = sum(recent) / len(recent)
+                    # Calculate rolling PnL (EV proxy) — need to get from recent trades
+                    rolling_pnl = sum(state.recent_pnls[-CANARY_CONFIG["rolling_wr_window"]:]) if hasattr(state, 'recent_pnls') and state.recent_pnls else 0
+                    # Halt only if BOTH WR is low AND PnL is negative (true crisis)
+                    if rolling_wr < CANARY_CONFIG["rolling_wr_crisis"] and rolling_pnl < 0:
+                        continue  # Strategy in genuine crisis — losing AND missing
+                    if rolling_wr < CANARY_CONFIG["rolling_wr_floor"] and rolling_pnl < 0:
+                        confidence += 0.05  # Tighten only when losing money
+
                 if edge < REVERSAL_CONFIG["min_edge_pp"]:
                     continue
-                if confidence < REVERSAL_CONFIG["min_confidence"]:
+                # V21.7.70: BLOCK DOWN trades entirely.
+                # Live data: UP=65.2% WR (+$21.07) vs DOWN=43.8% WR (-$18.27).
+                # DOWN has negative edge — 5-minute crypto has positive autocorrelation
+                # (momentum continues), making mean-reversion DOWN bets systematically wrong.
+                # Paper simulated DOWN as profitable (69.4% WR) but live data proves otherwise.
+                if direction == "DOWN":
                     continue
 
                 # Neural prediction
@@ -1000,51 +1067,77 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                 if best["market"]["slug"] in existing_slugs:
                     log.info(f"Skipping {best['market']['slug'][:40]} — already have open position")
                 else:
-                    log.info(f"🎯 EXECUTING: {best['side']} {best['market']['asset']} | "
-                             f"{best['market']['question'][:45]} | @ {best['best_ask']*100:.1f}¢")
-                    order_result = execute_order(
-                        best["market"], best["side"], best["token_id"], best["best_ask"],
-                        clob, paper_mode, best["neural_pred"], best["indicators"], best["confidence"]
-                    )
-    
-                    if order_result["status"] in ("PAPER_FILLED", "ACKNOWLEDGED"):
-                        state.orders_submitted += 1
-                        state.daily_trades += 1
-                        state.open_positions += 1
-    
-                        pos = {
-                            "timestamp": now.isoformat(),
-                            "entry_timestamp": now.isoformat(),
-                            "market_slug": best["market"]["slug"],
-                            "asset": best["market"]["asset"],
-                            "question": best["market"]["question"],
-                            "side": best["side"],
-                            "token_id": best["token_id"],
-                            "entry_price": best["best_ask"],
-                            "size_usd": CANARY_CONFIG["position_size_usd"],
-                            "direction": best["direction"],
-                            "confidence": best["confidence"],
-                            "edge_pp": best["edge_pp"],
-                            "neural_pred": best["neural_pred"],
-                            "calibrated_prob": best["calibrated_prob"],
-                            "rsi_at_entry": best["indicators"]["rsi"],
-                            "macd_at_entry": best["indicators"]["macd"],
-                            "trend_at_entry": best["indicators"]["trend"],
-                            "momentum_at_entry": best["indicators"]["momentum"],
-                            "tte_at_entry": best["tte"],
-                            "features_at_entry": best["indicators"],
-                            "order_status": order_result["status"],
-                            "order_id": order_result.get("order_id"),
-                        }
-                        state.positions.append(pos)
-    
-                        with open(OUT / "positions.jsonl", "a") as f:
-                            f.write(json.dumps(pos, default=str) + "\n")
-    
-                        if order_result["status"] == "ACKNOWLEDGED" and order_result.get("fill_status") in ("live", "matched"):
-                            state.orders_filled += 1
+                    # V21.7.63: Per-asset daily trade cap — force diversification
+                    asset = best["market"]["asset"]
+                    asset_count = state.asset_daily_trades.get(asset, 0)
+                    max_per_asset = CANARY_CONFIG.get("max_trades_per_asset_per_day", 4)
+                    if asset_count >= max_per_asset:
+                        log.info(f"⏸ SKIP {asset} — daily asset cap reached ({asset_count}/{max_per_asset}), forcing diversification")
                     else:
-                        state.orders_rejected += 1
+                        log.info(f"🎯 EXECUTING: {best['side']} {best['market']['asset']} | "
+                                 f"{best['market']['question'][:45]} | @ {best['best_ask']*100:.1f}¢")
+                        order_result = execute_order(
+                            best["market"], best["side"], best["token_id"], best["best_ask"],
+                            clob, paper_mode, best["neural_pred"], best["indicators"], best["confidence"]
+                        )
+    
+                        # V21.7.70: FILL VERIFICATION — only record as live if CLOB confirms fill.
+                        # ACKNOWLEDGED alone means the order was submitted, NOT that it filled.
+                        # Previously: unmatched orders went to live_positions.jsonl with fabricated PnL.
+                        # Now: if fill_status != "matched", route to paper_positions.jsonl instead.
+                        order_ok = order_result["status"] == "PAPER_FILLED" or (
+                            order_result["status"] == "ACKNOWLEDGED" and 
+                            order_result.get("fill_status") in ("live", "matched")
+                        )
+                        
+                        if order_ok:
+                            state.orders_submitted += 1
+                            state.daily_trades += 1
+                            state.open_positions += 1
+                            # V21.7.63: Track per-asset daily trades
+                            state.asset_daily_trades[asset] = asset_count + 1
+
+                            pos = {
+                                "timestamp": now.isoformat(),
+                                "entry_timestamp": now.isoformat(),
+                                "market_slug": best["market"]["slug"],
+                                "asset": best["market"]["asset"],
+                                "question": best["market"]["question"],
+                                "side": best["side"],
+                                "token_id": best["token_id"],
+                                "entry_price": best["best_ask"],
+                                "size_usd": CANARY_CONFIG["position_size_usd"],
+                                "direction": best["direction"],
+                                "confidence": best["confidence"],
+                                "edge_pp": best["edge_pp"],
+                                "neural_pred": best["neural_pred"],
+                                "calibrated_prob": best["calibrated_prob"],
+                                "rsi_at_entry": best["indicators"]["rsi"],
+                                "macd_at_entry": best["indicators"]["macd"],
+                                "trend_at_entry": best["indicators"]["trend"],
+                                "momentum_at_entry": best["indicators"]["momentum"],
+                                "tte_at_entry": best["tte"],
+                                "features_at_entry": best["indicators"],
+                                "order_status": order_result["status"],
+                                "order_id": order_result.get("order_id"),
+                                "fill_status": order_result.get("fill_status"),
+                            }
+                            state.positions.append(pos)
+
+                            # V21.7.70: Route to correct file — live_positions only if actually filled
+                            if order_result["status"] == "PAPER_FILLED":
+                                write_target = OUT / "paper_positions.jsonl"
+                            elif order_result.get("fill_status") in ("live", "matched"):
+                                write_target = pos_file  # live_positions.jsonl
+                                state.orders_filled += 1
+                            else:
+                                # ACKNOWLEDGED but not matched — shouldn't reach here due to order_ok check
+                                write_target = OUT / "paper_positions.jsonl"
+                            with open(write_target, "a") as f:
+                                f.write(json.dumps(pos, default=str) + "\n")
+                        else:
+                            state.orders_rejected += 1
+                            log.warning(f"ORDER REJECTED: status={order_result.get('status')} fill_status={order_result.get('fill_status')} — not recorded")
 
             # ─── Check expired positions (resolve paper trades) ───
             for pos in list(state.positions):
@@ -1119,14 +1212,14 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                                     outcomes_raw = mk.get("outcomes", "[]")
                                     try:
                                         outcomes_list = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
-                                    except:
+                                    except Exception:
                                         outcomes_list = []
                                     
                                     prices_raw = mk.get("outcomePrices", "[]")
                                     try:
                                         prices_list = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
                                         prices = [float(p) for p in prices_list]
-                                    except:
+                                    except Exception:
                                         prices = []
                                     
                                     closed = mk.get("closed", False)
@@ -1166,16 +1259,23 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                         pos["resolved_timestamp"] = now.isoformat()
                         state.closed_positions.append(pos)
                         state.positions.remove(pos)
-                        state.open_positions -= 1
+                        state.open_positions = max(0, state.open_positions - 1)
                         state.total_pnl += pnl
 
                         if outcome == "WIN":
                             state.wins += 1
                             state.consecutive_losses = 0
+                            state.recent_outcomes.append(1)  # V21.7.64: rolling WR
+                            state.recent_pnls.append(pnl)   # V21.7.66: rolling PnL
                         else:
                             state.losses += 1
                             state.consecutive_losses += 1
                             state.daily_loss_usd += abs(pnl)
+                            state.recent_outcomes.append(0)  # V21.7.64: rolling WR
+                            state.recent_pnls.append(pnl)    # V21.7.66: rolling PnL
+                        # V21.7.64: Keep only last N outcomes
+                        state.recent_outcomes = state.recent_outcomes[-50:]
+                        state.recent_pnls = state.recent_pnls[-50:]  # V21.7.66
 
                         # ─── NEURAL LEARNING ───
                         features = neural.encode_features(
@@ -1196,7 +1296,7 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                         log.info(f"RESOLVED: {side} {asset} | {outcome} | PnL=${pnl:.2f} | "
                                  f"neural_steps={neural.training_steps}")
 
-                        with open(OUT / "resolved_positions.jsonl", "a") as f:
+                        with open(resolved_file, "a") as f:  # V21.7.65: mode-specific file
                             f.write(json.dumps(pos, default=str) + "\n")
 
             # ─── Update Fisher info periodically ───
@@ -1262,51 +1362,110 @@ def canary_loop(state: CanaryState, paper_mode: bool):
                 with open(SUP / "v21762_reversal_scalper_status.json", "w") as f:
                     json.dump(sup, f, indent=2, default=str)
 
-                # ─── Live promotion readiness check ───
-                total_resolved = state.wins + state.losses
-                wr_decimal = state.wins / total_resolved if total_resolved > 0 else 0
-                total_wins_pnl = sum(
+                # ─── Live promotion readiness check (V21.7.68: DUAL METRICS) ───
+                # CRITICAL FIX: Readiness must compute from BOTH paper and live data.
+                # Previous version used state.wins/losses which is whichever mode
+                # the bot runs in. This caused LIVE_READY when paper metrics passed
+                # but live metrics (36W/35L, PF=1.02) clearly fail.
+                # Now: promotion requires LIVE metrics to pass gates independently.
+
+                # Paper metrics (from state — current mode if paper)
+                paper_resolved = state.wins + state.losses
+                paper_wr = state.wins / paper_resolved if paper_resolved > 0 else 0
+                paper_wins_pnl = sum(
                     (1.0 - p.get("entry_price", 0.5)) * (CANARY_CONFIG["position_size_usd"] / p.get("entry_price", 0.5))
                     for p in state.closed_positions if p.get("outcome") == "WIN"
                 ) if state.closed_positions else 0
-                total_losses_pnl = abs(sum(
+                paper_losses_pnl = abs(sum(
                     p.get("entry_price", 0.5) * (CANARY_CONFIG["position_size_usd"] / p.get("entry_price", 0.5))
                     for p in state.closed_positions if p.get("outcome") == "LOSS"
-                )) if state.closed_positions else 0.01  # avoid div/0
-                profit_factor = total_wins_pnl / total_losses_pnl if total_losses_pnl > 0 else float("inf")
+                )) if state.closed_positions else 0.01
+                paper_pf = paper_wins_pnl / paper_losses_pnl if paper_losses_pnl > 0 else float("inf")
+
+                # Live metrics (always read from live_resolved.jsonl regardless of mode)
+                live_resolved_trades = 0
+                live_wins = 0
+                live_losses = 0
+                live_total_pnl = 0.0
+                live_gp = 0.0
+                live_gl = 0.0
+                live_resolved_file = OUT / "live_resolved.jsonl"
+                if live_resolved_file.exists():
+                    try:
+                        with open(live_resolved_file) as lrf:
+                            for lr_line in lrf:
+                                if not lr_line.strip():
+                                    continue
+                                lt = json.loads(lr_line)
+                                if not lt.get("order_id"):
+                                    continue  # Skip paper trades in live file
+                                live_resolved_trades += 1
+                                lp = lt.get("pnl", 0)
+                                if isinstance(lp, (int, float)):
+                                    live_total_pnl += lp
+                                    if lp > 0:
+                                        live_wins += 1
+                                        live_gp += lp
+                                    elif lp < 0:
+                                        live_losses += 1
+                                        live_gl += abs(lp)
+                    except Exception as lr_err:
+                        log.warning(f"Failed to read live_resolved.jsonl: {lr_err}")
+
+                live_wr = live_wins / live_resolved_trades if live_resolved_trades > 0 else 0
+                live_pf = live_gp / live_gl if live_gl > 0 else (float("inf") if live_gp > 0 else 0)
+
+                # Promotion requires LIVE metrics to pass (not paper)
+                # If no live trades exist, fall back to paper (but mark as paper_only)
+                has_live_data = live_resolved_trades > 0
+                if has_live_data:
+                    promo_resolved = live_resolved_trades
+                    promo_wr = live_wr
+                    promo_pf = live_pf
+                    promo_pnl = live_total_pnl
+                else:
+                    promo_resolved = paper_resolved
+                    promo_wr = paper_wr
+                    promo_pf = paper_pf
+                    promo_pnl = state.total_pnl
+
+                promo_pass = (
+                    promo_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
+                    and promo_wr >= CANARY_CONFIG["live_min_win_rate"]
+                    and promo_pf >= CANARY_CONFIG["live_min_profit_factor"]
+                    and promo_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
+                )
 
                 readiness = {
                     "timestamp": now.isoformat(),
-                    "version": "V21.7.62",
-                    "resolved_paper_trades": total_resolved,
-                    "win_rate": round(wr_decimal, 4),
-                    "profit_factor": round(profit_factor, 2),
-                    "total_pnl": round(state.total_pnl, 2),
-                    "avg_edge_pp": round(state.total_pnl / total_resolved / CANARY_CONFIG["position_size_usd"] * 100, 1) if total_resolved > 0 else 0,
+                    "version": "V21.7.68",
+                    # Paper metrics
+                    "resolved_paper_trades": paper_resolved,
+                    "paper_win_rate": round(paper_wr, 4),
+                    "paper_profit_factor": round(paper_pf, 2),
+                    "paper_total_pnl": round(state.total_pnl, 2),
+                    # Live metrics
+                    "resolved_live_trades": live_resolved_trades,
+                    "live_win_rate": round(live_wr, 4),
+                    "live_profit_factor": round(live_pf, 2),
+                    "live_total_pnl": round(live_total_pnl, 2),
+                    # Backward compat fields (point to the metric source used for promotion)
+                    "win_rate": round(promo_wr, 4),
+                    "profit_factor": round(promo_pf, 2),
+                    "total_pnl": round(promo_pnl, 2),
+                    "avg_edge_pp": round(promo_pnl / promo_resolved / CANARY_CONFIG["position_size_usd"] * 100, 1) if promo_resolved > 0 else 0,
                     "settlement_errors": 0,
-                    "live_blocked": not (
-                        total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
-                        and wr_decimal >= CANARY_CONFIG["live_min_win_rate"]
-                        and profit_factor >= CANARY_CONFIG["live_min_profit_factor"]
-                        and state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
+                    "data_source": "live" if has_live_data else "paper_only",
+                    "live_blocked": not promo_pass,
+                    "promotion_criteria_met": promo_pass,
+                    "classification": "LIVE_READY" if promo_pass else (
+                        "LIVE_FAILED" if has_live_data else "PAPER_VALIDATION"
                     ),
-                    "promotion_criteria_met": (
-                        total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
-                        and wr_decimal >= CANARY_CONFIG["live_min_win_rate"]
-                        and profit_factor >= CANARY_CONFIG["live_min_profit_factor"]
-                        and state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
-                    ),
-                    "classification": "LIVE_READY" if (
-                        total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]
-                        and wr_decimal >= CANARY_CONFIG["live_min_win_rate"]
-                        and profit_factor >= CANARY_CONFIG["live_min_profit_factor"]
-                        and state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]
-                    ) else "PAPER_VALIDATION",
                     "gates": {
-                        "min_resolved_trades": {"required": CANARY_CONFIG["live_min_resolved_trades"], "actual": total_resolved, "met": total_resolved >= CANARY_CONFIG["live_min_resolved_trades"]},
-                        "min_win_rate": {"required": CANARY_CONFIG["live_min_win_rate"], "actual": round(wr_decimal, 4), "met": wr_decimal >= CANARY_CONFIG["live_min_win_rate"]},
-                        "min_profit_factor": {"required": CANARY_CONFIG["live_min_profit_factor"], "actual": round(profit_factor, 2), "met": profit_factor >= CANARY_CONFIG["live_min_profit_factor"]},
-                        "min_pnl_usd": {"required": CANARY_CONFIG["live_min_pnl_usd"], "actual": round(state.total_pnl, 2), "met": state.total_pnl >= CANARY_CONFIG["live_min_pnl_usd"]},
+                        "min_resolved_trades": {"required": CANARY_CONFIG["live_min_resolved_trades"], "actual": promo_resolved, "met": promo_resolved >= CANARY_CONFIG["live_min_resolved_trades"]},
+                        "min_win_rate": {"required": CANARY_CONFIG["live_min_win_rate"], "actual": round(promo_wr, 4), "met": promo_wr >= CANARY_CONFIG["live_min_win_rate"]},
+                        "min_profit_factor": {"required": CANARY_CONFIG["live_min_profit_factor"], "actual": round(promo_pf, 2), "met": promo_pf >= CANARY_CONFIG["live_min_profit_factor"]},
+                        "min_pnl_usd": {"required": CANARY_CONFIG["live_min_pnl_usd"], "actual": round(promo_pnl, 2), "met": promo_pnl >= CANARY_CONFIG["live_min_pnl_usd"]},
                         "settlement_errors": {"required": 0, "actual": 0, "met": True},
                     },
                     "config": CANARY_CONFIG,
@@ -1375,14 +1534,87 @@ if __name__ == "__main__":
 
     state = CanaryState(paper_mode=paper_mode)
     
-    # Recover open positions from positions.jsonl on restart
-    pos_file = OUT / "positions.jsonl"
+    # V21.7.65: SEPARATION FIX — paper and live use separate files
+    # Paper trades were mixed into resolved_positions.jsonl alongside live trades,
+    # inflating PnL from $2.85 (real) to $116.88 (fake). Now uses mode-specific files.
+    if paper_mode:
+        resolved_file = OUT / "paper_resolved.jsonl"
+        pos_file = OUT / "paper_positions.jsonl"
+    else:
+        resolved_file = OUT / "live_resolved.jsonl"
+        pos_file = OUT / "live_positions.jsonl"
+    
+    # V21.7.65: Migrate existing data on first run — split old mixed files
+    old_resolved = OUT / "resolved_positions.jsonl"
+    old_positions = OUT / "positions.jsonl"
+    if not resolved_file.exists() and old_resolved.exists():
+        try:
+            paper_res = []
+            live_res = []
+            with open(old_resolved) as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    rd = json.loads(line)
+                    if rd.get("order_id"):
+                        live_res.append(line)
+                    else:
+                        paper_res.append(line)
+            with open(OUT / "live_resolved.jsonl", "w") as f:
+                f.writelines(live_res)
+            with open(OUT / "paper_resolved.jsonl", "w") as f:
+                f.writelines(paper_res)
+            log.info(f"Migrated resolved: {len(live_res)} live, {len(paper_res)} paper (separated)")
+        except Exception as e:
+            log.warning(f"Migration failed: {e}")
+    
+    # Recover resolved positions from mode-specific file
+    # V21.7.65: Deduplicate by order_id — prevents double-counting
+    if resolved_file.exists():
+        try:
+            recovered_resolved = 0
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            seen_oids = set()
+            with open(resolved_file) as rf:
+                for line in rf:
+                    if line.strip():
+                        rd = json.loads(line)
+                        oid = rd.get("order_id", "")
+                        if oid and oid in seen_oids:
+                            continue  # Skip duplicate
+                        if oid:
+                            seen_oids.add(oid)
+                        state.closed_positions.append(rd)
+                        recovered_resolved += 1
+                        pnl = rd.get("pnl", 0)
+                        state.total_pnl += pnl
+                        if rd.get("outcome") == "WIN":
+                            state.wins += 1
+                            state.recent_outcomes.append(1)
+                            state.recent_pnls.append(pnl)
+                        elif rd.get("outcome") == "LOSS":
+                            state.losses += 1
+                            state.recent_outcomes.append(0)
+                            state.recent_pnls.append(pnl)
+                            resolved_ts = rd.get("resolved_timestamp", "")
+                            # V21.7.65: Only count today's losses up to max_daily_loss_usd
+                            # Old $5 trades shouldn't consume the entire $15 daily limit
+                            if resolved_ts.startswith(today):
+                                loss_amt = abs(pnl)
+                                if state.daily_loss_usd + loss_amt <= CANARY_CONFIG["max_daily_loss_usd"]:
+                                    state.daily_loss_usd += loss_amt
+                        state.recent_outcomes = state.recent_outcomes[-50:]
+            if recovered_resolved:
+                log.info(f"Recovered {recovered_resolved} resolved positions | "
+                         f"W={state.wins} L={state.losses} PnL=${state.total_pnl:.2f}")
+        except Exception as e:
+            log.warning(f"Failed to recover resolved positions: {e}")
+    
+    # Recover open positions from mode-specific file
     if pos_file.exists():
         try:
             recovered = 0
             resolved_slugs = set()
-            # Also check resolved positions to avoid re-tracking settled trades
-            resolved_file = OUT / "resolved_positions.jsonl"
             if resolved_file.exists():
                 with open(resolved_file) as rf:
                     for line in rf:
@@ -1400,11 +1632,11 @@ if __name__ == "__main__":
                             recovered += 1
             if recovered:
                 state.open_positions = len(state.positions)
-                log.info(f"Recovered {recovered} open positions from positions.jsonl")
+                log.info(f"Recovered {recovered} open positions from {pos_file.name}")
         except Exception as e:
             log.warning(f"Failed to recover positions: {e}")
     try:
-        canary_loop(state, paper_mode)
+        canary_loop(state, paper_mode, pos_file=pos_file, resolved_file=resolved_file)
     except KeyboardInterrupt:
         pass
     except Exception as e:

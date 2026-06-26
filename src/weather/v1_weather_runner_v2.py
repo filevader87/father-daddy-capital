@@ -34,10 +34,9 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(PROJECT_ROOT))
 try:
     from fdc_pm_live import (
-        check_wallet, get_tick_size, get_neg_risk, validate_price, round_to_tick,
-        derive_api_credentials, get_clob_client, build_dry_run_order,
-        submit_tracked_order, read_orderbook,
-        CLOB_URL, GAMMA_URL, CHAIN_ID, FUNDER,
+        get_clob_client, build_dry_run_order,
+        submit_tracked_order,
+        GAMMA_URL,
     )
     HAS_CLOB_MODULE = True
 except ImportError:
@@ -173,6 +172,7 @@ class WeatherPosition:
     exit_ts: str = ""
     exit_price: float = 0.0
     pnl: float = 0.0
+    order_id: str = ""  # V21.7.57: Track live Polymarket order ID (empty = paper)
     settled: bool = False
     settlement_temp: Optional[float] = None
     settlement_source: str = ""  # V2.2: "gamma" or "metar"
@@ -234,36 +234,60 @@ def load_env():
                     env_vars[k.strip()] = v.strip()
     return env_vars
 
+# V21.7.70: Replaced Open-Meteo with wttr.in (free, no key, no rate limits)
+# Open-Meteo was 429-blocked and user said "remove open-meteo I will not pay for this"
+_OM_RETRY_AFTER = 0.0  # Kept for compat — no longer used
+_OM_429_COUNT = 0
+
 def fetch_open_meteo_forecast(lat: float, lon: float, days: int = 3) -> Optional[Dict]:
-    """Fetch Open-Meteo forecast with hourly data for peak window estimation."""
-    import urllib.request
-    url = (f"https://api.open-meteo.com/v1/forecast?"
-           f"latitude={lat}&longitude={lon}"
-           f"&daily=temperature_2m_max,temperature_2m_min"
-           f"&hourly=temperature_2m"
-           f"&timezone=auto&forecast_days={days}&past_days=1")
+    """V21.7.70: Fetch forecast from wttr.in instead of Open-Meteo.
+
+    Returns a dict compatible with the old Open-Meteo format:
+    {"daily": {"time": [...], "temperature_2m_max": [...], "temperature_2m_min": [...]},
+     "hourly": {"time": [...], "temperature_2m": [...]}}
+    """
+    import urllib.request, json as _json
+    url = f"https://wttr.in/{lat},{lon}?format=j1"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FDC-Weather-V2/2.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
+            data = _json.loads(resp.read().decode())
+
+        weather = data.get("weather", [])
+        daily_times = []
+        daily_max = []
+        daily_min = []
+        hourly_times = []
+        hourly_temps = []
+
+        for day in weather[:days]:
+            daily_times.append(day.get("date", ""))
+            daily_max.append(float(day.get("maxtempC", 0)))
+            daily_min.append(float(day.get("mintempC", 0)))
+            # Parse hourly data
+            for h in day.get("hourly", []):
+                hourly_times.append(h.get("time", ""))
+                hourly_temps.append(float(h.get("tempC", 0)) if h.get("tempC") else None)
+
+        return {
+            "daily": {
+                "time": daily_times,
+                "temperature_2m_max": daily_max,
+                "temperature_2m_min": daily_min,
+            },
+            "hourly": {
+                "time": hourly_times,
+                "temperature_2m": hourly_temps,
+            },
+        }
     except Exception as e:
-        log.warning(f"Open-Meteo forecast failed: {e}")
+        log.warning(f"wttr.in forecast failed: {e}")
         return None
 
 def fetch_open_meteo_ensemble(lat: float, lon: float) -> Optional[Dict]:
-    """Fetch Open-Meteo ensemble API for multi-model spread."""
-    import urllib.request
-    url = (f"https://ensemble-api.open-meteo.com/v1/ensemble?"
-           f"latitude={lat}&longitude={lon}"
-           f"&daily=temperature_2m_max"
-           f"&timezone=auto&forecast_days=3")
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FDC-Weather-V2/2.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except Exception as e:
-        log.debug(f"Ensemble fetch failed (non-critical): {e}")
-        return None
+    """V21.7.70: Open-Meteo ensemble removed — wttr.in has no ensemble.
+    Returns None so the bot falls back to single-model forecast."""
+    return None
 
 def fetch_metar(icao: str) -> Optional[Dict]:
     """Fetch live METAR observation with detailed temperature tracking."""
@@ -807,21 +831,28 @@ class WeatherBotV2:
         now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
         week_start = (now - timedelta(days=now.weekday())).strftime("%Y-%m-%d")
-        if self.state.daily_reset != today:
+        # V21.7.56 fix: All resets (daily + weekly) happen FIRST, before any halt check
+        new_day = self.state.daily_reset != today
+        new_week = self.state.weekly_reset != week_start
+        if new_day:
             self.state.daily_reset = today
             self.state.daily_loss = 0.0
             self.state.daily_trades = 0
-            # Un-halt on new day — circuit breaker resets daily
-            if self.state.halted and "Daily loss" in (self.state.halt_reason or ""):
-                self.state.halted = False
-                self.state.halt_reason = ""
-                log.info("Circuit breaker: daily reset — halt cleared")
-        if self.state.weekly_reset != week_start:
+        if new_week:
             self.state.weekly_reset = week_start
             self.state.weekly_loss = 0.0
+        # Un-halt on reset — circuit breaker clears on new day/week
+        if (new_day or new_week) and self.state.halted:
+            if (new_day and "Daily loss" in (self.state.halt_reason or "")) or \
+               (new_week and "Weekly loss" in (self.state.halt_reason or "")):
+                self.state.halted = False
+                self.state.halt_reason = ""
+                log.info("Circuit breaker: reset — halt cleared")
+        # Check if already halted (after all reset logic)
         if self.state.halted:
             log.warning(f"Circuit breaker: bot halted — {self.state.halt_reason}")
             return False
+        # Check loss limits
         if self.state.daily_loss <= -10:
             self.state.halted = True
             self.state.halt_reason = f"Daily loss limit: ${self.state.daily_loss:.2f}"
@@ -833,7 +864,10 @@ class WeatherBotV2:
         if self.state.daily_trades >= 10:
             log.warning("Daily trade limit reached")
             return False
-        if len([p for p in self.positions if not getattr(p, 'settled', False)]) >= 5:
+        # V21.7.57: Raised from 10 → 20 — old paper positions were blocking all new live entries
+        # The bot loads unsettled positions from the paper trades file on startup; with cap=10
+        # and 11+ stale paper positions, no new live orders could ever be placed
+        if len([p for p in self.positions if not getattr(p, 'settled', False)]) >= 20:
             log.warning("Max positions reached")
             return False
         return True
@@ -898,10 +932,9 @@ class WeatherBotV2:
                 clob = self.clob_client or init_clob_client()
                 # Weather markets use negRisk=true
                 order = build_dry_run_order(
-                    token_id=token_id, price=entry_price, size=shares,
-                    side="BUY", neg_risk=True
+                    token_id=token_id, side="BUY", price=entry_price, size=shares,
                 )
-                result = submit_tracked_order(clob, order, condition_id=signal["condition_id"])
+                result = submit_tracked_order(order)
                 log.info(f"Order result: {result}")
             except Exception as e:
                 log.error(f"Order failed: {e}")
@@ -961,9 +994,11 @@ class WeatherBotV2:
                 else:
                     self.state.losses += 1
                     self.state.consecutive_losses += 1
-                    # Don't count stale settlement losses against daily circuit breaker
-                    # These are from previous days' markets, not today's trading
-                self.state.active_positions -= 1
+                    # V21.7.58: Only count LIVE trade losses against circuit breakers
+                    # Paper trade settlements must NOT inflate weekly_loss — SEPARATION FIX
+                    if not self.paper_only and getattr(pos, 'order_id', ''):
+                        self.state.weekly_loss += pnl
+                self.state.active_positions = max(0, self.state.active_positions - 1)
 
                 log.info(f"SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
                          f"actual={actual_temp}°C settled={settled_temp}°C "
@@ -1024,7 +1059,7 @@ class WeatherBotV2:
                             if isinstance(outcomes, str):
                                 try:
                                     outcomes = json.loads(outcomes)
-                                except:
+                                except Exception:
                                     outcomes = []
                             # Find winning bucket (price = 1.0)
                             if outcomes and len(outcomes) >= 2:
@@ -1051,7 +1086,7 @@ class WeatherBotV2:
                                 if isinstance(outcomes, str):
                                     try:
                                         outcomes = json.loads(outcomes)
-                                    except:
+                                    except Exception:
                                         outcomes = []
                                 if outcomes and len(outcomes) >= 2:
                                     yes_price = float(outcomes[0]) if outcomes[0] else 0
@@ -1100,9 +1135,11 @@ class WeatherBotV2:
                 else:
                     self.state.losses += 1
                     self.state.consecutive_losses += 1
-                    # Don't count stale settlement losses against daily circuit breaker
-                    # These are from previous days' markets, not today's trading
-                self.state.active_positions -= 1
+                    # V21.7.58: Only count LIVE trade losses against circuit breakers
+                    # Paper trade settlements must NOT inflate weekly_loss — SEPARATION FIX
+                    if not self.paper_only and getattr(pos, 'order_id', ''):
+                        self.state.weekly_loss += pnl
+                self.state.active_positions = max(0, self.state.active_positions - 1)
                 settled_count += 1
 
                 log.info(f"V2.2 FORCE-SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
@@ -1127,9 +1164,10 @@ class WeatherBotV2:
 
         if settled_count > 0:
             log.info(f"V2.2 force_settle: resolved {settled_count} stale positions")
+            # Save state (persist settlements to JSONL) BEFORE removing settled positions
+            self.save_state()
             # Remove settled positions from self.positions so they don't block new entries
             self.positions = [p for p in self.positions if not p.settled]
-            self.save_state()
 
         return settled_count
 

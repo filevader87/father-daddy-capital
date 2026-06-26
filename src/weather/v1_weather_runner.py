@@ -149,19 +149,50 @@ def load_env():
                     env_vars[k.strip()] = v.strip()
     return env_vars
 
+# V21.7.70: Replaced Open-Meteo with wttr.in (free, no key, no rate limits)
+_OM_RETRY_AFTER = 0.0  # Kept for compat
+_OM_429_COUNT = 0
+
 def fetch_open_meteo_forecast(lat: float, lon: float, days: int = 3) -> Optional[Dict]:
-    """Fetch Open-Meteo daily max/min temperature forecast."""
-    import urllib.request
-    url = (f"https://api.open-meteo.com/v1/forecast?"
-           f"latitude={lat}&longitude={lon}"
-           f"&daily=temperature_2m_max,temperature_2m_min"
-           f"&timezone=auto&forecast_days={days}")
+    """V21.7.70: Fetch forecast from wttr.in instead of Open-Meteo.
+
+    Returns dict compatible with old Open-Meteo format.
+    """
+    import urllib.request, json as _json
+    url = f"https://wttr.in/{lat},{lon}?format=j1"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FDC-Weather-V1/1.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "curl/7.68.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
+            data = _json.loads(resp.read().decode())
+
+        weather = data.get("weather", [])
+        daily_times = []
+        daily_max = []
+        daily_min = []
+        hourly_times = []
+        hourly_temps = []
+
+        for day in weather[:days]:
+            daily_times.append(day.get("date", ""))
+            daily_max.append(float(day.get("maxtempC", 0)))
+            daily_min.append(float(day.get("mintempC", 0)))
+            for h in day.get("hourly", []):
+                hourly_times.append(h.get("time", ""))
+                hourly_temps.append(float(h.get("tempC", 0)) if h.get("tempC") else None)
+
+        return {
+            "daily": {
+                "time": daily_times,
+                "temperature_2m_max": daily_max,
+                "temperature_2m_min": daily_min,
+            },
+            "hourly": {
+                "time": hourly_times,
+                "temperature_2m": hourly_temps,
+            },
+        }
     except Exception as e:
-        log.warning(f"Open-Meteo fetch failed: {e}")
+        log.warning(f"wttr.in forecast failed: {e}")
         return None
 
 def fetch_metar(icao: str) -> Optional[Dict]:
@@ -350,34 +381,43 @@ def compute_edge(forecast_temp: float, buckets: List[Dict],
 # ═══════════════════════════════════════════════════════════════
 
 def get_onchain_usdc() -> float:
-    """Get USDC balance on Polygon for derived DW using on-chain eth_call."""
-    import urllib.request
-    
-    # USDC.e balanceOf(derived_dw)
-    # selector: 0x70a08231
-    usdc_addr = USDC_CONTRACT.lower()
-    dw_addr = DERIVED_DW.lower()[2:] if DERIVED_DW.startswith("0x") else DERIVED_DW.lower()
-    data = "0x70a08231" + dw_addr.zfill(64)
-    
-    payload = json.dumps({
-        "jsonrpc": "2.0", "method": "eth_call",
-        "params": [{"to": f"0x{usdc_addr}", "data": data}, "latest"],
-        "id": 1
-    }).encode()
-    
+    """Get USDC balance via CLOB API (V21.7.69: replaced on-chain eth_call which 403'd).
+
+    Uses the py_clob_client get_balance_allowance with sig_type=3 — same method
+    the wallet audit uses. Returns pUSD collateral balance.
+    """
     try:
-        req = urllib.request.Request(
-            POLYGON_RPC,
-            data=payload,
-            headers={"Content-Type": "application/json"}
+        import os
+        from dotenv import load_dotenv
+        load_dotenv(ENV_FILE if ENV_FILE.exists() else "/mnt/c/Users/12035/father_daddy_capital/.env")
+
+        from py_clob_client.client import ClobClient
+        from py_clob_client.clob_types import ApiCreds, BalanceAllowanceParams
+
+        proxy = DERIVED_DW
+        private_key = os.getenv("PM_WALLET_PRIVATE_KEY", "")
+        api_key = os.getenv("PM_API_KEY", "")
+        api_secret = os.getenv("PM_API_SECRET", "")
+        api_passphrase = os.getenv("PM_API_PASSPHRASE", "")
+
+        if not all([private_key, api_key, api_secret, api_passphrase]):
+            log.warning("get_onchain_usdc: missing CLOB credentials")
+            return 0.0
+
+        creds = ApiCreds(api_key=api_key, api_secret=api_secret, api_passphrase=api_passphrase)
+        client = ClobClient(
+            host="https://clob.polymarket.com",
+            key=private_key,
+            chain_id=137,
+            creds=creds,
+            signature_type=3,
+            funder=proxy,
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            result = json.loads(resp.read().decode())
-            hex_balance = result.get("result", "0x0")
-            balance = int(hex_balance, 16) / 1e6
-            return round(balance, 2)
+        bal = client.get_balance_allowance(params=BalanceAllowanceParams(asset_type="COLLATERAL", signature_type=3))
+        balance = int(bal.get("balance", 0)) / 1_000_000
+        return round(balance, 2)
     except Exception as e:
-        log.error(f"On-chain USDC balance check failed: {e}")
+        log.warning(f"CLOB balance check failed: {e}")
         return 0.0
 
 def init_clob_client():
@@ -878,7 +918,7 @@ class V1WeatherBot:
                 try:
                     prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
                     outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
-                except:
+                except Exception:
                     continue
                 
                 if len(prices) < 2 or len(outcomes) < 2:

@@ -14,10 +14,10 @@ Duration: 24-72 hours (configurable via RUN_DURATION_SECONDS env var)
 """
 from __future__ import annotations
 import json, os, sys, time, logging, signal, traceback
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 import statistics
 import psutil
 
@@ -707,7 +707,19 @@ def run_observation_loop():
                 update_shadow_scalps(state, quote, now_ts)
 
             if q["interval"] == "5m" or (q["interval"] == "15m" and (0.03 <= best_ask <= 0.25 or state.loop_count % 10 == 0)):
-                with open(OUT / "quote_state_1s.jsonl", "a") as f:
+                # V21.7.63: Log rotation — truncate quote_state_1s.jsonl at 500MB to prevent disk fill
+                qs_path = OUT / "quote_state_1s.jsonl"
+                try:
+                    if state.loop_count % 1000 == 0 and qs_path.exists() and qs_path.stat().st_size > 500_000_000:
+                        # Keep last 100k lines, truncate the rest
+                        with open(qs_path, "r") as rf:
+                            lines = rf.readlines()
+                        with open(qs_path, "w") as wf:
+                            wf.writelines(lines[-100000:])
+                        log.info(f"quote_state_1s.jsonl rotated: {len(lines)} → {len(lines[-100000:])} lines")
+                except Exception:
+                    pass
+                with open(qs_path, "a") as f:
                     f.write(json.dumps(quote) + "\n")
 
         # Store for reconciliation

@@ -13,7 +13,7 @@ import time
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 from collections import deque
 
 import aiohttp
@@ -32,10 +32,11 @@ CLOB_URL = "https://clob.polymarket.com"
 LIVE_ENTRY_SOURCES = {"PM_WS_BOOK", "PM_WS_BEST_BID_ASK", "PM_CLOB_READ"}
 OBSERVATION_ONLY_SOURCES = {"PM_GAMMA_REST", "PM_REST_FALLBACK", "PM_STALE", "PM_UNAVAILABLE"}
 
-# Stale thresholds (ms)
-CANARY_STALE_MS = 3000
-SCALPER_STALE_MS = 1000
-OBSERVATION_STALE_MS = 15000
+# Stale thresholds (ms) — inflated by diagnostics snapshot interval
+# Diagnostics writes quote_cache every 5s, so file ages are 0-5s stale on read
+CANARY_STALE_MS = 5000  # 3s + 2s margin for snapshot latency
+SCALPER_STALE_MS = 3000  # 1s + 2s margin
+OBSERVATION_STALE_MS = 17000  # 15s + 2s margin
 
 # Feed stability window
 MIN_RUNTIME_S = 1800  # 30 minutes

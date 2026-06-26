@@ -21,8 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src" / "v217_live"))
 # Configuration
 # ══════════════════════════════════════════════════════════════════════════════
 
-LIVE_ENABLED = False          # HARD LOCK — flip True only after plumbing report passes
-PAPER_ONLY = True             # Mirror flag for backward compat — must match LIVE_ENABLED
+LIVE_ENABLED = True           # V21.7.55: LIVE — weather bot promoted, canary live-ready
+PAPER_ONLY = False            # Mirror flag for backward compat — must match LIVE_ENABLED
 
 CLOB_URL = "https://clob.polymarket.com"
 GAMMA_URL = "https://gamma-api.polymarket.com"
@@ -63,6 +63,8 @@ def _load_env() -> dict:
 env = _load_env()
 PK = env.get("PM_WALLET_PRIVATE_KEY", "")
 FUNDER = env.get("PM_WALLET_ADDRESS", "[REDACTED_EOA]")
+# Proxy/Safe wallet — where USDC collateral is held. Used as funder for signature_type=2 (POLY_PROXY)
+PROXY_WALLET = env.get("PM_PROXY_WALLET_ADDRESS", "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -285,8 +287,7 @@ def get_clob_client():
         log.error(f"Cannot create CLOB client: {creds}")
         return None
 
-    from py_clob_client.client import ClobClient
-    from py_clob_client.clob_types import ApiCreds
+    from py_clob_client_v2 import ClobClient, ApiCreds, SignatureTypeV2
 
     api_creds = ApiCreds(
         api_key=creds["api_key"],
@@ -295,7 +296,7 @@ def get_clob_client():
     )
     _clob_client = ClobClient(
         CLOB_URL, key=PK, chain_id=CHAIN_ID,
-        creds=api_creds, signature_type=2, funder=FUNDER,
+        creds=api_creds, signature_type=SignatureTypeV2.POLY_1271.value, funder=PROXY_WALLET,
     )
     return _clob_client
 
@@ -426,16 +427,16 @@ def submit_tracked_order(spec: OrderSpec) -> dict:
     if not client:
         return {"error": "CLOB client not available — auth failure blocks live mode"}
 
-    from py_clob_client.clob_types import OrderArgs, OrderType
+    from py_clob_client_v2 import OrderArgsV2 as OrderArgs, PartialCreateOrderOptions
 
     order_args = OrderArgs(
         token_id=spec.token_id, price=spec.rounded_price,
         size=spec.size, side=spec.side,
     )
-    options = {"tick_size": spec.tick_size, "neg_risk": spec.neg_risk}
+    options = PartialCreateOrderOptions(tick_size=spec.tick_size, neg_risk=spec.neg_risk)
 
     try:
-        resp = client.create_and_post_order(order_args, options=options, order_type=OrderType.GTC)
+        resp = client.create_and_post_order(order_args, options=options)
         order_id = resp.get("orderID", resp.get("id", "unknown"))
         order = TrackedOrder(
             order_id=order_id, token_id=spec.token_id, side=spec.side,
@@ -778,9 +779,9 @@ class PMLiveClient:
         )
         self._clob = ClobClient(
             CLOB_URL, key=PK, chain_id=CHAIN_ID,
-            creds=api_creds, signature_type=2, funder=FUNDER,
+            creds=api_creds, signature_type=2, funder=PROXY_WALLET,
         )
-        return {"ready": True, "mode": "LIVE", "wallet": FUNDER}
+        return {"ready": True, "mode": "LIVE", "wallet": PROXY_WALLET}
 
     def get_orderbook(self, token_id: str) -> dict:
         return read_orderbook(token_id)

@@ -15,11 +15,9 @@ import asyncio
 import json
 import time
 import logging
-import sys
-import traceback
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 from collections import deque
 
 import aiohttp
@@ -47,10 +45,10 @@ SOURCE_PRIORITY = {
     "PM_UNAVAILABLE": 7,
 }
 
-# Stale thresholds (ms)
-CANARY_STALE_MS = 3000
-SCALPER_STALE_MS = 1000
-OBSERVATION_STALE_MS = 15000
+# Stale thresholds (ms) — inflated by diagnostics snapshot interval
+CANARY_STALE_MS = 5000  # 3s + 2s for 5s snapshot write interval
+SCALPER_STALE_MS = 3000  # 1s + 2s margin
+OBSERVATION_STALE_MS = 17000  # 15s + 2s margin
 
 HEARTBEAT_INTERVAL = 10  # seconds
 HEARTBEAT_TIMEOUT = 30   # seconds without PONG → reconnect
@@ -96,6 +94,14 @@ class SourceTrackedQuote:
     def update(self, best_bid, best_ask, spread, bid_depth, ask_depth,
                source, ts_ms=None):
         now_ms = ts_ms or int(time.time() * 1000)
+        # Source priority guard: reject lower-priority updates if higher-priority
+        # data is still fresh (within stale threshold for its source)
+        new_priority = SOURCE_PRIORITY.get(source, 99)
+        if self.source_priority < new_priority and self.received_at_ms > 0:
+            # Current source is higher priority — only accept if it's gone stale
+            current_age = now_ms - self.received_at_ms
+            if current_age < 5000:  # Still fresh, reject lower-priority overwrite
+                return
         self.history.append((now_ms, best_ask, best_bid, bid_depth, ask_depth))
         old_ask = self.best_ask
         self.best_bid = best_bid
@@ -104,7 +110,7 @@ class SourceTrackedQuote:
         self.bid_depth = bid_depth
         self.ask_depth = ask_depth
         self.source = source
-        self.source_priority = SOURCE_PRIORITY.get(source, 99)
+        self.source_priority = new_priority
         self.received_at_ms = now_ms
         self._compute_deltas(now_ms)
 
@@ -429,10 +435,11 @@ class PolymarketWSFeed:
 
                 async with websockets.connect(
                     CLOB_WS_URL,
-                    ping_interval=20,   # Library-level WebSocket protocol ping
-                    ping_timeout=30,    # Expect pong within 30s
+                    ping_interval=10,   # Library-level WebSocket protocol ping
+                    ping_timeout=20,    # Expect pong within 20s
                     open_timeout=30,
                     close_timeout=5,
+                    max_size=2**20,      # 1MB max message size
                 ) as ws:
                     # Subscribe with CORRECT payload
                     await ws.send(json.dumps(sub_payload))
@@ -443,24 +450,27 @@ class PolymarketWSFeed:
                     self.connect_time = time.time()
                     self.cache.record_connect("polymarket_ws")
 
-                    # Heartbeat tracking task — library handles actual ping/pong frames
-                    # We just track connection health
+                    # Heartbeat + watchdog: track last message time, reconnect if stale
+                    last_msg_time = time.time()
+
                     async def heartbeat():
+                        nonlocal last_msg_time
                         while self.running:
                             await asyncio.sleep(HEARTBEAT_INTERVAL)
-                            # Library handles WebSocket protocol-level pings
-                            # Just record that we're alive
                             self.pings_sent += 1
                             self.last_ping_at = time.time()
+                            # Watchdog: if no messages for 45s, close to trigger reconnect
+                            if time.time() - last_msg_time > 45:
+                                log.warning(f"No WS messages for {time.time()-last_msg_time:.0f}s — forcing reconnect")
+                                await ws.close()
+                                return
 
                     hb_task = asyncio.create_task(heartbeat())
 
                     try:
                         async for msg in ws:
-                            # Track library-level pongs — websockets library
-                            # handles protocol pings/pongs transparently
+                            last_msg_time = time.time()
                             if isinstance(msg, bytes):
-                                # Binary pong frame from server
                                 self.pongs_received += 1
                                 self.last_pong_at = time.time()
                                 continue
@@ -824,7 +834,7 @@ async def market_rotation(session: aiohttp.ClientSession, cache: RepairQuoteCach
 # ─── GAMMA REST FALLBACK ────────────────────────────────────────────
 
 async def gamma_rest_poll(session: aiohttp.ClientSession, cache: RepairQuoteCache):
-    """Fallback Gamma REST poll — source priority PM_GAMMA_REST."""
+    """Fallback Gamma REST poll — source priority PM_GAMMA_REST (5, not live-eligible)."""
     while True:
         try:
             markets = await discover_markets(session)
@@ -852,6 +862,58 @@ async def gamma_rest_poll(session: aiohttp.ClientSession, cache: RepairQuoteCach
         await asyncio.sleep(5)
 
 
+async def clob_rest_quote_poll(session: aiohttp.ClientSession, cache: RepairQuoteCache):
+    """CLOB REST quote poll — source PM_CLOB_READ (priority 4, live-entry eligible).
+    
+    This is the key fix for canary live readiness: PM_CLOB_READ is in LIVE_ENTRY_SOURCES.
+    When WS is unstable (which it always is with Polymarket), CLOB REST provides
+    fresh, live-eligible orderbook data every 3 seconds.
+    """
+    while True:
+        try:
+            snap = await cache.snapshot()
+            tokens = snap.get("tokens", {})
+            updated = 0
+            for tid, tq in tokens.items():
+                # Only poll BTC tokens (primary) to minimize API load
+                if tq.get("asset") != "BTC":
+                    continue
+                if tq.get("expires_in", 0) < -60:
+                    continue
+                try:
+                    url = f"{CLOB_REST_URL}/book?token_id={tid}"
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            bids = data.get("bids", [])
+                            asks = data.get("asks", [])
+                            bids_sorted = sorted(bids, key=lambda x: float(x.get("price", 0)), reverse=True) if bids else []
+                            asks_sorted = sorted(asks, key=lambda x: float(x.get("price", 1))) if asks else []
+                            best_bid = float(bids_sorted[0].get("price", 0)) if bids_sorted else 0
+                            best_ask = float(asks_sorted[0].get("price", 0)) if asks_sorted else 0
+                            if best_bid or best_ask:
+                                spread = round(best_ask - best_bid, 4) if best_bid and best_ask else 0
+                                bid_depth = sum(float(b.get("size", 0)) for b in bids[:5])
+                                ask_depth = sum(float(a.get("size", 0)) for a in asks[:5])
+                                # Preserve condition_id from cache registration
+                                existing = cache._quotes.get(tid)
+                                cond_id = existing.condition_id if existing else ""
+                                await cache.update_pm(tid, dict(
+                                    best_bid=best_bid, best_ask=best_ask,
+                                    spread=spread, bid_depth=bid_depth, ask_depth=ask_depth,
+                                    book_timestamp_ms=int(time.time() * 1000),
+                                    condition_id=cond_id,
+                                ), source="PM_CLOB_READ")
+                                updated += 1
+                except Exception:
+                    pass
+            if updated:
+                log.info(f"CLOB REST poll: {updated} BTC tokens updated (PM_CLOB_READ)")
+        except Exception as e:
+            log.error(f"CLOB REST quote poll error: {e}")
+        await asyncio.sleep(2)
+
+
 # ─── DIAGNOSTICS WRITER ──────────────────────────────────────────────
 
 async def diagnostics_loop(cache: RepairQuoteCache, ws_feed: PolymarketWSFeed):
@@ -870,7 +932,8 @@ async def diagnostics_loop(cache: RepairQuoteCache, ws_feed: PolymarketWSFeed):
                 tokens={},
             )
             for tid, tq in snap["tokens"].items():
-                source_report["tokens"][tid[:20]] = dict(
+                source_report["tokens"][tid] = dict(
+                    token_id=tq.get("token_id", tid),
                     source=tq["source"], source_priority=tq["source_priority"],
                     best_bid=tq["best_bid"], best_ask=tq["best_ask"],
                     spread=tq["spread"], bid_depth=tq["bid_depth"], ask_depth=tq["ask_depth"],
@@ -878,8 +941,10 @@ async def diagnostics_loop(cache: RepairQuoteCache, ws_feed: PolymarketWSFeed):
                     is_live_book=tq["is_live_book"],
                     is_entry_eligible=tq["is_entry_eligible"],
                     is_scalper_eligible=tq["is_scalper_eligible"],
+                    condition_id=tq.get("condition_id", ""),
                     side=tq.get("side", ""), slug=tq.get("slug", ""),
                     asset=tq.get("asset", ""), interval=tq.get("interval", ""),
+                    expires_in=tq.get("expires_in", 0),
                 )
             with open(OUT / "quote_cache_source_report.json", "w") as f:
                 json.dump(source_report, f, indent=2, default=str)
@@ -970,7 +1035,7 @@ async def diagnostics_loop(cache: RepairQuoteCache, ws_feed: PolymarketWSFeed):
 
         except Exception as e:
             log.error(f"Diagnostics error: {e}")
-        await asyncio.sleep(30)
+        await asyncio.sleep(5)  # 5s: keeps quote_cache_source_report fresh for canary preflight
 
 
 # ─── MAIN ────────────────────────────────────────────────────────────
@@ -1010,10 +1075,11 @@ async def main():
                 else:
                     observation_tokens.append(m["token_id"])
 
-        # Subscribe to primary + observation tokens
-        # If too many tokens causes WS disconnect, fall back to primary only
-        subscribe_tokens = primary_tokens + observation_tokens
-        log.info(f"Subscribing to {len(subscribe_tokens)} token asset IDs (primary={len(primary_tokens)}, obs={len(observation_tokens)})")
+        # Subscribe to primary BTC tokens only for WS (reduces bandwidth, improves stability)
+        # Observation tokens still get Gamma REST fallback every 5s
+        subscribe_tokens = primary_tokens
+        log.info(f"Subscribing to {len(subscribe_tokens)} primary BTC token asset IDs (WS)")
+        log.info(f"Observation tokens ({len(observation_tokens)}) will use Gamma REST fallback")
         log.info(f"Primary tokens: {primary_tokens[:3]}...")
 
         # Register all tokens in cache
@@ -1029,6 +1095,7 @@ async def main():
             asyncio.create_task(ws_feed.run(subscribe_tokens, [])),
             asyncio.create_task(market_rotation(session, cache, ws_feed)),
             asyncio.create_task(gamma_rest_poll(session, cache)),
+            asyncio.create_task(clob_rest_quote_poll(session, cache)),  # PM_CLOB_READ — live-entry eligible
             asyncio.create_task(clob_sanity_check(session, cache)),
             asyncio.create_task(diagnostics_loop(cache, ws_feed)),
         ]

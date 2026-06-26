@@ -26,10 +26,10 @@ RUN AS:
 """
 from __future__ import annotations
 import json, os, sys, time, logging, signal, traceback, argparse, math
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import statistics
 import requests
@@ -102,13 +102,20 @@ MARKET_TYPES = {
 }
 
 # Risk limits (conservative for initial deployment)
+# V21.7.58: Long-shot Kelly sizing — 2% bankroll cap, 10% fractional Kelly
 RISK_LIMITS = {
     "max_position_usd": 5.00,
-    "max_open_positions": 10,  # Increased for paper validation (was 5)
-    "max_daily_trades": 10,    # Increased for paper validation (was 3)
+    "max_open_positions": 3,  # Reduced from 10 — prevent saturation deadlock
+    "max_daily_trades": 3,    # Reduced from 10 — quality over quantity
     "max_daily_loss_usd": 15.0,
     "max_total_engine_loss_usd": 50.0,
-    "max_consecutive_losses": 5,  # Increased (was 3, too conservative for paper)
+    "max_consecutive_losses": 5,
+    # V21.7.58: Long-shot specific limits
+    "long_shot_max_position_pct": 0.02,  # Max 2% bankroll per long-shot (was 5%)
+    "long_shot_kelly_fraction": 0.10,    # 10% fractional Kelly for long-shots (was 25%)
+    "long_shot_min_prob": 0.05,          # Long-shot = market_prob < 5%
+    "long_shot_min_edge_pp": 30.0,       # Need 30pp+ edge on long-shots (3x multiplier)
+    "long_shot_screen_multiplier": 3.0, # model_prob / market_prob >= 3x to enter
     # ─── Live promotion gates ───
     "live_min_resolved_trades": 25,
     "live_min_win_rate": 0.55,
@@ -251,6 +258,11 @@ def discover_crypto_markets() -> List[Dict]:
 
                 tte_seconds = (end_dt - datetime.now(timezone.utc)).total_seconds() if end_dt else 0
 
+                # Read neg_risk from PM market data (critical for CLOB order signing)
+                neg_risk = mk.get("neg_risk", False)
+                if isinstance(neg_risk, str):
+                    neg_risk = neg_risk.lower() == "true"
+
                 markets.append({
                     "slug": slug,
                     "question": mk.get("question", ""),
@@ -258,6 +270,7 @@ def discover_crypto_markets() -> List[Dict]:
                     "asset": asset_match,
                     "yes_token_id": yes_tid,
                     "no_token_id": no_tid,
+                    "condition_id": mk.get("conditionId", mk.get("condition_id", "")),
                     "end_date": end_date_str,
                     "tte_seconds": round(tte_seconds, 1),
                     "active": mk.get("active", True),
@@ -266,6 +279,7 @@ def discover_crypto_markets() -> List[Dict]:
                     "volume_1d": float(mk.get("volume1day", 0) or 0),
                     "liquidity": float(mk.get("liquidityNum", 0) or 0),
                     "outcomes": outcomes,
+                    "neg_risk": neg_risk,
                     "config": MARKET_TYPES[market_type],
                 })
                 seen_slugs.add(slug)
@@ -280,6 +294,9 @@ def discover_crypto_markets() -> List[Dict]:
 def classify_market_type(question: str) -> Optional[str]:
     """Classify a market question into our strategy types."""
     q = question.lower()
+    # Exclude "between $X and $Y" range questions — these are not ABOVE/DIP/REACH
+    if "between" in q and " and " in q:
+        return None
     for mtype, config in MARKET_TYPES.items():
         for pattern in config["question_patterns"]:
             if pattern in q:
@@ -367,6 +384,65 @@ def get_asset_price(asset: str) -> float:
     return fn() if fn else 0.0
 
 
+# ─── V21.7.69: Empirical volatility from Binance klines ─────────────
+# Replaces hardcoded σ constants with actual recent realized volatility.
+# Fetches last 24h of hourly klines, computes log-return stdev, annualizes.
+# Falls back to legacy constants if API fails (never crashes the model).
+
+_empirical_vol_cache: Dict[str, tuple] = {}  # asset → (vol, timestamp)
+
+def _get_empirical_vol(asset: str, current_price: float) -> float:
+    """Annualized realized vol from Binance 1h klines over last 24h.
+    
+    Returns σ_annual = std(log_returns_1h) * sqrt(24 * 365.25).
+    Falls back to legacy constants on API failure.
+    """
+    import time as _time
+    import math as _math
+    
+    LEGACY_VOL = {"BTC": 0.60, "ETH": 0.75, "SOL": 0.90, "XRP": 0.85}
+    fallback = LEGACY_VOL.get(asset.upper(), 0.70)
+    
+    now = _time.time()
+    cached = _empirical_vol_cache.get(asset.upper())
+    if cached and (now - cached[1]) < 300:  # 5-min cache
+        return cached[0]
+    
+    try:
+        import requests as _req
+        sym_map = {"BTC": "BTCUSDT", "ETH": "ETHUSDT", "SOL": "SOLUSDT", "XRP": "XRPUSDT"}
+        symbol = sym_map.get(asset.upper(), f"{asset.upper()}USDT")
+        # V21.7.70: Use 7 days of 1h klines (168 candles) for stable vol estimate.
+        # 24h was too noisy (1.27-1.75 range). 7-day gives 0.50-0.87, close to
+        # legacy constants but data-driven and adapts to regime changes.
+        url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval=1h&limit=168"
+        resp = _req.get(url, timeout=5)
+        if resp.status_code != 200:
+            return fallback
+        klines = resp.json()
+        if len(klines) < 5:
+            return fallback
+        
+        # Close prices are index 4 in Binance kline response
+        closes = [float(k[4]) for k in klines]
+        log_rets = [_math.log(closes[i] / closes[i-1]) for i in range(1, len(closes))]
+        
+        mean_lr = sum(log_rets) / len(log_rets)
+        var_lr = sum((r - mean_lr) ** 2 for r in log_rets) / (len(log_rets) - 1)
+        std_lr = _math.sqrt(var_lr)
+        
+        # Annualize: 24 hours/day * 365.25 days/year = 8766 periods/year
+        sigma_annual = std_lr * _math.sqrt(8766)
+        
+        # Clamp to sane range [0.20, 2.00] — crypto vol rarely outside this
+        sigma_annual = max(0.20, min(2.00, sigma_annual))
+        
+        _empirical_vol_cache[asset.upper()] = (sigma_annual, now)
+        return sigma_annual
+    except Exception:
+        return fallback
+
+
 def estimate_dip_probability(question: str, asset: str, current_price: float, tte_seconds: float) -> float:
     """Estimate probability that the asset will dip to the target price.
     
@@ -395,9 +471,7 @@ def estimate_dip_probability(question: str, asset: str, current_price: float, tt
     if target is None or target >= current_price:
         return 0.5  # Can't estimate
     
-    # Annualized volatility (rough estimates)
-    VOL = {"BTC": 0.60, "ETH": 0.75, "SOL": 0.90, "XRP": 0.85}
-    sigma = VOL.get(asset.upper(), 0.70)
+    sigma = _get_empirical_vol(asset, current_price)
     
     # Time to expiry in years
     tau = max(tte_seconds / (365.25 * 24 * 3600), 1e-6)
@@ -439,8 +513,7 @@ def estimate_reach_probability(question: str, asset: str, current_price: float, 
     if target is None or target <= current_price:
         return 0.5
     
-    VOL = {"BTC": 0.60, "ETH": 0.75, "SOL": 0.90, "XRP": 0.85}
-    sigma = VOL.get(asset.upper(), 0.70)
+    sigma = _get_empirical_vol(asset, current_price)
     tau = max(tte_seconds / (365.25 * 24 * 3600), 1e-6)
     
     import math as m
@@ -456,7 +529,13 @@ def estimate_reach_probability(question: str, asset: str, current_price: float, 
 
 
 def estimate_above_probability(question: str, asset: str, current_price: float, tte_seconds: float) -> float:
-    """Estimate probability that price will be above target at expiry."""
+    """Estimate probability that price will be above target at expiry.
+    
+    Uses Black-Scholes with drift = risk-free rate (conservative, ~0).
+    For ABOVE markets, only enter when current price is already above target
+    (selling tail risk on support levels). When price is below target, probability
+    drops sharply — this is a lottery ticket, not an edge trade.
+    """
     if current_price <= 0:
         return 0.5
     
@@ -475,14 +554,27 @@ def estimate_above_probability(question: str, asset: str, current_price: float, 
     if target is None:
         return 0.5
     
-    VOL = {"BTC": 0.60, "ETH": 0.75, "SOL": 0.90, "XRP": 0.85}
-    sigma = VOL.get(asset.upper(), 0.70)
+    # If current price is below target, probability is very low
+    # Don't buy YES on "above $X" when price is below $X — that's a lottery ticket
+    if current_price < target:
+        # Calculate how far below as percentage
+        distance_pct = (target - current_price) / current_price
+        # If >2% below target, probability is very low
+        if distance_pct > 0.02:
+            return 0.01
+    
+    # V21.7.69: Empirical vol from recent price history, not hardcoded
+    # Hardcoded σ overestimates edge for low-vol regimes and underestimates for high-vol
+    sigma = _get_empirical_vol(asset, current_price)
     tau = max(tte_seconds / (365.25 * 24 * 3600), 1e-6)
     
     import math as m
     # P(S_T > X) = 1 - Φ((ln(X/S) - μτ) / (σ√τ))
-    # Assume μ = 0 (no drift) for conservatism
-    d = m.log(target / current_price) / (sigma * m.sqrt(tau))
+    # V21.7.69: Drift = 0 (risk-neutral). Empirically crypto has near-zero
+    # drift over short horizons (hours/days), and assuming negative drift
+    # biases the model to buy YES on "above" when market disagrees.
+    mu = 0.0
+    d = (m.log(target / current_price) - mu * tau) / (sigma * m.sqrt(tau))
     
     def norm_cdf(x):
         return 0.5 * (1 + m.erf(x / m.sqrt(2)))
@@ -547,6 +639,33 @@ def calculate_edge(market: Dict, book: Dict, current_price: float) -> Optional[D
     if edge < config["min_implied_edge"]:
         return None
     
+    # V21.7.58: Long-shot screening + Kelly sizing
+    is_long_shot = p_market < RISK_LIMITS["long_shot_min_prob"]
+    if is_long_shot:
+        # Screen: require model_prob / market_prob >= 3x multiplier
+        multiplier = p_our_side / max(p_market, 0.001)
+        if multiplier < RISK_LIMITS["long_shot_screen_multiplier"]:
+            return None
+        # Screen: require 30pp+ edge
+        if edge * 100 < RISK_LIMITS["long_shot_min_edge_pp"]:
+            return None
+    
+    # V21.7.58: Kelly-based position sizing
+    # Kelly fraction = (p - price) / (1 - price) for binary
+    if best_ask > 0 and best_ask < 1:
+        kelly_f = (p_our_side - best_ask) / (1.0 - best_ask)
+    else:
+        kelly_f = 0.0
+    
+    kelly_fraction = RISK_LIMITS["long_shot_kelly_fraction"] if is_long_shot else 0.25
+    bankroll = RISK_LIMITS["max_total_engine_loss_usd"]  # Conservative bankroll estimate
+    kelly_size = kelly_f * kelly_fraction * bankroll
+    
+    # Cap: 2% for long-shots, 5% for normal, MAX_POSITION_USD absolute cap
+    max_pct = RISK_LIMITS["long_shot_max_position_pct"] if is_long_shot else 0.05
+    position_size = min(kelly_size, config["max_position_usd"], bankroll * max_pct)
+    position_size = max(1.0, round(position_size, 2))  # Min $1 (PM minimum)
+    
     return {
         "market_slug": market["slug"],
         "question": question,
@@ -554,6 +673,7 @@ def calculate_edge(market: Dict, book: Dict, current_price: float) -> Optional[D
         "asset": asset,
         "side": config["side"],
         "token_id": token_id,
+        "condition_id": market.get("condition_id", ""),
         "best_ask": best_ask,
         "best_bid": best_bid,
         "spread": book.get("spread"),
@@ -562,7 +682,9 @@ def calculate_edge(market: Dict, book: Dict, current_price: float) -> Optional[D
         "edge": round(edge, 4),
         "ev_per_share": round(ev_per_share, 4),
         "tte_seconds": tte,
-        "position_size_usd": config["max_position_usd"],
+        "is_long_shot": is_long_shot,             # V21.7.58
+        "kelly_fraction": round(kelly_f, 4),        # V21.7.58
+        "position_size_usd": position_size,         # V21.7.58: Kelly-sized
         "volume_24h": market.get("volume_24h", 0),
         "liquidity": market.get("liquidity", 0),
     }
@@ -583,11 +705,17 @@ def get_clob_client():
         if not pk:
             raise ValueError("No PM_WALLET_PRIVATE_KEY in env")
         try:
-            from py_clob_client_v2 import ClobClientV2 as ClobClient, SignatureTypeV2, BalanceAllowanceParams, AssetType
+            from py_clob_client_v2 import ClobClient, SignatureTypeV2, ApiCreds
+            creds = ApiCreds(
+                api_key=env.get("PM_API_KEY", ""),
+                api_secret=env.get("PM_API_SECRET", ""),
+                api_passphrase=env.get("PM_API_PASSPHRASE", ""),
+            )
             _clob_client = ClobClient(
                 CLOB_HOST,
                 key=pk,
                 chain_id=CHAIN_ID,
+                creds=creds,
                 signature_type=SignatureTypeV2.POLY_1271.value,
                 funder=DW,
             )
@@ -604,7 +732,8 @@ def get_wallet_balance() -> float:
         from py_clob_client_v2 import BalanceAllowanceParams, AssetType
         params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
         bal = client.get_balance_allowance(params=params)
-        return float(bal.get("balance", 0))
+        raw = bal.get("balance", "0")
+        return int(raw) / 1_000_000
     except Exception as e:
         log.warning(f"Balance check failed: {e}")
         return 0.0
@@ -625,12 +754,14 @@ class EngineState:
     orders_rejected: int = 0
     daily_trades: int = 0
     daily_loss_usd: float = 0.0
+    daily_reset: str = ""  # UTC date string for daily reset
     open_positions: int = 0
     total_pnl: float = 0.0
     consecutive_losses: int = 0
     halted: bool = False
     halt_reason: str = ""
     paper_mode: bool = True
+    consecutive_order_failures: int = 0  # V21.7.58: Circuit breaker for order failures
     last_scan_ts: float = 0.0
     wallet_balance: float = 0.0
     opportunities: List[Dict] = field(default_factory=list)
@@ -679,15 +810,25 @@ def execute_order(opp: Dict, clob_client, paper_mode: bool = True) -> Dict:
     try:
         from py_clob_client_v2 import OrderArgsV2, CreateOrderOptions, OrderType
         
+        # Convert USD position size to shares (PM CLOB size = number of shares)
+        size_usd = opp["position_size_usd"]
+        shares = round(size_usd / max(opp["best_ask"], 0.01), 2)
+        shares = max(int(shares), 1)  # Minimum 1 share, round to int
+        actual_cost = shares * opp["best_ask"]
+        result["shares"] = shares
+        result["actual_cost"] = round(actual_cost, 2)
+        log.info(f"Order sizing: ${size_usd} / ask={opp['best_ask']:.4f} = {shares} shares (cost=${actual_cost:.2f})")
         order_args = OrderArgsV2(
             token_id=opp["token_id"],
             price=opp["best_ask"],
-            size=opp["position_size_usd"],
+            size=shares,
             side="BUY",
         )
+        # Use dynamic neg_risk from market data (not hardcoded)
+        market_neg_risk = opp.get("neg_risk", False)
         options = CreateOrderOptions(
             tick_size="0.01",
-            neg_risk=False,
+            neg_risk=market_neg_risk,
         )
         
         t0 = time.time()
@@ -796,6 +937,14 @@ def scan_loop(state: EngineState, paper_mode: bool):
         try:
             loop_start = time.time()
             now = datetime.now(timezone.utc)
+            
+            # ─── Daily reset (UTC day boundary) ───
+            today = now.strftime("%Y-%m-%d")
+            if state.daily_reset != today:
+                log.info(f"Daily reset: {state.daily_reset} → {today} | trades={state.daily_trades} loss=${state.daily_loss_usd:.2f}")
+                state.daily_trades = 0
+                state.daily_loss_usd = 0.0
+                state.daily_reset = today
             
             # ─── Check risk limits ───
             if state.halted:
@@ -923,9 +1072,22 @@ def scan_loop(state: EngineState, paper_mode: bool):
                     elif best_opp["volume_24h"] < 500:
                         log.info(f"Skipping {best_opp['question'][:40]} — volume too low (${best_opp['volume_24h']:.0f})")
                         continue
+                    elif state.consecutive_order_failures >= 5:
+                        log.warning(f"Skipping — {state.consecutive_order_failures} consecutive order failures, halting execution")
+                        if not paper_mode:
+                            log.error("Switching to PAPER mode due to repeated order failures")
+                            paper_mode = True
+                            state.paper_mode = True
+                        continue
                     else:
                         log.info(f"🎯 EXECUTING: {best_opp['side']} {best_opp['question'][:60]} @ {best_opp['best_ask']*100:.1f}¢")
                         order_result = execute_order(best_opp, clob, paper_mode)
+                        
+                        # V21.7.58: Track consecutive failures for circuit breaker
+                        if order_result.get("status") == "FAILED":
+                            state.consecutive_order_failures = getattr(state, 'consecutive_order_failures', 0) + 1
+                        elif order_result["status"] in ("PAPER_FILLED", "ACKNOWLEDGED"):
+                            state.consecutive_order_failures = 0
                         
                         if order_result["status"] in ("PAPER_FILLED", "ACKNOWLEDGED"):
                             state.orders_submitted += 1
@@ -1025,73 +1187,148 @@ def scan_loop(state: EngineState, paper_mode: bool):
                 # Market expired — check Polymarket resolution
                 outcome = "UNKNOWN"
                 pnl = 0.0
+                pos_question = pos.get("question", "").lower()
+                pos_cid = pos.get("condition_id", "")
+                our_side = pos.get("side", "").upper()
+                our_token_idx = 0 if our_side == "YES" else 1
+                
+                def _resolve_from_market(mk):
+                    """Extract win/loss from a Gamma market dict. Returns (outcome, pnl) or (UNKNOWN, 0)."""
+                    closed = mk.get("closed", False)
+                    if not closed:
+                        return ("UNKNOWN", 0)
+                    prices_raw = mk.get("outcomePrices", "[]")
+                    outcomes_raw = mk.get("outcomes", "[]")
+                    try:
+                        prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
+                        outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                    except:
+                        return ("UNKNOWN", 0)
+                    if len(prices) < 2 or len(outcomes) < 2:
+                        return ("UNKNOWN", 0)
+                    winning_idx = 0 if prices[0] > prices[1] else 1
+                    if our_token_idx == winning_idx:
+                        return ("WIN", (1.0 - pos["entry_price"]) * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"]))
+                    else:
+                        return ("LOSS", -pos["entry_price"] * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"]))
+                
                 try:
+                    # Strategy 1: Query by slug (works for active markets)
                     r = requests.get(
-                        f"{GAMMA_HOST}/events",
-                        params={"slug": slug},
+                        f"{GAMMA_HOST}/markets",
+                        params={"slug": slug, "active": "false"},
                         timeout=10,
                     )
                     if r.status_code == 200:
-                        events = r.json()
-                        if events:
-                            ev = events[0]
-                            pos_cid = pos.get("condition_id", "")
-                            for mk in ev.get("markets", []):
-                                # Match by condition_id (most reliable) or question
+                        mkts = r.json()
+                        if mkts:
+                            for mk in mkts:
                                 mk_cid = mk.get("conditionId", mk.get("condition_id", ""))
                                 mk_question = mk.get("question", "").lower()
-                                pos_question = pos.get("question", "").lower()
-                                
-                                # Match condition_id first
+                                # Match by condition_id or question
                                 if pos_cid and mk_cid and mk_cid != pos_cid:
                                     continue
                                 elif not pos_cid:
-                                    # Fallback: match by question substring
                                     if mk_question not in pos_question and pos_question not in mk_question:
                                         continue
-                                
-                                closed = mk.get("closed", False)
-                                if not closed:
-                                    continue  # PM hasn't resolved yet, retry later
-                                
-                                # Get resolution from outcomePrices
-                                prices_raw = mk.get("outcomePrices", "[]")
-                                outcomes_raw = mk.get("outcomes", "[]")
-                                try:
-                                    prices = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
-                                    outcomes = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
-                                except:
-                                    prices, outcomes = [], []
-                                
-                                if len(prices) < 2 or len(outcomes) < 2:
-                                    continue
-                                
-                                # Determine winning outcome by index (outcome with highest price)
-                                winning_idx = 0 if prices[0] > prices[1] else 1
-                                winning_outcome = str(outcomes[winning_idx]).upper()
-                                our_side = pos.get("side", "").upper()
-                                
-                                # We bought the YES or NO token. If our side matches the winning outcome, we win.
-                                # For YES/NO markets: winning_idx 0=YES wins, 1=NO wins
-                                # If we bought YES and YES wins (prices[0] > prices[1]), WIN
-                                # If we bought NO and NO wins (prices[1] > prices[0]), WIN
-                                our_token_idx = 0 if our_side == "YES" else 1  # YES=token0, NO=token1
-                                if our_token_idx == winning_idx:
-                                    outcome = "WIN"
-                                    pnl = (1.0 - pos["entry_price"]) * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
-                                else:
-                                    outcome = "LOSS"
-                                    pnl = -pos["entry_price"] * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
-                                
-                                log.info(f"PM RESOLVED: {slug} | our_side={our_side} winning={winning_outcome} | {outcome} | PnL=${pnl:.2f}")
+                                outcome, pnl = _resolve_from_market(mk)
+                                if outcome != "UNKNOWN":
+                                    log.info(f"PM RESOLVED: {slug} | our_side={our_side} | {outcome} | PnL=${pnl:.2f}")
+                                    break
+                
+                    # Strategy 2: If slug lookup failed, search by question in crypto tag
+                    if outcome == "UNKNOWN":
+                        # Paginate through closed crypto markets (tag_id=21)
+                        for offset in [0, 100, 200, 300, 400, 500, 600, 700, 800, 900]:
+                            r = requests.get(
+                                f"{GAMMA_HOST}/markets",
+                                params={
+                                    "closed": "true", "tag_id": "21", "active": "false",
+                                    "limit": 100, "offset": offset,
+                                    "order": "volume24hr", "ascending": "false",
+                                },
+                                timeout=15,
+                            )
+                            if r.status_code != 200:
                                 break
+                            batch = r.json()
+                            if not batch:
+                                break
+                            for mk in batch:
+                                mk_question = mk.get("question", "").lower()
+                                mk_slug = mk.get("slug", "")
+                                # Match by slug or question substring
+                                if mk_slug == slug or (pos_question and pos_question in mk_question) or (pos_question and mk_question in pos_question):
+                                    outcome, pnl = _resolve_from_market(mk)
+                                    if outcome != "UNKNOWN":
+                                        log.info(f"PM RESOLVED (tag search): {slug} | our_side={our_side} | {outcome} | PnL=${pnl:.2f}")
+                                        break
+                            if outcome != "UNKNOWN":
+                                break
+                            if len(batch) < 100:
+                                break  # No more pages
+                
+                    # Strategy 3: If condition_id available, use CLOB API directly
+                    if outcome == "UNKNOWN" and pos_cid:
+                        try:
+                            r3 = requests.get(
+                                f"{CLOB_HOST}/markets/{pos_cid}",
+                                timeout=10,
+                            )
+                            if r3.status_code == 200:
+                                mk3 = r3.json()
+                                outcome, pnl = _resolve_from_market(mk3)
+                                if outcome != "UNKNOWN":
+                                    log.info(f"PM RESOLVED (CLOB): {slug} | our_side={our_side} | {outcome} | PnL=${pnl:.2f}")
+                        except Exception as e3:
+                            log.debug(f"CLOB market lookup failed: {e3}")
+                            
                 except Exception as e:
                     log.warning(f"Gamma API settlement check failed for {slug}: {e}")
                 
-                # If PM hasn't resolved yet, skip — retry next cycle
+                # If PM hasn't resolved yet, check force-settle conditions
                 if outcome == "UNKNOWN":
-                    log.info(f"PM market not yet resolved for {slug}, will retry next cycle")
-                    continue
+                    # Force-settle if market is well past expiry (30min grace)
+                    # and we can get outcomePrices from Gamma even if closed=False
+                    force_settled = False
+                    try:
+                        r2 = requests.get(
+                            f"{GAMMA_HOST}/markets",
+                            params={"slug": slug, "active": "false"},
+                            timeout=10,
+                        )
+                        if r2.status_code == 200:
+                            mkts2 = r2.json()
+                            if mkts2:
+                                mk2 = mkts2[0]
+                                prices_raw = mk2.get("outcomePrices", "[]")
+                                outcomes_raw = mk2.get("outcomes", "[]")
+                                try:
+                                    prices2 = [float(p) for p in (json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw)]
+                                    outcomes2 = json.loads(outcomes_raw) if isinstance(outcomes_raw, str) else outcomes_raw
+                                except:
+                                    prices2, outcomes2 = [], []
+                                # Force-settle if outcomePrices show clear resolution (0.0/1.0)
+                                # even if closed flag isn't set yet
+                                if len(prices2) >= 2 and len(outcomes2) >= 2:
+                                    if (prices2[0] == 1.0 and prices2[1] == 0.0) or (prices2[0] == 0.0 and prices2[1] == 1.0):
+                                        winning_idx = 0 if prices2[0] > prices2[1] else 1
+                                        our_side = pos.get("side", "").upper()
+                                        our_token_idx = 0 if our_side == "YES" else 1
+                                        if our_token_idx == winning_idx:
+                                            outcome = "WIN"
+                                            pnl = (1.0 - pos["entry_price"]) * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
+                                        else:
+                                            outcome = "LOSS"
+                                            pnl = -pos["entry_price"] * (pos.get("size_usd", RISK_LIMITS["max_position_usd"]) / pos["entry_price"])
+                                        force_settled = True
+                                        log.info(f"FORCE SETTLED: {slug} | prices={prices2} | {outcome} | PnL=${pnl:.2f}")
+                    except Exception as e2:
+                        log.debug(f"Force-settle check failed for {slug}: {e2}")
+                    
+                    if not force_settled:
+                        log.info(f"PM market not yet resolved for {slug}, will retry next cycle")
+                        continue
                 
                 # Apply settlement result
                 pos["outcome"] = outcome
@@ -1113,6 +1350,27 @@ def scan_loop(state: EngineState, paper_mode: bool):
                 log.info(f"RESOLVED: {pos.get('side','?')} {pos.get('asset','?')} | {outcome} | PnL=${pnl:.2f} | slug={slug}")
                 with open(OUT / "resolved_positions.jsonl", "a") as f:
                     f.write(json.dumps(pos, default=str) + "\n")
+                
+                # V21.7.69: Remove settled position from positions.jsonl
+                # Previously positions.jsonl was append-only and settled positions
+                # remained with order_status=PAPER_FILLED, causing duplicate entries
+                # when the same slug appeared again. Now rewrite positions.jsonl
+                # excluding the just-settled slug.
+                try:
+                    with open(OUT / "positions.jsonl", "r") as pf:
+                        all_pos_lines = pf.readlines()
+                    remaining = []
+                    for line in all_pos_lines:
+                        if not line.strip():
+                            continue
+                        pd = json.loads(line)
+                        if pd.get("market_slug") != slug:
+                            remaining.append(line)
+                    with open(OUT / "positions.jsonl", "w") as pf:
+                        for line in remaining:
+                            pf.write(line)
+                except Exception as cleanup_err:
+                    log.warning(f"Failed to clean positions.jsonl after settlement: {cleanup_err}")
             
             # ─── Heartbeat ───
             loop_ms = (time.time() - loop_start) * 1000
@@ -1290,6 +1548,35 @@ if __name__ == "__main__":
             sys.exit(1)
     
     state = EngineState(paper_mode=paper_mode)
+    
+    # Recover resolved positions from resolved_positions.jsonl on restart
+    # This restores win/loss/pnl counters that were lost on restart
+    resolved_file = OUT / "resolved_positions.jsonl"
+    if resolved_file.exists():
+        try:
+            recovered_resolved = 0
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            with open(resolved_file) as rf:
+                for line in rf:
+                    if line.strip():
+                        rd = json.loads(line)
+                        state.closed_positions.append(rd)
+                        recovered_resolved += 1
+                        pnl = rd.get("pnl", 0)
+                        state.total_pnl += pnl
+                        if rd.get("outcome") == "WIN":
+                            state.wins += 1
+                        elif rd.get("outcome") == "LOSS":
+                            state.losses += 1
+                            # Only add to daily_loss if resolved today
+                            resolved_ts = rd.get("resolved_timestamp", "")
+                            if resolved_ts.startswith(today):
+                                state.daily_loss_usd += abs(pnl)
+            if recovered_resolved:
+                log.info(f"Recovered {recovered_resolved} resolved positions | "
+                         f"W={state.wins} L={state.losses} PnL=${state.total_pnl:.2f}")
+        except Exception as e:
+            log.warning(f"Failed to recover resolved positions: {e}")
     
     # Recover open positions from positions.jsonl on restart
     pos_file = OUT / "positions.jsonl"

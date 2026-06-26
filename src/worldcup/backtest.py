@@ -120,7 +120,7 @@ def run_backtest():
     total_trades = 0
 
     POSITION_SIZE = 2.0
-    MIN_EDGE_PP = 10.0
+    MIN_EDGE_PP = 6.0  # V21.7.58: Aligned with live bot thresholds (was 10)
 
     for i, (home, away, h_goals, a_goals, stage, year) in enumerate(matches):
         # Get current Elo ratings

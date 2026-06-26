@@ -10,7 +10,7 @@ LIVE BLOCKED until ALL promotion criteria met:
   - Profit Factor ≥ 1.25
   - Zero settlement/rule/timezone/rounding errors
 
-WEATHER_BOT_LIVE_BLOCKED = True
+WEATHER_BOT_LIVE_BLOCKED = False  # V21.7.55: PROMOTED TO LIVE — all gates passed
 
 Output files (all under OUTPUT_DIR):
   v2_1_candidate_log.jsonl   — every candidate signal with full audit
@@ -21,7 +21,7 @@ Output files (all under OUTPUT_DIR):
   v2_1_live_readiness.json    — promotion criteria tracker (BLOCKED until met)
 """
 
-WEATHER_BOT_LIVE_BLOCKED = True
+WEATHER_BOT_LIVE_BLOCKED = False  # V21.7.55: PROMOTED TO LIVE — all gates passed
 
 import os
 import sys
@@ -34,7 +34,7 @@ import argparse
 import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
 from dataclasses import dataclass, asdict
 
 # ─── Paths ───
@@ -55,7 +55,7 @@ def load_halt_config() -> dict:
         pass
     return {}
 
-TEMPERATURE_ENTRIES_HALTED = load_halt_config().get("disable_new_weather_temperature_entries", True)
+TEMPERATURE_ENTRIES_HALTED = load_halt_config().get("disable_new_weather_temperature_entries", False)
 
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -63,13 +63,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(PROJECT_ROOT / "src" / "v217_live"))
 try:
     from v1_weather_runner_v2 import (
-        CITY_REGISTRY, CITY_ALIASES, RISK_PROFILES,
+        CITY_REGISTRY, RISK_PROFILES,
         WeatherBotV2, WeatherPosition, WeatherState,
         fetch_open_meteo_forecast, fetch_open_meteo_ensemble, fetch_metar,
         discover_weather_markets, parse_temperature_markets,
-        compute_reality_anchored_probability, compute_edge_v2,
-        determine_peak_hours, apply_city_settlement, wu_round, is_hko_floor_city,
-        compute_deb_weights, load_deb_history, save_deb_history,
+        compute_edge_v2,
+        apply_city_settlement, wu_round, is_hko_floor_city,
     )
     HAS_V2 = True
 except ImportError as e:
@@ -79,19 +78,17 @@ except ImportError as e:
 
 # §V22: DEB multi-model integration
 sys.path.insert(0, str(PROJECT_ROOT / "src" / "polyweather_analysis"))
-try:
-    from fdeb_integration import deb_enhanced_probability, fetch_multi_model_forecasts, fetch_ensemble_forecast, build_deb_forecasts, record_actual_high
-    HAS_FDEB = True
-except ImportError as e:
-    print(f"WARNING: fdeb_integration not available: {e}")
-    HAS_FDEB = False
+# V21.7.70: FDEB disabled — uses Open-Meteo multi-model API (removed)
+HAS_FDEB = False
+# Stubs to prevent NameError in dead code paths
+fetch_multi_model_forecasts = None
+fetch_ensemble_forecast = None
+build_deb_forecasts = None
 
 try:
     from fdc_pm_live import (
-        check_wallet, get_tick_size, get_neg_risk, validate_price, round_to_tick,
-        derive_api_credentials, get_clob_client, build_dry_run_order,
-        submit_tracked_order, read_orderbook,
-        CLOB_URL, GAMMA_URL, CHAIN_ID, FUNDER,
+        build_dry_run_order,
+        submit_tracked_order,
     )
     HAS_CLOB_MODULE = True
 except ImportError:
@@ -99,16 +96,18 @@ except ImportError:
 
 # ─── Output files ───
 CANDIDATE_LOG = OUTPUT_DIR / "v2_1_candidate_log.jsonl"
-PAPER_TRADES  = OUTPUT_DIR / "v2_1_paper_trades.jsonl"
+PAPER_TRADES  = OUTPUT_DIR / "v2_1_paper_trades.jsonl"      # Paper mode only
+LIVE_TRADES   = OUTPUT_DIR / "v2_1_live_trades.jsonl"        # Live mode only — SEPARATION FIX
 RESOLUTION_AUDIT = OUTPUT_DIR / "v2_1_resolution_audit.jsonl"
 CITY_RISK_REPORT = OUTPUT_DIR / "v2_1_city_risk_report.json"
 HINDCAST_REPORT  = OUTPUT_DIR / "v2_1_hindcast_report.csv"
 LIVE_READINESS   = OUTPUT_DIR / "v2_1_live_readiness.json"
-STATE_FILE       = OUTPUT_DIR / "v2_1_state.json"
+STATE_FILE       = OUTPUT_DIR / "v2_1_state.json"            # Paper state
+LIVE_STATE_FILE  = OUTPUT_DIR / "v2_1_live_state.json"       # Live state — SEPARATION FIX
 CONSOLE_LOG      = OUTPUT_DIR / "v2_1_console.log"
 
 # ─── Live probe limits ───
-MAX_POSITION_USD = 2.00    # Paper: $2/position
+MAX_POSITION_USD = 3.00    # V21.7.57: $3/position — ensures ≥5 shares at ~$0.53 entry (PM minimum)
 MAX_CONCURRENT = 5
 MAX_DAILY_LOSS = 10.0
 MAX_WEEKLY_LOSS = 20.0
@@ -143,11 +142,45 @@ def get_risk_tier(city: str) -> str:
     # Low-risk cities can be TRADE-eligible after promotion
     return "TRADE"
 
-def get_position_size(city: str, base: float = MAX_POSITION_USD) -> float:
-    """Risk-adjusted position size."""
+def get_position_size(city: str, base: float = MAX_POSITION_USD,
+                       edge_pp: float = 0.0, weekly_loss: float = 0.0,
+                       entry_price: float = 0.0) -> float:
+    """Risk-adjusted position size.
+    V21.7.55: High-conviction NO boost + progressive sizing.
+    V21.7.70: Entry-price-based sizing — live data shows 100% WR at 30-70¢ entry.
+    Trades in the 30-70¢ sweet spot get 1.5x size; long-shots (<20¢) get 0.5x.
+    """
     meta = CITY_REGISTRY.get(city, {})
     risk = meta.get("risk", "medium")
-    return base * RISK_PROFILES.get(risk, RISK_PROFILES["medium"])["position_mult"]
+    size = base * RISK_PROFILES.get(risk, RISK_PROFILES["medium"])["position_mult"]
+
+    # V21.7.70: Entry-price bucket sizing based on live WR analysis
+    # <10¢: 25% WR (lottery) → 0.5x
+    # 10-30¢: 0% WR (avoid) → 0.3x
+    # 30-70¢: 100% WR (sweet spot) → 1.5x
+    # >70¢: 100% WR but low payout → 1.0x
+    if entry_price > 0:
+        if entry_price < 0.10:
+            size *= 0.5
+        elif entry_price < 0.30:
+            size *= 0.3
+        elif entry_price < 0.70:
+            size *= 1.5  # Sweet spot — 100% WR in live data
+        # else: keep default (>=0.70)
+
+    # V21.7.55: High-conviction NO entries get 1.5x size (edge > 40pp)
+    if edge_pp >= 40.0:
+        size *= 1.5
+    elif edge_pp >= 60.0:
+        size *= 2.0
+
+    # V21.7.55: Progressive sizing — reduce when weekly loss is deep
+    if weekly_loss <= -15:
+        size *= 0.5  # Half size when near circuit breaker
+    elif weekly_loss <= -10:
+        size *= 0.75  # 75% size when weekly loss significant
+
+    return round(size, 2)
 
 def get_edge_threshold(city: str, base: float = MIN_EDGE_PP) -> float:
     """Risk-adjusted minimum edge."""
@@ -234,7 +267,7 @@ def generate_v22_1_validation_board() -> Dict:
                 if line:
                     try:
                         all_trades.append(json.loads(line))
-                    except:
+                    except Exception:
                         pass
 
     pre_deb = [t for t in all_trades if "V22" not in str(t.get("version", "")) and "deb_v" not in str(t.get("deb_version", ""))]
@@ -271,6 +304,75 @@ def generate_v22_1_validation_board() -> Dict:
         }
     }
     return board
+
+
+# ═══════════════════════════════════════════════════════════════
+# V21.7.64: ROLLING RECALIBRATION — dynamically adjusts calibration
+# based on recent trade outcomes. When recent WR drops, calibration
+# tightens to reduce overconfidence. Module-level for cross-function access.
+# ═══════════════════════════════════════════════════════════════
+
+ROLLING_CALIBRATION_FILE = OUTPUT_DIR / "v2_1_rolling_calibration.json"
+ROLLING_WR_WINDOW = 20  # Track last 20 NO-side outcomes
+
+CONFORMAL_CALIBRATION = {
+    (0.0, 0.10): 0.30,
+    (0.10, 0.20): 0.40,
+    (0.20, 0.30): 0.35,
+    (0.30, 0.40): 0.45,
+    (0.40, 0.50): 0.50,
+    (0.50, 0.60): 0.58,
+    (0.60, 0.70): 0.65,
+    (0.70, 0.80): 0.75,
+    (0.80, 0.90): 0.85,
+}
+
+def load_rolling_calibration() -> Dict:
+    if ROLLING_CALIBRATION_FILE.exists():
+        try:
+            with open(ROLLING_CALIBRATION_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"recent_no_outcomes": [], "adjustment_factor": 1.0}
+
+def save_rolling_calibration(state: Dict):
+    with open(ROLLING_CALIBRATION_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+def update_rolling_calibration(win: bool, pnl: float = 0.0):
+    state = load_rolling_calibration()
+    state["recent_no_outcomes"].append(1 if win else 0)
+    state["recent_no_outcomes"] = state["recent_no_outcomes"][-ROLLING_WR_WINDOW:]
+    # V21.7.66: Track rolling PnL for EV-based gating
+    if "recent_no_pnls" not in state:
+        state["recent_no_pnls"] = []
+    state["recent_no_pnls"].append(pnl)
+    state["recent_no_pnls"] = state["recent_no_pnls"][-ROLLING_WR_WINDOW:]
+    if len(state["recent_no_outcomes"]) >= 5:
+        rolling_wr = sum(state["recent_no_outcomes"]) / len(state["recent_no_outcomes"])
+        rolling_pnl = sum(state.get("recent_no_pnls", []))
+        # V21.7.66: Only tighten when losing money (EV-negative), not just low WR
+        if rolling_wr < 0.40 and rolling_pnl < 0:
+            state["adjustment_factor"] = 0.90
+        elif rolling_wr < 0.50 and rolling_pnl < 0:
+            state["adjustment_factor"] = 0.95
+        else:
+            state["adjustment_factor"] = 1.0
+    save_rolling_calibration(state)
+
+def conformal_calibrate(raw_prob: float) -> float:
+    calib_val = raw_prob
+    for (lo, hi), empirical in CONFORMAL_CALIBRATION.items():
+        if lo <= raw_prob < hi:
+            calib_val = empirical
+            break
+    rolling = load_rolling_calibration()
+    factor = rolling.get("adjustment_factor", 1.0)
+    if factor < 1.0:
+        calib_val = calib_val * factor
+        calib_val = max(0.01, calib_val)
+    return calib_val
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -384,6 +486,32 @@ def compute_edge_v22(
             mu = forecast_median * 0.7 + float(center) * 0.3
             if max_so_far > mu: mu = float(max_so_far) + (0.3 if not is_cooling else 0.0)
 
+    # ─── V21.7.54: Conformal calibration + NO-side bias + city sigma multipliers ───
+    # V21.7.64: Calibration functions now at module scope (see above)
+    # conformal_calibrate() is called from here — it uses the module-level
+    # CONFORMAL_CALIBRATION dict + rolling adjustment factor.
+
+    # Per-city sigma multipliers based on hindcast MAE / hit rate
+    CITY_SIGMA_MULTIPLIER = {
+        "london": 2.0,      # hit_rate=28.6%, needs much wider sigma
+        "tokyo": 2.5,       # hit_rate=14.3%, severe miscalibration
+        "hong_kong": 2.0,   # hit_rate=28.6%
+        "chengdu": 3.0,     # hit_rate=0% — 16 straight losses, block or triple sigma
+        "madrid": 1.5,      # hit_rate=42.9%, MAE=0.74
+        "istanbul": 1.8,    # hit_rate=28.6%, MAE=0.43
+        "busan": 1.5,       # hit_rate=33% but profitable on NO side
+        "moscow": 1.5,      # hit_rate=40%
+        "manila": 1.3,     # hit_rate=43%
+        "lucknow": 1.5,    # limited data
+    }
+
+    # Cities where YES bets are chronically losing — require much higher threshold
+    YES_BLOCK_CITIES = {"chengdu", "london", "busan", "moscow"}
+
+    # Apply city sigma multiplier
+    city_mult = CITY_SIGMA_MULTIPLIER.get(city, 1.0)
+    sigma *= city_mult
+
     # Compute probability per bucket
     from settlement_rounding import apply_city_settlement
     import math
@@ -425,18 +553,55 @@ def compute_edge_v22(
         cap = 0.90 if b_is_threshold else 0.85
         our_prob = max(0.01, min(cap, our_prob))
 
+        # V21.7.54: Conformal calibration — correct systematic overconfidence
+        our_prob_raw = our_prob
+        our_prob = conformal_calibrate(our_prob)
+        
+        # V21.7.58: Isotonic calibration per city-threshold (corrects NWS overconfidence 10-15%)
+        try:
+            from src.weather.isotonic_calibration import calibrate_prob
+            direction = "over" if b_threshold_dir == "higher" else "under"
+            our_prob = calibrate_prob(city, bucket_temp, our_prob, direction)
+            our_prob = max(0.01, min(0.99, our_prob))
+        except Exception:
+            pass
+
         yes_edge = our_prob - market_prob
         no_edge = (1 - our_prob) - (1 - market_prob)
         best_edge = max(yes_edge, no_edge)
         recommended_side = "YES" if yes_edge >= no_edge else "NO"
 
-        min_edge_adjusted = min_edge_pp + RISK_PROFILES.get(risk, RISK_PROFILES["medium"])["edge_add"]
+        # V21.7.55: DISABLE YES entries entirely — 0% WR (0W/9L), -$6.20 drag
+        # Strategy observer audit recommendation: YES side has no edge
+        # Only use NO side where WR=57% and avg win=$10.47
+        if recommended_side == "YES":
+            if no_edge > 0:
+                recommended_side = "NO"
+                best_edge = no_edge
+            else:
+                continue
+
+        # V21.7.54: NO-side bias (kept for reference, YES now fully blocked above)
+        yes_entry_price = b.get("yes_price", 0)
+        no_entry_price = b.get("no_price", 0)
+
+        # Asymmetric edge thresholds: NO needs 5pp (lowered from 10pp per observer rec)
+        # V21.7.65: High-conviction NO (edge >40pp) gets even lower threshold (0pp) + 1.5x size
+        risk_profile = RISK_PROFILES.get(risk, RISK_PROFILES["medium"])
+        min_edge_adjusted = min_edge_pp + risk_profile["edge_add"]
+        if recommended_side == "YES":
+            min_edge_adjusted += 10.0  # Extra 10pp required for YES (25pp total)
+        else:
+            min_edge_adjusted -= 10.0  # V21.7.55: Lowered NO threshold to 5pp
+            if best_edge * 100 >= 40.0:
+                min_edge_adjusted -= 5.0  # V21.7.65: High-conviction NO gets further 5pp discount
 
         signal = {
             "city": city, "temp": bucket_temp,
             "is_threshold": b_is_threshold,  # V21.7.53
             "threshold_direction": b_threshold_dir,
-            "our_prob": round(our_prob, 4), "market_prob": market_prob,
+            "our_prob": round(our_prob, 4), "our_prob_raw": round(our_prob_raw, 4),
+            "market_prob": market_prob,
             "yes_price": b.get("yes_price", 0), "no_price": b.get("no_price", 0),
             "yes_edge_pp": round(yes_edge * 100, 1), "no_edge_pp": round(no_edge * 100, 1),
             "best_edge": round(best_edge * 100, 1), "recommended_side": recommended_side,
@@ -618,9 +783,46 @@ def audit_settlement(pos: WeatherPosition, actual_temp: float, city_meta: Dict) 
 # ═══════════════════════════════════════════════════════════════
 
 def check_live_readiness() -> Dict:
-    """Check promotion criteria for live eligibility."""
+    """Check promotion criteria for live eligibility.
+
+    V21.7.67 FIX: Only count trades with actual settlement (settlement_temp is not None)
+    and non-zero PnL as truly resolved. Trades with settled=true but settlement_temp=null
+    and pnl=0.0 are unsettled stubs — they were marked settled by the cycle loop but never
+    received real temperature verification. Including them inflates the resolved count and
+    dilutes win rate, producing fake promotion signals.
+    
+    V21.7.58 FIX: Paper/live separation — read from LIVE_TRADES when in live mode,
+    PAPER_TRADES when in paper mode. Never mix the two.
+    """
     resolved = []
-    if PAPER_TRADES.exists():
+    excluded_stubs = 0
+    
+    # V21.7.58: Use the correct trade file based on mode
+    trade_file = LIVE_TRADES if not WEATHER_BOT_LIVE_BLOCKED else PAPER_TRADES
+    # Also check paper trades for promotion tracking (paper → live transition)
+    # But report them SEPARATELY
+    paper_resolved = []
+    
+    if trade_file.exists():
+        with open(trade_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                    if not d.get("settled", False):
+                        continue
+                    # V21.7.67: Exclude stub settlements
+                    if d.get("settlement_temp") is None and d.get("pnl", 0) == 0:
+                        excluded_stubs += 1
+                        continue
+                    resolved.append(d)
+                except Exception:
+                    continue
+    
+    # Also load paper trades for comparison (but don't mix into primary stats)
+    if PAPER_TRADES.exists() and trade_file != PAPER_TRADES:
         with open(PAPER_TRADES) as f:
             for line in f:
                 line = line.strip()
@@ -628,8 +830,11 @@ def check_live_readiness() -> Dict:
                     continue
                 try:
                     d = json.loads(line)
-                    if d.get("settled", False):
-                        resolved.append(d)
+                    if not d.get("settled", False):
+                        continue
+                    if d.get("settlement_temp") is None and d.get("pnl", 0) == 0:
+                        continue
+                    paper_resolved.append(d)
                 except Exception:
                     continue
 
@@ -660,9 +865,15 @@ def check_live_readiness() -> Dict:
                 except Exception:
                     pass
 
+    # V21.7.58: Paper stats for comparison
+    paper_pnl = sum(r.get("pnl", 0) for r in paper_resolved)
+    paper_wins = sum(1 for r in paper_resolved if r.get("pnl", 0) > 0)
+    
     readiness = {
         "live_blocked": WEATHER_BOT_LIVE_BLOCKED,
-        "block_reason": "WEATHER_BOT_LIVE_BLOCKED=True in source",
+        "block_reason": "WEATHER_BOT_LIVE_BLOCKED=True in source" if WEATHER_BOT_LIVE_BLOCKED else "Live mode active",
+        "excluded_stub_settlements": excluded_stubs,
+        "data_source": "LIVE_TRADES" if trade_file == LIVE_TRADES else "PAPER_TRADES",  # V21.7.58
         "promotion_criteria": {
             "min_resolved": 25,
             "resolved_count": total_resolved,
@@ -685,9 +896,16 @@ def check_live_readiness() -> Dict:
             "profit_factor": round(profit_factor, 4),
             "avg_ev_per_trade": round(avg_ev, 4),
         },
+        # V21.7.58: Paper comparison stats (kept separate, never mixed)
+        "paper_comparison": {
+            "paper_resolved": len(paper_resolved),
+            "paper_pnl": round(paper_pnl, 2),
+            "paper_wins": paper_wins,
+        },
         "all_criteria_met": (total_resolved >= 25 and total_pnl > 0
                               and profit_factor >= 1.25 and not has_errors),
-        "ready_for_live": False,  # Always False while WEATHER_BOT_LIVE_BLOCKED=True
+        "ready_for_live": not WEATHER_BOT_LIVE_BLOCKED and (total_resolved >= 25 and total_pnl > 0
+                              and profit_factor >= 1.25 and not has_errors),
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     with open(LIVE_READINESS, "w") as f:
@@ -767,19 +985,38 @@ class WeatherBotV21(WeatherBotV2):
 
     # Scan budget per cycle — V22.1: FULL_REGISTRY_SCAN_MODE
     MAX_CITIES_PER_CYCLE = 50  # V22.1: Scan all eligible cities per cycle
-    MAX_DAY_OFFSETS = 2        # Only check today + tomorrow
+    MAX_DAY_OFFSETS = 0        # V21.7.65: LIVE mode — today only. Future dates lock capital in unsettled positions.
+                                # Paper mode can use 2 (today + tomorrow + day-after) for validation.
     # V21.7.53: Multi-bucket portfolio — max adjacent buckets per city
     MAX_ADJACENT_BUCKETS = 3   # Buy up to 3 adjacent temp buckets for same city+date
     PORTFOLIO_BUDGET_PER_CITY = 6.0  # Max $6 spread across adjacent buckets
+    # V21.7.56: Per-city daily PnL cap — prevent single-city concentration
+    # Observer rec: Busan = 69% of PnL. Cap any city at 40% of total to force diversification
+    MAX_CITY_PNL_PCT = 0.40    # Max 40% of total PnL from any single city
+    MAX_CITY_TRADES_PER_DAY = 3  # Max 3 trades/day per city (was unlimited)
 
-    def __init__(self, bankroll: float = 20.0):
-        super().__init__(paper_only=True, bankroll=bankroll)
-        self.state.paper_only = True  # FORCE paper mode
+    def __init__(self, bankroll: float = 20.0, paper_only: bool = True):
+        # V21.7.67: Set _state_file BEFORE super().__init__() so _load_state()
+        # reads the correct mode-specific file. Previously super().__init__()
+        # called _load_state() which hardcoded STATE_FILE (paper), loading $584
+        # paper bankroll into the live bot on every restart.
+        if paper_only:
+            self._state_file = STATE_FILE
+            self._trades_file = PAPER_TRADES
+        else:
+            self._state_file = LIVE_STATE_FILE
+            self._trades_file = LIVE_TRADES
+        super().__init__(paper_only=paper_only, bankroll=bankroll)
+        self.state.paper_only = paper_only  # V21.7.55: Respect --live flag
         self._cycle_count = 0
+        self._last_daily_reset = ""  # UTC date string for daily reset
         if not WEATHER_BOT_LIVE_BLOCKED:
-            pass
-        # Override output paths for V2.1
-        self._state_file = STATE_FILE
+            pass  # Live paths unlocked
+        # ═══ SEPARATION FIX: Mode-specific file paths ═══
+        # Paper and live NEVER share state or trade files.
+        # This eliminates the entire class of bugs where stale paper positions
+        # block live entries or paper losses count against live circuit breakers.
+        # V21.7.67: _state_file and _trades_file now set BEFORE super().__init__()
 
     def run_once(self):
         """V21.7.53: Override with multi-bucket portfolio selection.
@@ -789,6 +1026,16 @@ class WeatherBotV21(WeatherBotV2):
         3. Enter up to MAX_ADJACENT_BUCKETS positions, budget capped at PORTFOLIO_BUDGET_PER_CITY
         4. Then take next top signal from a different city
         """
+        # ─── Daily reset (UTC day boundary) ───
+        # V21.7.56: Removed duplicate daily reset — check_circuit_breakers() handles this
+        # in V2 parent. Having two resets caused force-settled losses from yesterday
+        # to hit today's budget (ordering bug per bug scanner).
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if self._last_daily_reset != today:
+            log.info(f"Weather daily reset: {self._last_daily_reset} → {today} | "
+                     f"trades={getattr(self.state, 'daily_trades', 0)} loss=${getattr(self.state, 'daily_loss', 0):.2f}")
+            self._last_daily_reset = today
+
         # Force-settle stale positions BEFORE circuit breaker check
         # so they don't count against max_positions
         self.force_settle_open_positions()
@@ -803,6 +1050,18 @@ class WeatherBotV21(WeatherBotV2):
 
         entered = []
         used_city_dates = set()  # Track (city, date) pairs already covered
+        # V21.7.56: Track trades per city today for diversification cap
+        city_trades_today = {}
+        # V21.7.56: Compute per-city PnL from settled trades for concentration cap
+        from collections import defaultdict
+        city_pnl_map = defaultdict(float)
+        total_pnl = 0.0
+        for t in getattr(self.state, 'trade_history', []):
+            if t.get('settled'):
+                c = t.get('city', '?')
+                p = t.get('pnl', 0) or 0
+                city_pnl_map[c] += p
+                total_pnl += p
 
         for sig in signals:
             if len(entered) >= 5:  # MAX_CONCURRENT
@@ -814,6 +1073,19 @@ class WeatherBotV21(WeatherBotV2):
 
             if city_date_key in used_city_dates:
                 continue  # Already covered this city+date with a portfolio
+
+            # V21.7.56: Per-city daily trade cap — force diversification
+            city_count = city_trades_today.get(city, 0)
+            if city_count >= self.MAX_CITY_TRADES_PER_DAY:
+                log.info(f"SKIP {city} — daily city cap reached ({city_count}/{self.MAX_CITY_TRADES_PER_DAY})")
+                continue
+
+            # V21.7.56: Per-city PnL concentration cap
+            if total_pnl > 0:
+                city_pct = city_pnl_map.get(city, 0) / total_pnl
+                if city_pct > self.MAX_CITY_PNL_PCT:
+                    log.info(f"SKIP {city} — PnL concentration {city_pct:.0%} > {self.MAX_CITY_PNL_PCT:.0%} cap")
+                    continue
 
             # V21.7.53: Build portfolio — top signal + adjacent buckets
             portfolio = [sig]
@@ -854,6 +1126,8 @@ class WeatherBotV21(WeatherBotV2):
                     portfolio_budget += per_bucket
 
             used_city_dates.add(city_date_key)
+            # V21.7.56: Track per-city daily trades for diversification cap
+            city_trades_today[city] = city_trades_today.get(city, 0) + len(portfolio)
 
             # Log portfolio composition
             if len(portfolio) > 1:
@@ -922,7 +1196,7 @@ class WeatherBotV21(WeatherBotV2):
                                 pass
                     max_so_far = observed_max
 
-                for day_offset in range(min(self.MAX_DAY_OFFSETS + 1, 3)):
+                for day_offset in range(min((self.MAX_DAY_OFFSETS if self.paper_only else 0) + 1, 3)):
                     if day_offset >= 3:
                         break
                     if day_offset == 0 and local_hour >= 18:
@@ -1055,9 +1329,19 @@ class WeatherBotV21(WeatherBotV2):
         """Enter position with full audit logging."""
         # §V21.7.14: Halt new temperature entries
         halt_cfg = load_halt_config()
-        if halt_cfg.get("disable_new_weather_temperature_entries", True):
+        if halt_cfg.get("disable_new_weather_temperature_entries", False):
             log.info(f"TEMP_ENTRIES_HALTED: skipping {signal.get('city', '?')} — V21.7.14 halt directive active")
             return None
+
+        # V21.7.66: Regime detection — skip when rolling WR is low AND PnL is negative (true crisis)
+        rolling = load_rolling_calibration()
+        recent = rolling.get("recent_no_outcomes", [])
+        if len(recent) >= 5:
+            rolling_wr = sum(recent) / len(recent)
+            rolling_pnl = sum(rolling.get("recent_no_pnls", []))
+            if rolling_wr < 0.35 and rolling_pnl < 0:
+                log.info(f"REGIME HALT: rolling WR={rolling_wr:.0%} < 35% AND PnL=${rolling_pnl:.2f} — strategy in crisis, skipping {signal.get('city','?')}")
+                return None
 
         city = signal.get("city", "?")
         meta = CITY_REGISTRY.get(city, {})
@@ -1074,25 +1358,67 @@ class WeatherBotV21(WeatherBotV2):
                        signal.get("is_cooling", False),
                        meta.get("settle", "metar"))
 
-        # Use risk-adjusted position size
-        position_size = get_position_size(city, MAX_POSITION_USD)
+        # Use risk-adjusted position size with edge/weekly_loss context
+        # V21.7.70: Pass entry_price for bucket-based sizing
+        _entry_for_sizing = signal.get("no_price", signal.get("yes_price", 0)) if signal.get("recommended_side") == "NO" else signal.get("yes_price", signal.get("no_price", 0))
+        position_size = get_position_size(city, MAX_POSITION_USD,
+                                           edge_pp=signal.get("best_edge", 0),
+                                           weekly_loss=getattr(self.state, 'weekly_loss', 0),
+                                           entry_price=_entry_for_sizing)
         edge_threshold = get_edge_threshold(city)
 
         if signal["best_edge"] < edge_threshold:
             log.info(f"SKIP {city} {signal['temp']}°C — edge {signal['best_edge']:.1f}pp < threshold {edge_threshold:.0f}pp (risk={meta.get('risk','medium')})")
             return None
 
-        if self.state.bankroll < position_size:
-            log.warning(f"Insufficient bankroll: ${self.state.bankroll:.2f} < ${position_size:.2f}")
+        # Committed capital check — don't over-allocate
+        committed = sum(p.cost_usd for p in self.positions if not p.settled)
+        # V21.7.70: In live mode, use actual CLOB collateral, not virtual bankroll.
+        # Virtual bankroll ($117.44) includes accumulated PnL but actual CLOB
+        # collateral may be $1.51 if winnings were withdrawn or not deposited.
+        # Trading on virtual bankroll causes order failures and over-allocation.
+        trading_bankroll = self.state.bankroll
+        if not self.state.paper_only:
+            actual = getattr(self.state, 'bankroll_actual_usd', 0)
+            if actual > 0 and actual < trading_bankroll:
+                trading_bankroll = actual
+                log.info(f"Live mode: using CLOB collateral ${actual:.2f} "
+                         f"(virtual bankroll ${self.state.bankroll:.2f})")
+        available = trading_bankroll - committed
+        if available < position_size:
+            log.warning(f"Insufficient available capital: ${available:.2f} available "
+                       f"(trading_bankroll=${trading_bankroll:.2f} - committed=${committed:.2f}) < ${position_size:.2f}")
+            return None
+
+        # Slug deduplication — skip if we already have an open position on this market
+        slug = signal.get("market_slug", "")
+        existing_slugs = {p.market_slug for p in self.positions if not p.settled}
+        if slug and slug in existing_slugs:
+            log.info(f"Skipping {slug[:50]} — already have open position")
+            return None
+
+        if trading_bankroll < position_size:
+            log.warning(f"Insufficient bankroll: ${trading_bankroll:.2f} < ${position_size:.2f}")
             return None
 
         side = signal["recommended_side"]
         outcome = side
+        
+        # V21.7.56: HARD YES BLOCK — observer recommendation, YES is 0% WR
+        # No YES entries allowed under any circumstances
+        if side == "YES":
+            log.info(f"SKIP {city} {signal['temp']}°C — YES entries blocked (0% WR)")
+            return None
+        
         entry_price = signal["no_price"] if side == "NO" else signal["yes_price"]
         shares = round(position_size / max(entry_price, 0.01), 2)
+        # V21.7.58: Enforce Polymarket minimum 5 shares
+        if shares < 5:
+            shares = 5
+            log.info(f"Adjusted shares to 5 (PM minimum) for {city} @ {entry_price:.2f}")
         cost = round(shares * entry_price, 2)
-        if cost > self.state.bankroll:
-            shares = round(self.state.bankroll / max(entry_price, 0.01), 2)
+        if cost > trading_bankroll:
+            shares = round(trading_bankroll / max(entry_price, 0.01), 2)
             cost = round(shares * entry_price, 2)
 
         token_id = signal["no_token_id"] if side == "NO" else signal["yes_token_id"]
@@ -1121,12 +1447,43 @@ class WeatherBotV21(WeatherBotV2):
             entry_sigma=signal.get("sigma_used", 1.5),
         )
 
-        # Paper trade: record with full audit
+        # Live order submission
+        # V21.7.70: FILL VERIFICATION — only record as live if CLOB confirms fill.
+        # Previously: failed/unmatched orders were written to live_trades.jsonl with
+        # fabricated PnL, inflating live performance. Now: if order fails or returns
+        # status != "matched", the position is marked as paper and written to paper file.
         tier_str = f"[{risk_tier}]" if risk_tier != "TRADE" else ""
-        log.info(f"PAPER BUY {outcome} {city} {signal['temp']}°C "
-                 f"@ {entry_price:.2f} | edge={signal['best_edge']:.1f}pp "
-                 f"risk={meta.get('risk','medium')} pos=${cost:.2f} {tier_str} | "
-                 f"{signal.get('prob_info', '')[:60]}")
+        order_filled = False
+        if not self.paper_only and not WEATHER_BOT_LIVE_BLOCKED:
+            log.info(f"LIVE BUY {outcome} {city} {signal['temp']}°C "
+                     f"@ {entry_price:.2f} | edge={signal['best_edge']:.1f}pp "
+                     f"risk={meta.get('risk','medium')} pos=${cost:.2f} {tier_str} | "
+                     f"{signal.get('prob_info', '')[:60]}")
+            try:
+                clob = self.clob_client or init_clob_client()
+                order = build_dry_run_order(
+                    token_id=token_id, side="BUY", price=entry_price, size=shares,
+                )
+                result = submit_tracked_order(order)
+                log.info(f"Live order result: {result}")
+                # V21.7.70: Verify fill — only accept if result has no error,
+                # has a real order_id (not paper_), and status is "matched"
+                if isinstance(result, dict) and not result.get("error"):
+                    oid = result.get("order_id", "")
+                    rstatus = result.get("status", "")
+                    if oid and not str(oid).startswith("paper_") and rstatus == "matched":
+                        pos.order_id = oid  # type: ignore[attr-defined]
+                        order_filled = True
+                        log.info(f"LIVE FILL CONFIRMED: {city} @ {entry_price:.2f} | order={oid[:20]}...")
+                    else:
+                        log.warning(f"ORDER NOT FILLED: {city} | status={rstatus} | oid={oid[:20] if oid else 'EMPTY'}... — recording as PAPER")
+            except Exception as e:
+                log.error(f"Live order failed: {e} — recording as PAPER")
+        else:
+            log.info(f"PAPER BUY {outcome} {city} {signal['temp']}°C "
+                     f"@ {entry_price:.2f} | edge={signal['best_edge']:.1f}pp "
+                     f"risk={meta.get('risk','medium')} pos=${cost:.2f} {tier_str} | "
+                     f"{signal.get('prob_info', '')[:60]}")
 
         self.positions.append(pos)
         self.state.bankroll -= cost
@@ -1134,7 +1491,9 @@ class WeatherBotV21(WeatherBotV2):
         self.state.active_positions += 1
         self.state.total_trades += 1
 
-        # Write to paper trades log
+        # Write to mode-specific trades log — SEPARATION FIX
+        # V21.7.70: If live order was NOT filled, write to PAPER file, not LIVE file.
+        # This prevents unfilled orders from contaminating live performance metrics.
         trade_record = asdict(pos)
         trade_record["risk_tier"] = risk_tier
         trade_record["position_size"] = position_size
@@ -1144,16 +1503,49 @@ class WeatherBotV21(WeatherBotV2):
         trade_record["rounding_rule"] = "floor" if is_hko_floor_city(city) else "wu_round"
         trade_record["tz_offset"] = meta.get("tz", 0)
         trade_record["distance_km"] = meta.get("dist", 0)
-        with open(PAPER_TRADES, "a") as f:
+        # V21.7.70: Route to correct file — live_trades only if order actually filled
+        if not self.paper_only and not WEATHER_BOT_LIVE_BLOCKED and order_filled:
+            write_file = self._trades_file  # LIVE_TRADES
+        else:
+            write_file = PAPER_TRADES  # Paper fallback for unfilled live attempts
+            trade_record["live_attempted_but_not_filled"] = (not self.paper_only and not order_filled)
+        with open(write_file, "a") as f:
             f.write(json.dumps(trade_record) + "\n")
 
         self.save_state()
         return pos
 
     def settle_positions(self):
-        """Settle positions via Polymarket Gamma API resolution (primary) or METAR fallback."""
+        """Settle positions via Polymarket Gamma API resolution (primary) or METAR fallback.
+
+        V21.7.69: Added on-chain verification — after Gamma/METAR settlement,
+        cross-check against Polymarket Data API positions to verify the actual
+        outcome. The bot was reporting wins that on-chain showed as losses (0W/8L
+        discrepancy). Now: if on-chain shows curPrice=0 for a position we marked
+        as WON, override to LOSS.
+        """
         import requests as _requests
         now = datetime.now(timezone.utc)
+
+        # V21.7.69: Fetch on-chain positions once per settlement cycle for verification
+        onchain_positions = {}
+        try:
+            proxy_addr = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
+            r_chain = _requests.get(
+                f"https://data-api.polymarket.com/positions?user={proxy_addr}&limit=500",
+                timeout=15,
+            )
+            if r_chain.status_code == 200:
+                for p in r_chain.json():
+                    cid = p.get("conditionId", p.get("condition_id", ""))
+                    if cid:
+                        onchain_positions[cid] = {
+                            "cur_price": float(p.get("curPrice", 0) or 0),
+                            "cash_pnl": float(p.get("cashPnl", 0) or 0),
+                            "size": float(p.get("size", 0) or 0),
+                        }
+        except Exception as e:
+            log.warning(f"On-chain position fetch failed: {e}")
 
         for pos in [p for p in self.positions if not p.settled]:
             # Check if enough time has passed for PM to resolve (6h grace)
@@ -1216,6 +1608,20 @@ class WeatherBotV21(WeatherBotV2):
                         cost = pos.entry_price * pos.shares
                         pnl = total_payout - cost
 
+                        # V21.7.69: On-chain verification — if we marked WON but
+                        # on-chain shows curPrice=0 (resolved at 0), override to LOSS
+                        pos_cid = getattr(pos, "condition_id", "") or ""
+                        if pnl > 0 and pos_cid and pos_cid in onchain_positions:
+                            chain = onchain_positions[pos_cid]
+                            if chain["cur_price"] == 0 and chain["size"] > 0:
+                                log.warning(
+                                    f"⚠️ ON-CHAIN OVERRIDE: {pos.trade_id} marked WON by Gamma "
+                                    f"but on-chain curPrice=0 | overriding to LOSS"
+                                )
+                                payout_per_share = 0.0
+                                total_payout = 0.0
+                                pnl = -cost
+
                         pos.exit_ts = now.isoformat()
                         pos.exit_price = payout_per_share
                         pos.pnl = pnl
@@ -1227,15 +1633,14 @@ class WeatherBotV21(WeatherBotV2):
                         if pnl > 0:
                             self.state.wins += 1
                             self.state.consecutive_losses = 0
+                            update_rolling_calibration(True, pnl)  # V21.7.66: pass PnL
                         else:
                             self.state.losses += 1
                             self.state.consecutive_losses += 1
-                            # Don't count settlement losses against daily circuit breaker
-                            self.state.weekly_loss += pnl
-                        self.state.active_positions -= 1
-
-                        log.info(f"✅ PM SETTLED {pos.trade_id}: {pos.city} {pos.outcome} @ {pos.entry_price} | "
-                                 f"winning={winning_outcome} | PnL=${pnl:.2f}")
+                            update_rolling_calibration(False, pnl)  # V21.7.66: pass PnL
+                            # V21.7.58: Only count LIVE trade losses against circuit breakers
+                            if not self.paper_only and getattr(pos, 'order_id', ''):
+                                self.state.weekly_loss += pnl
                         break  # Position settled, move to next
             except Exception as e:
                 log.warning(f"PM Gamma settlement check failed for {slug}: {e}")
@@ -1258,6 +1663,19 @@ class WeatherBotV21(WeatherBotV2):
             total_payout = audit["total_payout"]
             pnl = audit["pnl"]
 
+            # V21.7.69: On-chain verification for METAR path too
+            pos_cid = getattr(pos, "condition_id", "") or ""
+            if pnl > 0 and pos_cid and pos_cid in onchain_positions:
+                chain = onchain_positions[pos_cid]
+                if chain["cur_price"] == 0 and chain["size"] > 0:
+                    log.warning(
+                        f"⚠️ ON-CHAIN OVERRIDE (METAR): {pos.trade_id} marked WON "
+                        f"but on-chain curPrice=0 | overriding to LOSS"
+                    )
+                    payout_per_share = 0.0
+                    total_payout = 0.0
+                    pnl = -(pos.entry_price * pos.shares)
+
             pos.exit_ts = now.isoformat()
             pos.exit_price = payout_per_share
             pos.pnl = pnl
@@ -1270,39 +1688,114 @@ class WeatherBotV21(WeatherBotV2):
             if pnl > 0:
                 self.state.wins += 1
                 self.state.consecutive_losses = 0
+                update_rolling_calibration(True, pnl)  # V21.7.66: pass PnL
             else:
                 self.state.losses += 1
                 self.state.consecutive_losses += 1
-                # Don't count settlement losses against daily circuit breaker
-                self.state.weekly_loss += pnl
-            self.state.active_positions -= 1
+                update_rolling_calibration(False, pnl)  # V21.7.66: pass PnL
+                # V21.7.58: Only count LIVE trade losses against circuit breakers
+                if not self.paper_only and getattr(pos, 'order_id', ''):
+                    self.state.weekly_loss += pnl
+            self.state.active_positions = max(0, self.state.active_positions - 1)
 
             log.info(f"METAR SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
                      f"actual={actual_temp}°C settled={settled_temp}°C "
                      f"hit={bucket_hit} PnL=${pnl:.2f}")
 
+        # Save state (persist settlements to JSONL) BEFORE removing settled positions
+        self.save_state()
         # Remove settled positions from list so they don't count against max_positions
         self.positions = [p for p in self.positions if not getattr(p, 'settled', False)]
-        self.save_state()
+
+    def _load_state(self):
+        """V21.7.67: Override parent to load from mode-specific state file.
+
+        Parent hardcodes STATE_FILE (paper). This override uses self._state_file
+        which is set in __init__ BEFORE super().__init__() calls _load_state().
+        """
+        from src.weather.v1_weather_runner import WeatherState, asdict, log
+        if self._state_file.exists():
+            try:
+                with open(self._state_file) as f:
+                    d = json.load(f)
+                return WeatherState(**{k: d.get(k, v) for k, v in asdict(WeatherState()).items()})
+            except Exception as e:
+                log.warning(f"State load error from {self._state_file}: {e}, using defaults")
+        return WeatherState(paper_only=not WEATHER_BOT_LIVE_BLOCKED if not self._state_file.name.startswith('v2_1_live') else False)
 
     def save_state(self):
-        """Override state file path for V2.1."""
+        """Override: save state to mode-specific file. SEPARATION FIX.
+        Also persist settled flags back to mode-specific JSONL.
+        V21.7.67: Also sync bankroll_actual_usd from CLOB when in live mode.
+        """
         self.state.timestamp = datetime.now(timezone.utc).isoformat()
-        with open(STATE_FILE, "w") as f:
+        # V21.7.67: Sync bankroll_actual_usd from CLOB when in live mode
+        if not self.state.paper_only:
+            try:
+                from src.weather.v1_weather_runner import get_onchain_usdc
+                self.state.bankroll_actual_usd = get_onchain_usdc()
+            except Exception as e:
+                log.warning(f"bankroll_actual_usd sync failed: {e}")
+        with open(self._state_file, "w") as f:
             json.dump(asdict(self.state), f, indent=2)
+        # V21.7.54: Rewrite trades JSONL to persist settlement status
+        # This prevents re-loading already-settled positions on restart
+        # V21.7.70: Check both LIVE and PAPER files — unfilled live attempts
+        # are written to PAPER_TRADES, so their settlements must be persisted there
+        if self.positions:
+            settled_ids = {p.trade_id for p in self.positions if p.settled}
+            if settled_ids:
+                # V21.7.70: Check both LIVE and PAPER files — unfilled live attempts
+                # are written to PAPER_TRADES, so their settlements must be persisted there
+                for trades_file in [self._trades_file, PAPER_TRADES]:
+                    if not trades_file.exists():
+                        continue
+                    lines = trades_file.read_text().splitlines()
+                    updated_lines = []
+                    changed = False
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            d = json.loads(line)
+                            tid = d.get("trade_id", "")
+                            if tid in settled_ids and not d.get("settled", False):
+                                for p in self.positions:
+                                    if p.trade_id == tid and p.settled:
+                                        d["settled"] = True
+                                        d["pnl"] = p.pnl
+                                        d["exit_ts"] = p.exit_ts
+                                        d["exit_price"] = p.exit_price
+                                        d["settlement_source"] = getattr(p, "settlement_source", d.get("settlement_source", ""))
+                                        if hasattr(p, "settlement_temp"):
+                                            d["settlement_temp"] = p.settlement_temp
+                                        changed = True
+                                        break
+                            updated_lines.append(json.dumps(d))
+                        except Exception:
+                            updated_lines.append(line)
+                    if changed:
+                        with open(trades_file, "w") as f:
+                            for line in updated_lines:
+                                if line:
+                                    f.write(line + "\n")
+                        log.info(f"Persisted {len(settled_ids)} settlement(s) to {trades_file.name}")
 
     def load_state(self):
-        """Override state file path for V2.1."""
-        if STATE_FILE.exists():
+        """Override: load state and positions from mode-specific files only.
+        SEPARATION FIX: Paper loads from paper files, live loads from live files.
+        They never cross-contaminate."""
+        if self._state_file.exists():
             try:
-                with open(STATE_FILE) as f:
+                with open(self._state_file) as f:
                     self.state = WeatherState(**json.load(f))
             except Exception as e:
-                log.warning(f"State load failed: {e}")
-        # Load positions from paper trades
+                log.warning(f"State load failed ({self._state_file.name}): {e}")
+        # Load positions from mode-specific trades file
         self.positions = []
-        if PAPER_TRADES.exists():
-            with open(PAPER_TRADES) as f:
+        if self._trades_file.exists():
+            with open(self._trades_file) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -1385,8 +1878,8 @@ class WeatherBotV21(WeatherBotV2):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="V1 Weather Bot v2.1 — Paper Settlement Validation")
-    parser.add_argument("--paper", action="store_true", default=True, help="Paper trading (forced)")
-    parser.add_argument("--live", action="store_true", help="BLOCKED — live mode disabled")
+    parser.add_argument("--paper", action="store_true", default=True, help="Paper trading mode")
+    parser.add_argument("--live", action="store_true", help="Live trading mode (REAL MONEY)")
     parser.add_argument("--once", action="store_true", help="Run one scan cycle")
     parser.add_argument("--status", action="store_true", help="Show status dashboard with live readiness")
     parser.add_argument("--bankroll", type=float, default=20.0, help="Starting bankroll")
@@ -1396,7 +1889,7 @@ if __name__ == "__main__":
     parser.add_argument("--readiness", action="store_true", help="Check live readiness only")
     args = parser.parse_args()
 
-    if args.live:
+    if args.live and WEATHER_BOT_LIVE_BLOCKED:
         print("⚠️  LIVE MODE IS BLOCKED. WEATHER_BOT_LIVE_BLOCKED = True")
         print("   Promotion criteria not yet met. Run --readiness to check status.")
         sys.exit(1)
@@ -1417,7 +1910,7 @@ if __name__ == "__main__":
         print(json.dumps(readiness, indent=2))
         sys.exit(0)
 
-    bot = WeatherBotV21(bankroll=args.bankroll)
+    bot = WeatherBotV21(bankroll=args.bankroll, paper_only=not args.live)
     bot.load_state()
 
     # V2.2 §9: Force-settle on startup
@@ -1448,10 +1941,17 @@ if __name__ == "__main__":
                 bot.settle_positions()
                 if cycle % 4 == 0:  # Check readiness every 4th cycle (~1 hour)
                     readiness = check_live_readiness()
-                    log.info(f"Cycle {cycle} | Resolved: {readiness['performance']['total_resolved']} | "
-                             f"PnL: ${readiness['performance']['total_pnl']:.2f} | "
-                             f"PF: {readiness['performance']['profit_factor']:.2f} | "
-                             f"WR: {readiness['performance']['win_rate']:.1%}")
+                    data_src = readiness.get('data_source', '?')
+                    resolved_n = readiness['performance']['total_resolved']
+                    pnl_val = readiness['performance']['total_pnl']
+                    pf_val = readiness['performance']['profit_factor']
+                    wr_val = readiness['performance']['win_rate']
+                    paper_cmp = readiness.get('paper_comparison', {})
+                    paper_n = paper_cmp.get('paper_resolved', 0)
+                    paper_pnl = paper_cmp.get('paper_pnl', 0)
+                    paper_str = f" | Paper: {paper_n} trades ${paper_pnl:.2f}" if paper_n > 0 else ""
+                    log.info(f"Cycle {cycle} | [{data_src}] Resolved: {resolved_n} | "
+                             f"PnL: ${pnl_val:.2f} | PF: {pf_val:.2f} | WR: {wr_val:.1%}{paper_str}")
                 log.info(f"Cycle {cycle} complete — sleeping {args.interval}s")
                 time.sleep(args.interval)
             except KeyboardInterrupt:

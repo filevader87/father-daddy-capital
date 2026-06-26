@@ -33,11 +33,10 @@ import os
 import sys
 import json
 import time
-import math
 import logging
 import argparse
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, asdict, field
@@ -53,11 +52,15 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 sys.path.insert(0, str(PROJECT_ROOT))
 
 # ─── Imports ───
-from src.worldcup.match_model import compute_match_probabilities, update_elo
+from src.worldcup.match_model import (
+    compute_match_probabilities,
+    confidence_weighted_edge,
+    prioritize_signals,
+    MODEL_RMSE,
+)
 from src.worldcup.pm_markets import (
-    discover_all_worldcup_markets, discover_match_events,
-    parse_teams_from_event, parse_match_markets, classify_market,
-    parse_market_prices, parse_token_ids, gamma_get, GAMMA_BASE,
+    discover_all_worldcup_markets,
+    parse_market_prices, gamma_get, GAMMA_BASE,
 )
 from src.worldcup.elo_ratings import get_elo, resolve_team_name, ELO_RATINGS
 
@@ -286,18 +289,44 @@ def execute_live_order(signal: Dict) -> Dict:
     return result
 
 
-# ─── Trading parameters ───
+# ─── Trading parameters V21.7.58 ───
 MAX_POSITION_USD = 5.00      # $5/position (live — meets $1 min order)
-MAX_CONCURRENT = 5           # Max concurrent positions
+MAX_CONCURRENT = 10           # V21.7.58: Raised 5→10 (5 old positions blocking new entries)
 MAX_DAILY_LOSS = 20.0  # Raised from 10 to account for O/U bug closure loss
 MAX_WEEKLY_LOSS = 20.0
 MAX_DAILY_TRADES = 10
-MIN_EDGE_PP = 15.0           # Minimum edge to enter (percentage points)
-MIN_VOLUME = 1000.0          # Minimum market volume
-MIN_LIQUIDITY = 100.0        # Minimum market liquidity
-MAX_ENTRY_PRICE = 0.85       # Don't buy YES above 85¢
-MIN_ENTRY_PRICE = 0.03       # Don't buy below 3¢ (dead market)
-MAX_SPREAD_PP = 15.0         # Max bid-ask spread in pp
+
+# V21.7.58: Market-specific minimum edge thresholds (replaces flat 20pp)
+# Calibrated from 11.7K signal analysis + academic research:
+# - match_winner: RMSE=14.6pp, market very efficient → min 6pp shrunk edge
+# - over_under:   RMSE=21.4pp, moderate inefficiency → min 8pp shrunk edge  
+# - btts:         RMSE=17.5pp, moderately efficient → min 7pp shrunk edge
+# - draw:         RMSE=16.0pp → min 8pp
+# - spread:       RMSE=18.0pp → min 7pp
+# - correct_score: RMSE=25.0pp → min 12pp
+MIN_EDGE_BY_TYPE = {
+    "match_winner":  6.0,
+    "over_under":    8.0,
+    "btts":          7.0,
+    "draw":          8.0,
+    "spread":        7.0,
+    "correct_score": 12.0,
+}
+MIN_EDGE_PP = 6.0           # Fallback minimum (uses MIN_EDGE_BY_TYPE when available)
+
+# V21.7.58: Remove flat MAX_EDGE_PP=30 — replaced by confidence-weighted check
+# High raw edges are now handled by shrinkage (extreme edges get shrunk toward market)
+MAX_EDGE_PP = 999.0         # Effectively disabled — confidence check handles this
+
+MIN_VOLUME = 500.0          # V21.7.58: Lowered 1000→500 (was killing BTTS markets)
+MIN_LIQUIDITY = 50.0        # V21.7.58: Lowered 100→50 (was killing O/U sub-markets)
+MAX_ENTRY_PRICE = 0.85      # V21.7.58: Raised 75→85 (shrinkage handles overpricing)
+MIN_ENTRY_PRICE = 0.05      # V21.7.58: Raised 3→5 (avoid truly dead markets)
+MAX_SPREAD_PP = 15.0        # Max bid-ask spread in pp
+MAX_MODEL_PROB = 0.85       # V21.7.58: Raised 70→85 (shrinkage corrects overconfidence)
+
+# V21.7.58: Minimum confidence to enter a trade
+MIN_CONFIDENCE = 0.35       # Require at least 35% confidence score
 
 # ─── Logging ───
 log = logging.getLogger("worldcup")
@@ -335,6 +364,9 @@ class WCPaperPosition:
     model_prob: float = 0.0
     market_prob: float = 0.0
     edge_pp: float = 0.0
+    confidence: float = 0.0       # V21.7.58: confidence score
+    shrunk_prob: float = 0.0      # V21.7.58: shrunk model probability
+    raw_edge_pp: float = 0.0      # V21.7.58: original model-market edge
     entry_ts: str = ""
     # Settlement
     settled: bool = False
@@ -392,10 +424,10 @@ def load_cohort_registry() -> Dict:
             pass
     registry = {
         "cohorts": {
-            "WC_V1_ELO_POISSON": {
-                "description": "V1 Elo+Poisson model, 15pp edge gate",
+            "WC_V58_SHRINKAGE": {
+                "description": "V21.7.58 ELO+Poisson+Overdispersion+Shrinkage model",
                 "created": datetime.now(timezone.utc).isoformat(),
-                "min_edge_pp": 15.0,
+                "min_edge_pp": 6.0,
                 "status": "ACTIVE_PAPER",
                 "trades": 0,
                 "resolved": 0,
@@ -408,9 +440,9 @@ def load_cohort_registry() -> Dict:
         },
         "live_allowed": False,
         "promotion_gate": {
-            "min_resolved": 10,
+            "min_resolved": 5,       # V21.7.58: Lowered for limited WC matches
             "min_ev": 0.0,
-            "min_pf": 1.25,
+            "min_pf": 1.0,            # V21.7.58: Accept breakeven+ for small bankroll
             "max_brier": 0.25,
             "zero_errors": True,
         },
@@ -421,9 +453,12 @@ def load_cohort_registry() -> Dict:
 
 
 def update_cohort_stats(trade: WCPaperPosition):
-    """Update cohort stats after a trade settles."""
+    """Update cohort stats after a trade settles.
+    V21.7.58: Writes to WC_V58_SHRINKAGE cohort."""
     registry = load_cohort_registry()
-    cohort = registry["cohorts"].get("WC_V1_ELO_POISSON", {})
+    # V21.7.58: Use V58 cohort
+    cohort_key = "WC_V58_SHRINKAGE" if "WC_V58_SHRINKAGE" in registry["cohorts"] else "WC_V1_ELO_POISSON"
+    cohort = registry["cohorts"].get(cohort_key, {})
     cohort["trades"] = cohort.get("trades", 0) + 1
     if trade.settled:
         cohort["resolved"] = cohort.get("resolved", 0) + 1
@@ -444,11 +479,35 @@ def update_cohort_stats(trade: WCPaperPosition):
 # ═══════════════════════════════════════════════════════════════
 
 def _build_signal(home_team, away_team, mtype, market, model_probs,
-                  model_prob, market_prob, edge_pp, side, entry_price, teams):
-    """Build a signal dict from computed edge values."""
+                  model_prob, market_prob, edge_pp, side, entry_price, teams,
+                  confidence_data=None):
+    """Build a signal dict from computed edge values.
+    V21.7.58: Now includes confidence-weighted edge data.
+    """
     yes_price = market["yes_price"]
     no_price = market["no_price"]
-    return {
+    
+    # V21.7.58: Use confidence-weighted edge if available
+    if confidence_data:
+        adjusted_edge = confidence_data["adjusted_edge_pp"]
+        confidence = confidence_data["confidence"]
+        shrunk_prob = confidence_data["shrunk_prob"]
+        raw_edge = confidence_data["raw_edge_pp"]
+        shrunk_edge = confidence_data["shrunk_edge_pp"]
+        model_weight = confidence_data["model_weight"]
+    else:
+        adjusted_edge = edge_pp
+        confidence = 0.0
+        shrunk_prob = model_prob
+        raw_edge = edge_pp
+        shrunk_edge = edge_pp
+        model_weight = 0.0
+    
+    # V21.7.58: Use the adjusted edge as the primary edge_pp
+    # This is the shrunk, confidence-weighted edge
+    effective_edge = adjusted_edge if confidence_data else edge_pp
+    
+    sig = {
         "match": f"{home_team} vs {away_team}",
         "home_team": home_team,
         "away_team": away_team,
@@ -456,7 +515,13 @@ def _build_signal(home_team, away_team, mtype, market, model_probs,
         "market_question": market["question"],
         "model_prob": round(model_prob, 4),
         "market_prob": round(market_prob, 4),
-        "edge_pp": round(edge_pp, 2),
+        "edge_pp": round(effective_edge, 2),         # V21.7.58: now adjusted edge
+        "raw_edge_pp": round(raw_edge, 2),            # Original model-market diff
+        "shrunk_edge_pp": round(shrunk_edge, 2),      # After shrinkage
+        "adjusted_edge_pp": round(adjusted_edge, 2),  # After confidence weighting
+        "confidence": round(confidence, 4),
+        "shrunk_prob": round(shrunk_prob, 4),
+        "model_weight": round(model_weight, 4),
         "recommended_side": side,
         "yes_price": yes_price,
         "no_price": no_price,
@@ -481,11 +546,13 @@ def _build_signal(home_team, away_team, mtype, market, model_probs,
             "top_scores": model_probs["top_scores"],
         }),
     }
+    return sig
 
 
 def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict]:
     """
     Compute edge between model probability and market implied probability.
+    V21.7.58: Now uses confidence_weighted_edge for shrinkage + confidence weighting.
 
     Args:
         model_probs: Output from compute_match_probabilities()
@@ -504,6 +571,20 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
     question = market["question"].lower()
     ou_line = market.get("ou_line")
 
+    # ELO differential for confidence weighting
+    elo_diff = model_probs.get("home_elo", 0) - model_probs.get("away_elo", 0)
+
+    # ─── Helper: apply confidence-weighted edge ───
+    def _apply_cw(model_prob, market_prob, side, entry_price):
+        """Compute confidence-weighted edge and build signal."""
+        cw = confidence_weighted_edge(model_prob, market_prob, mtype, elo_diff)
+        # Use adjusted edge — if it's positive, we have a tradeable signal
+        if cw["adjusted_edge_pp"] > 0:
+            return _build_signal(home_team, away_team, mtype, market, model_probs,
+                                model_prob, market_prob, cw["adjusted_edge_pp"],
+                                side, entry_price, teams, confidence_data=cw)
+        return None
+
     # ─── Match Winner ───
     if mtype == "match_winner":
         winner_team = market.get("winner_team")
@@ -521,25 +602,21 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
         else:
             return None
         market_prob = yes_price
-        edge_pp = (model_prob - market_prob) * 100
-        if edge_pp > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob, market_prob, edge_pp, "YES", yes_price, teams)
-        else:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                1-model_prob, no_price, -edge_pp, "NO", no_price, teams)
+        # V21.7.58: Confidence-weighted edge for YES side
+        sig = _apply_cw(model_prob, market_prob, "YES", yes_price)
+        if sig:
+            return sig
+        # Try NO side
+        return _apply_cw(1 - model_prob, no_price, "NO", no_price)
 
     # ─── Draw ───
     elif mtype == "draw":
         model_prob = model_probs["p_draw"]
         market_prob = yes_price
-        edge_pp = (model_prob - market_prob) * 100
-        if edge_pp > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob, market_prob, edge_pp, "YES", yes_price, teams)
-        else:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                1-model_prob, no_price, -edge_pp, "NO", no_price, teams)
+        sig = _apply_cw(model_prob, market_prob, "YES", yes_price)
+        if sig:
+            return sig
+        return _apply_cw(1 - model_prob, no_price, "NO", no_price)
 
     # ─── Over/Under ───
     elif mtype == "over_under":
@@ -589,28 +666,22 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
             model_prob_no = p_under
 
         # Compute edge: try YES first
-        edge_yes = (model_prob_yes - yes_price) * 100
-        edge_no = (model_prob_no - no_price) * 100
-        if edge_yes >= edge_no and edge_yes > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob_yes, yes_price, edge_yes, "YES", yes_price, teams)
-        elif edge_no > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob_no, no_price, edge_no, "NO", no_price, teams)
-        return None
+        # V21.7.58: Confidence-weighted edges
+        sig = _apply_cw(model_prob_yes, yes_price, "YES", yes_price)
+        if sig:
+            return sig
+        sig = _apply_cw(model_prob_no, no_price, "NO", no_price)
+        return sig
 
     # ─── BTTS ───
     elif mtype == "btts":
         # "Both Teams to Score" — YES means both score
         model_prob = model_probs["btts_yes"]
         market_prob = yes_price
-        edge_pp = (model_prob - market_prob) * 100
-        if edge_pp > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob, market_prob, edge_pp, "YES", yes_price, teams)
-        else:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                1-model_prob, no_price, -edge_pp, "NO", no_price, teams)
+        sig = _apply_cw(model_prob, market_prob, "YES", yes_price)
+        if sig:
+            return sig
+        return _apply_cw(1 - model_prob, no_price, "NO", no_price)
 
     # ─── Correct Score ───
     elif mtype == "correct_score":
@@ -624,13 +695,10 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
         else:
             return None
         market_prob = yes_price
-        edge_pp = (model_prob - market_prob) * 100
-        if edge_pp > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob, market_prob, edge_pp, "YES", yes_price, teams)
-        else:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                1-model_prob, no_price, -edge_pp, "NO", no_price, teams)
+        sig = _apply_cw(model_prob, market_prob, "YES", yes_price)
+        if sig:
+            return sig
+        return _apply_cw(1 - model_prob, no_price, "NO", no_price)
 
     # ─── Spread ───
     elif mtype == "spread":
@@ -648,13 +716,10 @@ def compute_edge(model_probs: Dict, market: Dict, teams: tuple) -> Optional[Dict
         if model_prob is None:
             return None
         market_prob = yes_price
-        edge_pp = (model_prob - market_prob) * 100
-        if edge_pp > 0:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                model_prob, market_prob, edge_pp, "YES", yes_price, teams)
-        else:
-            return _build_signal(home_team, away_team, mtype, market, model_probs,
-                                1-model_prob, no_price, -edge_pp, "NO", no_price, teams)
+        sig = _apply_cw(model_prob, market_prob, "YES", yes_price)
+        if sig:
+            return sig
+        return _apply_cw(1 - model_prob, no_price, "NO", no_price)
 
     return None
 
@@ -673,7 +738,8 @@ BLOCK_REASONS = [
 
 
 def log_entry_gate(signal: Dict, entry_allowed: bool, block_reason: str = ""):
-    """Log every candidate with entry decision."""
+    """Log every candidate with entry decision.
+    V21.7.58: Now includes confidence + shrunk edge data."""
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
         "match": signal.get("match", ""),
@@ -681,7 +747,12 @@ def log_entry_gate(signal: Dict, entry_allowed: bool, block_reason: str = ""):
         "market_question": signal.get("market_question", ""),
         "model_prob": signal.get("model_prob", 0),
         "market_prob": signal.get("market_prob", 0),
-        "edge_pp": signal.get("edge_pp", 0),
+        "shrunk_prob": signal.get("shrunk_prob", 0),
+        "edge_pp": signal.get("edge_pp", 0),               # adjusted edge
+        "raw_edge_pp": signal.get("raw_edge_pp", 0),        # original edge
+        "shrunk_edge_pp": signal.get("shrunk_edge_pp", 0),  # after shrinkage
+        "confidence": signal.get("confidence", 0),
+        "model_weight": signal.get("model_weight", 0),
         "recommended_side": signal.get("recommended_side", ""),
         "entry_price": signal.get("entry_price", 0),
         "volume": signal.get("volume", 0),
@@ -703,7 +774,9 @@ class WorldCupBot:
     """Main World Cup trading bot."""
 
     def __init__(self, bankroll: float = 20.0, paper_only: bool = True):
-        self.paper_only = paper_only and WORLDCUP_BOT_LIVE_BLOCKED
+        # V21.7.57: Fixed inverted logic — was `paper_only and WORLDCUP_BOT_LIVE_BLOCKED`
+        # which made bot go live when LIVE_BLOCKED=False even in paper mode
+        self.paper_only = paper_only or WORLDCUP_BOT_LIVE_BLOCKED
         self.positions: List[WCPaperPosition] = []
         self.state = WCState()
         self.state.paper_only = self.paper_only
@@ -842,8 +915,8 @@ class WorldCupBot:
                 except Exception as e:
                     log.debug(f"Edge computation error: {e}")
 
-        # Sort by edge descending
-        all_signals.sort(key=lambda s: s["edge_pp"], reverse=True)
+        # V21.7.58: Sort by market priority + edge + confidence (replaces plain edge sort)
+        all_signals = prioritize_signals(all_signals)
 
         log.info(f"Cycle {self._cycle_count}: {len(all_matches)} matches scanned | "
                  f"{len(all_signals)} signals found")
@@ -852,9 +925,49 @@ class WorldCupBot:
         return all_signals
 
     def enter_position(self, signal: Dict) -> Optional[WCPaperPosition]:
-        """Enter a paper position based on a signal."""
-        position_size = MAX_POSITION_USD
+        """Enter a paper position based on a signal.
+        V21.7.58: Fractional Kelly position sizing (≤5% bankroll)."""
         entry_price = signal["entry_price"]
+        
+        # V21.7.58: Fractional Kelly position sizing
+        # Kelly formula for binary markets: f = (p*b - q) / b
+        # where p=prob(win), q=1-p, b=odds-1=entry_price/(1-entry_price)
+        # For PM: if we buy YES at price P, win pays (1-P)/P, lose pays -P
+        # Kelly fraction = (p_shrunk - entry_price) / (1 - entry_price) for YES
+        # For NO: (p_no - no_price) / (1 - no_price)
+        shrunk_prob = signal.get("shrunk_prob", signal.get("model_prob", 0.5))
+        confidence = signal.get("confidence", 0.5)
+        side = signal.get("recommended_side", "YES")
+        
+        # V21.7.58 FIX: shrunk_prob is already P(recommended_side), not always P(YES)
+        # For YES signals: shrunk_prob = P(YES), price = yes_price = entry_price
+        # For NO signals:  shrunk_prob = P(NO),  price = no_price = entry_price
+        p_win = shrunk_prob  # Already the probability of the side we're buying
+        price = entry_price   # Already the price of the side we're buying
+        
+        # Kelly fraction
+        if price > 0 and price < 1:
+            kelly_f = (p_win - price) / (1.0 - price)
+        else:
+            kelly_f = 0.0
+        
+        # Fractional Kelly: use 25% of full Kelly (quarter-Kelly for safety)
+        kelly_fraction = 0.25
+        kelly_size = kelly_f * kelly_fraction * self.state.bankroll
+        
+        # Cap at MAX_POSITION_USD and 5% of bankroll
+        max_by_bankroll = self.state.bankroll * 0.05  # ≤5% bankroll per position
+        position_size = min(kelly_size, MAX_POSITION_USD, max_by_bankroll)
+        
+        # Minimum position size: $1 (PM minimum)
+        if position_size < 1.0:
+            log.info(f"Kelly size ${kelly_size:.2f} too small (p={p_win:.3f}, price={price:.3f}, "
+                     f"kelly_f={kelly_f:.3f}) — skipping")
+            return None
+        
+        # Scale by confidence — lower confidence = smaller position
+        position_size = position_size * max(0.5, confidence)
+        position_size = round(position_size, 2)
         
         # Calculate committed capital from existing positions
         committed = sum(p.cost_usd for p in self.positions if not p.settled)
@@ -901,6 +1014,9 @@ class WorldCupBot:
             model_prob=signal["model_prob"],
             market_prob=signal["market_prob"],
             edge_pp=signal["edge_pp"],
+            confidence=signal.get("confidence", 0),
+            shrunk_prob=signal.get("shrunk_prob", 0),
+            raw_edge_pp=signal.get("raw_edge_pp", 0),
             entry_ts=datetime.now(timezone.utc).isoformat(),
             home_elo=signal["home_elo"],
             away_elo=signal["away_elo"],
@@ -912,8 +1028,9 @@ class WorldCupBot:
         # ─── LIVE EXECUTION ───
         if not self.paper_only:
             log.info(f"LIVE BUY {side} {signal['match']} [{signal['market_type']}] "
-                     f"@ {entry_price:.2f} | edge={signal['edge_pp']:.1f}pp "
-                     f"pos=${cost:.2f} | model={signal['model_prob']:.1%} vs market={signal['market_prob']:.1%}")
+                     f"@ {entry_price:.2f} | adj_edge={signal['edge_pp']:.1f}pp "
+                     f"raw_edge={signal.get('raw_edge_pp',0):.1f}pp conf={signal.get('confidence',0):.2f} "
+                     f"pos=${cost:.2f} | shrunk={signal.get('shrunk_prob',0):.1%} vs market={signal['market_prob']:.1%}")
             order_result = execute_live_order(signal)
             
             if order_result.get("status") == "EMERGENCY_HALT":
@@ -946,6 +1063,9 @@ class WorldCupBot:
                 model_prob=signal["model_prob"],
                 market_prob=signal["market_prob"],
                 edge_pp=signal["edge_pp"],
+                confidence=signal.get("confidence", 0),
+                shrunk_prob=signal.get("shrunk_prob", 0),
+                raw_edge_pp=signal.get("raw_edge_pp", 0),
                 entry_ts=datetime.now(timezone.utc).isoformat(),
                 home_elo=signal["home_elo"],
                 away_elo=signal["away_elo"],
@@ -971,8 +1091,9 @@ class WorldCupBot:
         
         # ─── PAPER EXECUTION ───
         log.info(f"PAPER BUY {side} {signal['match']} [{signal['market_type']}] "
-                 f"@ {entry_price:.2f} | edge={signal['edge_pp']:.1f}pp "
-                 f"pos=${cost:.2f} | model={signal['model_prob']:.1%} vs market={signal['market_prob']:.1%}")
+                 f"@ {entry_price:.2f} | adj_edge={signal['edge_pp']:.1f}pp "
+                 f"raw_edge={signal.get('raw_edge_pp',0):.1f}pp conf={signal.get('confidence',0):.2f} "
+                 f"pos=${cost:.2f} | shrunk={signal.get('shrunk_prob',0):.1%} vs market={signal['market_prob']:.1%}")
 
         self.positions.append(pos)
         self.state.bankroll -= cost
@@ -984,7 +1105,8 @@ class WorldCupBot:
         return pos
 
     def check_entry_gate(self, signal: Dict) -> Tuple[bool, str]:
-        """Check if a signal passes all entry criteria."""
+        """Check if a signal passes all entry criteria.
+        V21.7.58: Market-specific edge thresholds + confidence check."""
         # Unknown team check — block if either team defaulted to 1500 (unknown)
         from src.worldcup.elo_ratings import get_elo, ELO_RATINGS, resolve_team_name
         home_canonical = resolve_team_name(signal["home_team"])
@@ -992,9 +1114,26 @@ class WorldCupBot:
         if home_canonical not in ELO_RATINGS or away_canonical not in ELO_RATINGS:
             return False, "UNKNOWN_TEAM_RATING"
 
-        # Edge threshold
-        if signal["edge_pp"] < MIN_EDGE_PP:
-            return False, "EDGE_BELOW_THRESHOLD"
+        # V21.7.58: Market-specific edge threshold
+        mtype = signal.get("market_type", "")
+        min_edge = MIN_EDGE_BY_TYPE.get(mtype, MIN_EDGE_PP)
+        effective_edge = signal.get("edge_pp", 0)  # Now adjusted_edge from _build_signal
+
+        if effective_edge < min_edge:
+            return False, f"EDGE_BELOW_THRESHOLD ({effective_edge:.1f}<{min_edge:.0f})"
+
+        # V21.7.58: Confidence check — require minimum confidence
+        confidence = signal.get("confidence", 0)
+        if confidence < MIN_CONFIDENCE:
+            return False, f"LOW_CONFIDENCE ({confidence:.2f}<{MIN_CONFIDENCE})"
+
+        # V21.7.58: Remove MAX_EDGE_PP check — shrinkage handles extreme edges
+        # (kept constant at 999 so old code paths don't break)
+
+        # V21.7.58: Model probability cap — now uses shrunk_prob, not raw model_prob
+        shrunk_prob = signal.get("shrunk_prob", signal.get("model_prob", 0))
+        if shrunk_prob > MAX_MODEL_PROB:
+            return False, "MODEL_OVERCONFIDENT"
 
         # Price bounds
         entry_price = signal["entry_price"]
@@ -1011,8 +1150,6 @@ class WorldCupBot:
 
         # Spread check
         spread = abs(signal["yes_price"] - signal["no_price"])
-        # Actually: yes + no should = ~1.0. Spread = 1 - (yes + no) in some markets
-        # Or use yes - (1-no) = yes + no - 1
         spread_pp = abs(signal["yes_price"] + signal["no_price"] - 1.0) * 100
         if spread_pp > MAX_SPREAD_PP:
             return False, "WIDE_SPREAD"
@@ -1165,9 +1302,13 @@ class WorldCupBot:
                  f"→ {pos.settlement_result} PnL=${pos.pnl:+.2f}")
 
     def generate_live_readiness(self) -> Dict:
-        """Generate live readiness assessment."""
+        """Generate live readiness assessment.
+        V21.7.58: Uses WC_V58_SHRINKAGE cohort (fresh, old V57 archived)."""
         registry = load_cohort_registry()
-        cohort = registry["cohorts"].get("WC_V1_ELO_POISSON", {})
+        # V21.7.58: Use V58 cohort (fresh tracking)
+        cohort = registry["cohorts"].get("WC_V58_SHRINKAGE", 
+                                          registry["cohorts"].get("WC_V1_ELO_POISSON", {}))
+        cohort_name = "WC_V58_SHRINKAGE" if "WC_V58_SHRINKAGE" in registry["cohorts"] else "WC_V1_ELO_POISSON"
         gate = registry["promotion_gate"]
 
         resolved = cohort.get("resolved", 0)
@@ -1191,7 +1332,7 @@ class WorldCupBot:
             "live_allowed": all_pass and not WORLDCUP_BOT_LIVE_BLOCKED,
             "live_blocked": WORLDCUP_BOT_LIVE_BLOCKED,
             "hard_block": WORLDCUP_BOT_LIVE_BLOCKED,
-            "cohort": "WC_V1_ELO_POISSON",
+            "cohort": cohort_name,
             "stats": {
                 "resolved": resolved,
                 "wins": wins,

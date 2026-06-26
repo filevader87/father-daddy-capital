@@ -197,7 +197,7 @@ def read_pmxt_prices(pf_path, max_events=200000):
         for rg_idx in range(min(n_rg, 15)):  # cap row groups for speed
             try:
                 t = pf.read_row_group(rg_idx, columns=['event_type','price','timestamp','asset_id'])
-            except:
+            except Exception:
                 continue
             evs = t.column('event_type').to_pylist()
             keep = [i for i, e in enumerate(evs) if e == 'price_change']
@@ -260,7 +260,7 @@ def run_simulation():
         try:
             if pq.read_metadata(pf).num_row_groups > 2:
                 valid_files.append(pf)
-        except:
+        except Exception:
             continue
     print(f"Valid PMXT files: {len(valid_files)}")
 
