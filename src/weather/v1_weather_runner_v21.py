@@ -1818,59 +1818,116 @@ class WeatherBotV21(WeatherBotV2):
                     except Exception:
                         continue
 
-        # V21.7.70: On-chain reconciliation in live mode
-        # V21.7.71: Filter to WEATHER positions only — wallet is shared across
-        # scalper, worldcup, and other bots. Counting all wallet positions
-        # fabricates weather bot's W/L and PnL.
+        # V21.7.72: On-chain reconciliation in live mode
+        # Uses TRADES API (BUY+SELL pairs) as source of truth, not positions API.
+        # Winning positions get redeemed (SELL) and disappear from positions API.
+        # Positions API only shows remaining (often losing) positions, so counting
+        # curPrice=0 as losses and ignoring redeemed wins fabricates 0W/all-L.
+        #
+        # Method:
+        #   1. Trades API: group by market title. SELL = closed. PnL = sell_rev - buy_cost.
+        #   2. Positions API: remaining positions with curPrice=0 = expired losses.
+        #   3. Positions API: remaining with curPrice>0 = active open.
         if not self.state.paper_only:
             try:
                 import requests as _req
+                from collections import defaultdict
                 proxy = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
-                r = _req.get(f"https://data-api.polymarket.com/positions?user={proxy}&limit=500", timeout=15)
-                if r.status_code == 200:
-                    all_positions = r.json()
-                    # Filter to weather markets only
-                    chain_positions = [
-                        p for p in all_positions
-                        if "temperature in" in p.get("title", "").lower()
-                        or "highest temp" in p.get("title", "").lower()
-                    ]
-                    chain_pnl = sum(float(p.get("cashPnl", 0) or 0) for p in chain_positions)
-                    chain_open = [p for p in chain_positions if float(p.get("curPrice", 0) or 0) > 0]
-                    chain_open_value = sum(float(p.get("size", 0) or 0) * float(p.get("curPrice", 0) or 0) for p in chain_open)
 
-                    # Sync USDC balance (shared wallet — informational)
-                    try:
-                        from src.weather.v1_weather_runner import get_onchain_usdc
-                        actual_usdc = get_onchain_usdc()
-                    except Exception:
-                        actual_usdc = None
+                # 1. Get trades (BUY + SELL history)
+                r_trades = _req.get(f"https://data-api.polymarket.com/trades?user={proxy}&limit=500", timeout=15)
+                all_trades = r_trades.json() if r_trades.status_code == 200 else []
+                weather_trades = [
+                    t for t in all_trades
+                    if "temperature" in t.get("title", "").lower() or "temp" in t.get("title", "").lower()
+                ]
+                by_market = defaultdict(list)
+                for t in weather_trades:
+                    by_market[t.get("title", "")].append(t)
 
-                    log.info(f"V21.7.71 ON-CHAIN RECONCILIATION (weather-only):")
-                    log.info(f"  Wallet USDC: ${actual_usdc:.2f}" if actual_usdc else "  Wallet USDC: N/A")
-                    log.info(f"  Weather PnL: ${chain_pnl:.2f} | Open: {len(chain_open)} (${chain_open_value:.2f})")
-                    log.info(f"  Total weather positions: {len(chain_positions)} (of {len(all_positions)} on wallet)")
+                # 2. Get positions (remaining on-chain)
+                r_pos = _req.get(f"https://data-api.polymarket.com/positions?user={proxy}&limit=500", timeout=15)
+                all_positions = r_pos.json() if r_pos.status_code == 200 else []
+                weather_positions = [
+                    p for p in all_positions
+                    if "temperature" in p.get("title", "").lower() or "temp" in p.get("title", "").lower()
+                ]
 
-                    # Override state with weather-only on-chain truth
-                    self.state.total_pnl = chain_pnl
-                    self.state.active_positions = len(chain_open)
-                    self.state.total_trades = len(chain_positions)
+                # 3. Calculate realized PnL from closed (SELL) trades
+                closed_titles = set()
+                realized_pnl = 0.0
+                wins = 0
+                losses = 0
 
-                    # Recount wins/losses from settled weather positions
-                    settled = [p for p in chain_positions if float(p.get("curPrice", 0) or 0) == 0]
-                    wins = sum(1 for p in settled if float(p.get("cashPnl", 0) or 0) > 0)
-                    losses = sum(1 for p in settled if float(p.get("cashPnl", 0) or 0) <= 0)
-                    self.state.wins = wins
-                    self.state.losses = losses
+                for title, market_trades in by_market.items():
+                    buys = [t for t in market_trades if t.get("side") == "BUY"]
+                    sells = [t for t in market_trades if t.get("side") == "SELL"]
+                    if not sells:
+                        continue  # Not closed
+                    closed_titles.add(title)
+                    buy_cost = sum(float(t.get("price", 0) or 0) * float(t.get("size", 0) or 0) for t in buys)
+                    sell_rev = sum(float(t.get("price", 0) or 0) * float(t.get("size", 0) or 0) for t in sells)
+                    buy_size = sum(float(t.get("size", 0) or 0) for t in buys)
+                    sell_size = sum(float(t.get("size", 0) or 0) for t in sells)
 
-                    # bankroll = shared wallet USDC, but only if available
-                    if actual_usdc is not None and actual_usdc > 0:
-                        self.state.bankroll = actual_usdc
-                        self.state.bankroll_actual_usd = actual_usdc
+                    if buy_size == 0:
+                        # Bought earlier, not in this batch — revenue is pure profit
+                        pnl = sell_rev
+                    elif sell_size >= buy_size:
+                        pnl = sell_rev - buy_cost
+                    else:
+                        # Partial close
+                        pnl = sell_rev - (buy_cost * sell_size / buy_size)
 
-                    log.info(f"  Reconciled: W:{wins} L:{losses} | PnL: ${chain_pnl:.2f}")
+                    realized_pnl += pnl
+                    if pnl > 0:
+                        wins += 1
+                    else:
+                        losses += 1
+
+                # 4. Add losses from expired positions (on-chain, curPrice=0, not redeemed)
+                open_active = 0
+                for p in weather_positions:
+                    title = p.get("title", "")
+                    if title in closed_titles:
+                        continue
+                    cur = float(p.get("curPrice", 0) or 0)
+                    if cur == 0:
+                        # Expired worthless — realized loss
+                        cash_pnl = float(p.get("cashPnl", 0) or 0)
+                        realized_pnl += cash_pnl
+                        losses += 1
+                    else:
+                        open_active += 1
+
+                # 5. Sync USDC balance (shared wallet)
+                try:
+                    from src.weather.v1_weather_runner import get_onchain_usdc
+                    actual_usdc = get_onchain_usdc()
+                except Exception:
+                    actual_usdc = None
+
+                closed_count = len(closed_titles)
+                expired_count = losses - sum(1 for _, mt in by_market.items() if any(t.get('side')=='SELL' for t in mt) and (sum(float(t.get('price',0) or 0)*float(t.get('size',0) or 0) for t in mt if t.get('side')=='SELL') - sum(float(t.get('price',0) or 0)*float(t.get('size',0) or 0) for t in mt if t.get('side')=='BUY')) <= 0)
+                log.info(f"V21.7.72 ON-CHAIN RECONCILIATION (trades API):")
+                log.info(f"  Wallet USDC: ${actual_usdc:.2f}" if actual_usdc else "  Wallet USDC: N/A")
+                log.info(f"  Weather trades: {len(weather_trades)} | positions: {len(weather_positions)} (of {len(all_positions)} wallet)")
+                log.info(f"  Closed (redeemed): {closed_count} | Expired worthless: {expired_count} | Active open: {open_active}")
+                log.info(f"  Realized PnL: ${realized_pnl:.2f} | W:{wins} L:{losses}")
+
+                # Override state with verified on-chain truth
+                self.state.total_pnl = realized_pnl
+                self.state.wins = wins
+                self.state.losses = losses
+                self.state.active_positions = open_active
+                self.state.total_trades = wins + losses + open_active
+                if actual_usdc is not None and actual_usdc > 0:
+                    self.state.bankroll = actual_usdc
+                    self.state.bankroll_actual_usd = actual_usdc
+
+                log.info(f"  Reconciled: W:{wins} L:{losses} | PnL: ${realized_pnl:.2f} | Cash: ${actual_usdc:.2f}" if actual_usdc else f"  Reconciled: W:{wins} L:{losses} | PnL: ${realized_pnl:.2f}")
             except Exception as e:
-                log.warning(f"V21.7.71 on-chain reconciliation failed: {e}")
+                log.warning(f"V21.7.72 on-chain reconciliation failed: {e}")
 
     def status_report(self):
         """Extended status with live readiness."""
