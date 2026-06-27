@@ -1,0 +1,36 @@
+{
+  "live_blocked": true,
+  "block_reason": "V21.7.72 HALTED \u2014 settlement logic fabricating wins. On-chain: 6W/16L, PnL=-$20.70. Bot claims 25W/5L, PnL=+$123.86. Settlement audit required.",
+  "excluded_stub_settlements": 0,
+  "data_source": "LIVE_TRADES",
+  "promotion_criteria": {
+    "min_resolved": 25,
+    "resolved_count": 22,
+    "criteria_met": false,
+    "positive_ev": false,
+    "ev_per_trade": -0.94,
+    "profit_factor": 0.527,
+    "pf_met": false,
+    "zero_errors": true,
+    "error_count": 0
+  },
+  "performance": {
+    "total_resolved": 22,
+    "wins": 6,
+    "losses": 16,
+    "win_rate": 0.273,
+    "total_pnl": -20.7,
+    "gross_profit": 23.04,
+    "gross_loss": 43.74,
+    "profit_factor": 0.527,
+    "avg_ev_per_trade": -0.94
+  },
+  "paper_comparison": {
+    "paper_resolved": 41,
+    "paper_pnl": 129.12,
+    "paper_wins": 24
+  },
+  "all_criteria_met": false,
+  "ready_for_live": false,
+  "timestamp": "2026-06-26T12:25:00"
+}
