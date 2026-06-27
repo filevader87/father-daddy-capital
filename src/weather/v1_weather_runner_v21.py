@@ -144,43 +144,41 @@ def get_risk_tier(city: str) -> str:
 
 def get_position_size(city: str, base: float = MAX_POSITION_USD,
                        edge_pp: float = 0.0, weekly_loss: float = 0.0,
-                       entry_price: float = 0.0) -> float:
+                       entry_price: float = 0.0, our_prob: float = 0.0) -> float:
     """Risk-adjusted position size.
-    V21.7.55: High-conviction NO boost + progressive sizing.
-    V21.7.70: Entry-price-based sizing — live data shows 100% WR at 30-70¢ entry.
-    Trades in the 30-70¢ sweet spot get 1.5x size; long-shots (<20¢) get 0.5x.
+    V21.7.73: Kelly criterion sizing — size proportional to edge, not fixed.
+    Kelly: f* = (bp - q) / b where b = payout ratio, p = our_prob, q = 1-p
+    Capped at quarter Kelly for safety.
     """
     meta = CITY_REGISTRY.get(city, {})
     risk = meta.get("risk", "medium")
     size = base * RISK_PROFILES.get(risk, RISK_PROFILES["medium"])["position_mult"]
 
-    # V21.7.70: Entry-price bucket sizing based on live WR analysis
-    # <10¢: 25% WR (lottery) → 0.5x
-    # 10-30¢: 0% WR (avoid) → 0.3x
-    # 30-70¢: 100% WR (sweet spot) → 1.5x
-    # >70¢: 100% WR but low payout → 1.0x
-    if entry_price > 0:
+    # V21.7.73: Kelly criterion
+    if our_prob > 0 and entry_price > 0:
+        b = (1.0 - entry_price) / entry_price
+        p = our_prob
+        q = 1.0 - p
+        kelly = (b * p - q) / b if b > 0 else 0
+        kelly = max(0, min(0.25, kelly))
+        kelly_size = base * kelly * 4
+        size = min(size, kelly_size)
+
+    # Fallback entry-price sizing when no prob
+    if entry_price > 0 and our_prob == 0:
         if entry_price < 0.10:
             size *= 0.5
         elif entry_price < 0.30:
             size *= 0.3
         elif entry_price < 0.70:
-            size *= 1.5  # Sweet spot — 100% WR in live data
-        # else: keep default (>=0.70)
+            size *= 1.5
 
-    # V21.7.55: High-conviction NO entries get 1.5x size (edge > 40pp)
-    if edge_pp >= 40.0:
-        size *= 1.5
-    elif edge_pp >= 60.0:
-        size *= 2.0
-
-    # V21.7.55: Progressive sizing — reduce when weekly loss is deep
     if weekly_loss <= -15:
-        size *= 0.5  # Half size when near circuit breaker
+        size *= 0.5
     elif weekly_loss <= -10:
-        size *= 0.75  # 75% size when weekly loss significant
+        size *= 0.75
 
-    return round(size, 2)
+    return round(max(0.50, size), 2)
 
 def get_edge_threshold(city: str, base: float = MIN_EDGE_PP) -> float:
     """Risk-adjusted minimum edge."""
@@ -1359,12 +1357,14 @@ class WeatherBotV21(WeatherBotV2):
                        meta.get("settle", "metar"))
 
         # Use risk-adjusted position size with edge/weekly_loss context
-        # V21.7.70: Pass entry_price for bucket-based sizing
+        # V21.7.73: Pass our_prob for Kelly criterion sizing
         _entry_for_sizing = signal.get("no_price", signal.get("yes_price", 0)) if signal.get("recommended_side") == "NO" else signal.get("yes_price", signal.get("no_price", 0))
+        _our_prob = signal.get("our_prob", 0)
         position_size = get_position_size(city, MAX_POSITION_USD,
                                            edge_pp=signal.get("best_edge", 0),
                                            weekly_loss=getattr(self.state, 'weekly_loss', 0),
-                                           entry_price=_entry_for_sizing)
+                                           entry_price=_entry_for_sizing,
+                                           our_prob=_our_prob)
         edge_threshold = get_edge_threshold(city)
 
         if signal["best_edge"] < edge_threshold:
@@ -1576,9 +1576,10 @@ class WeatherBotV21(WeatherBotV2):
             log.warning(f"On-chain trades fetch failed: {e}")
 
         for pos in [p for p in self.positions if not p.settled]:
-            # Check if enough time has passed for PM to resolve (6h grace)
+            # V21.7.73: Wait 24h (not 6h) before checking resolution
+            # Wunderground daily high may not be available until 24h after
             target_dt = datetime.strptime(pos.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            if now < target_dt + timedelta(hours=6):
+            if now < target_dt + timedelta(hours=24):
                 continue
 
             # ─── Primary: Polymarket Gamma API resolution ───
@@ -1599,15 +1600,25 @@ class WeatherBotV21(WeatherBotV2):
                     pos_cid = getattr(pos, "condition_id", "") or ""
                     for m in ev.get("markets", []):
                         mk_cid = m.get("conditionId", m.get("condition_id", ""))
-                        # Match by condition_id or by temperature bucket
+                        # Match by condition_id or by EXACT question match
+                        # V21.7.73: Strict matching — temperature alone matches wrong market
+                        # (e.g. "33°C" matches both "be 33°C" and "be 33°C or higher")
                         matched = False
                         if pos_cid and mk_cid:
                             matched = (mk_cid == pos_cid)
                         if not matched:
-                            import re
-                            temp_match = re.search(r'(\d+)°C', m.get("question", ""))
-                            if temp_match and hasattr(pos, "bucket_temp"):
-                                matched = (int(temp_match.group(1)) == pos.bucket_temp)
+                            # V21.7.73: Match by full question string containing bucket temp
+                            # AND the same outcome type (exact vs threshold)
+                            mk_question = m.get("question", "")
+                            pos_outcome = getattr(pos, "outcome", "")
+                            pos_bucket = getattr(pos, "bucket_temp", 0)
+                            if f"{pos_bucket}°C" in mk_question:
+                                # Check if it's a threshold market ("or higher"/"or lower")
+                                # vs exact bucket market ("be X°C")
+                                is_threshold_mkt = "or higher" in mk_question.lower() or "or lower" in mk_question.lower()
+                                is_threshold_pos = getattr(pos, "is_threshold", False) or ("or higher" in str(getattr(pos, "question", "")).lower() or "or lower" in str(getattr(pos, "question", "")).lower())
+                                if is_threshold_mkt == is_threshold_pos:
+                                    matched = True
                             if not matched:
                                 continue
 
@@ -1692,72 +1703,14 @@ class WeatherBotV21(WeatherBotV2):
             except Exception as e:
                 log.warning(f"PM Gamma settlement check failed for {slug}: {e}")
 
-            # If not settled by PM, try METAR fallback
+            # V21.7.73: METAR FALLBACK REMOVED — was using current temp, not daily high
+            # This caused 19 fake wins (bot read nighttime temp 20°C, actual high was 33°C)
+            # Now: if Gamma API hasn't resolved, WAIT. Don't settle with wrong data.
             if pos.settled:
                 continue
-
-            meta = CITY_REGISTRY.get(pos.city, {})
-            icao = meta.get("icao", "")
-            metar = fetch_metar(icao) if icao else None
-            if not metar or metar.get("temp_c") is None:
-                continue
-
-            actual_temp = metar["temp_c"]
-            audit = audit_settlement(pos, actual_temp, meta)
-            settled_temp = audit["settled_temp"]
-            bucket_hit = audit["bucket_hit"]
-            payout_per_share = audit["payout_per_share"]
-            total_payout = audit["total_payout"]
-            pnl = audit["pnl"]
-
-            # V21.7.72: On-chain verification for METAR path too
-            # Same fix as Gamma path: match by condition_id OR title
-            pos_cid = getattr(pos, "condition_id", "") or ""
-            chain_data = None
-            if pos_cid and pos_cid in onchain_positions:
-                chain_data = onchain_positions[pos_cid]
-            else:
-                # Try matching by city name in title
-                for title_key, cd in onchain_by_title.items():
-                    if pos.city.lower() in title_key and str(getattr(pos, "bucket_temp", "")) in title_key:
-                        chain_data = cd
-                        break
-            
-            if pnl > 0 and chain_data:
-                if chain_data["cur_price"] == 0 and chain_data["size"] > 0:
-                    log.warning(
-                        f"⚠️ ON-CHAIN OVERRIDE (METAR): {pos.trade_id} marked WON "
-                        f"but on-chain curPrice=0 | overriding to LOSS"
-                    )
-                    payout_per_share = 0.0
-                    total_payout = 0.0
-                    pnl = -(pos.entry_price * pos.shares)
-
-            pos.exit_ts = now.isoformat()
-            pos.exit_price = payout_per_share
-            pos.pnl = pnl
-            pos.settled = True
-            pos.settlement_temp = actual_temp
-            pos.settlement_source = "METAR"
-
-            self.state.bankroll += total_payout
-            self.state.total_pnl += pnl
-            if pnl > 0:
-                self.state.wins += 1
-                self.state.consecutive_losses = 0
-                update_rolling_calibration(True, pnl)  # V21.7.66: pass PnL
-            else:
-                self.state.losses += 1
-                self.state.consecutive_losses += 1
-                update_rolling_calibration(False, pnl)  # V21.7.66: pass PnL
-                # V21.7.58: Only count LIVE trade losses against circuit breakers
-                if not self.paper_only and getattr(pos, 'order_id', ''):
-                    self.state.weekly_loss += pnl
-            self.state.active_positions = max(0, self.state.active_positions - 1)
-
-            log.info(f"METAR SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
-                     f"actual={actual_temp}°C settled={settled_temp}°C "
-                     f"hit={bucket_hit} PnL=${pnl:.2f}")
+            # Log that we're waiting for Gamma resolution
+            log.debug(f"Waiting for Gamma resolution: {pos.city} {pos.date} (not yet closed on PM)")
+            continue
 
         # Save state (persist settlements to JSONL) BEFORE removing settled positions
         self.save_state()
