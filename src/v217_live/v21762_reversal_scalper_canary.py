@@ -77,9 +77,9 @@ CANARY_CONFIG = {
     "cell_id": "5M_REVERSAL_SCALPER_CANARY",
     "interval": "5m",
     "assets": ["BTC", "ETH", "SOL", "XRP"],
-    "entry_price_lo": 0.05,  # 5¢ minimum entry
-    "entry_price_hi": 0.80,  # 80¢ maximum entry
-    "position_size_usd": 3.00,  # V21.7.63: Reduced from $5→$3 per observer rec (max DD $21.48)
+    "entry_price_lo": 0.30,  # V21.7.74: Raised from 5¢ — below 30¢ the market is pricing <30% probability, signal is too weak
+    "entry_price_hi": 0.70,  # V21.7.74: Lowered from 80¢ — backtest shows 90¢ entries are catastrophic (PF 0.12). Stay in 30-70¢ band where payout ~1:1.
+    "position_size_usd": 1.50,  # V21.7.74: Kelly-sized. Backtest: 52.5% WR @ 50¢ → quarter Kelly = 1.2% of bankroll = $0.39 on $31. Capped at $1.50 minimum viable (5 shares @ 30¢). Previous $3 was 7.8x quarter Kelly.
     "max_open_positions": 5,
     "max_daily_trades": 10,
     "max_daily_loss_usd": 15.0,
@@ -104,19 +104,23 @@ CANARY_CONFIG = {
 }
 
 # Reversal detection thresholds
+# V21.7.74: RSI thresholds from 995-window backtest.
+# RSI<30→UP: 50% WR (marginal). RSI>70→DOWN: 55.7% WR (PF 1.26, best signal).
+# Previous thresholds (40/60) generated 550 signals but only 53.3% WR.
+# Tighter thresholds = fewer trades but higher edge.
 REVERSAL_CONFIG = {
-    "rsi_oversold": 40.0,      # RSI < 40 → oversold → expect Up reversal
-    "rsi_overbought": 60.0,   # RSI > 60 → overbought → expect Down reversal
-    "momentum_threshold": 0.0005,  # 0.05% momentum threshold
-    "mean_reversion_window": 10,  # 10-period mean reversion window
-    "mean_reversion_threshold": 0.0008,  # 0.08% deviation from MA
-    "min_edge_pp": 5.0,         # V21.7.63: Raised from 3pp to 5pp — strategy decay fix
-    "min_confidence": 0.55,     # V21.7.63: Raised from 52% to 55% — strategy decay fix
-    "min_confidence_down": 0.65,  # V21.7.69: DOWN WR=46.2% vs UP WR=61.9% — require 65% conf for DOWN
-    "max_spread_cents": 5.0,    # Max 5¢ spread (widened from 3)
-    "min_tte_seconds": 30,     # At least 30s to expiry
-    "max_tte_seconds": 600,     # Max 10 min (current + next window)
-    "vol_penalty_multiplier": 0.5,  # Reduced vol penalty
+    "rsi_oversold": 30.0,      # V21.7.74: Tightened from 40→30 (backtest: 50% WR at 30, 58% at <25)
+    "rsi_overbought": 70.0,   # V21.7.74: Tightened from 60→70 (backtest: 55.7% WR, best signal)
+    "momentum_threshold": 0.0005,
+    "mean_reversion_window": 10,
+    "mean_reversion_threshold": 0.0008,
+    "min_edge_pp": 5.0,
+    "min_confidence": 0.55,
+    "min_confidence_down": 0.60,  # V21.7.74: Lowered from 0.65 — backtest shows DOWN at RSI>70 is best signal
+    "max_spread_cents": 5.0,
+    "min_tte_seconds": 30,
+    "max_tte_seconds": 600,
+    "vol_penalty_multiplier": 0.5,
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -963,13 +967,12 @@ def canary_loop(state: CanaryState, paper_mode: bool, pos_file=None, resolved_fi
 
                 if edge < REVERSAL_CONFIG["min_edge_pp"]:
                     continue
-                # V21.7.70: BLOCK DOWN trades entirely.
-                # Live data: UP=65.2% WR (+$21.07) vs DOWN=43.8% WR (-$18.27).
-                # DOWN has negative edge — 5-minute crypto has positive autocorrelation
-                # (momentum continues), making mean-reversion DOWN bets systematically wrong.
-                # Paper simulated DOWN as profitable (69.4% WR) but live data proves otherwise.
-                if direction == "DOWN":
-                    continue
+                # V21.7.74: DOWN BLOCK REMOVED — backtest (995 5m windows, 3 days) shows
+                # RSI>70 → DOWN has 55.7% WR, PF 1.26, $0.34 EV/trade — BEST signal.
+                # The previous block was based on 16 live trades (insufficient sample).
+                # Bonereaper actively trades DOWN at 67-98¢ — both directions have edge
+                # when the signal is strong enough.
+                # Key: DOWN works when RSI > 70 (overbought), not at RSI 40-60 (midzone).
 
                 # Neural prediction
                 features = neural.encode_features(

@@ -492,6 +492,27 @@ def compute_deb_weights(city: str, current_forecasts: Dict[str, float],
 # REALITY-ANCHORED PROBABILITY ENGINE (from PolyWeather)
 # ═══════════════════════════════════════════════════════════════
 
+# V21.7.74: Gumbel distribution for daily temperature maxima.
+# Daily high T_max = max(T_1, ..., T_24) follows EVT (Gumbel), not Gaussian.
+# Gaussian underestimates tail probabilities by 25-44x at 4σ+ thresholds.
+# Gumbel: F(x) = exp(-exp(-(x-mu)/beta)), beta = sigma * sqrt(6)/pi ≈ 0.78*sigma
+
+def gumbel_cdf(x: float, mu: float, beta: float) -> float:
+    """Gumbel CDF: F(x) = exp(-exp(-(x-mu)/beta))."""
+    return math.exp(-math.exp(-(x - mu) / max(beta, 0.01)))
+
+def gumbel_sf(x: float, mu: float, beta: float) -> float:
+    """Gumbel survival function: P(T >= x) = 1 - F(x)."""
+    return 1.0 - gumbel_cdf(x, mu, beta)
+
+def gaussian_cdf(z: float) -> float:
+    """Standard Gaussian CDF."""
+    return 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+
+def gaussian_sf(z: float) -> float:
+    """Standard Gaussian survival function."""
+    return 0.5 * (1.0 - math.erf(z / math.sqrt(2.0)))
+
 def determine_peak_hours(city: str) -> Tuple[float, float]:
     """Return (first_peak_h, last_peak_h) in local time for city."""
     meta = CITY_REGISTRY.get(city, {})
@@ -623,9 +644,11 @@ def compute_reality_anchored_probability(
         sigma = sigma_override
 
     # ─── Compute bucket probability ───
-    # P(T=max_temp) ≈ P(bucket_temp - 0.5 < T < bucket_temp + 0.5)
-    phi = lambda z: 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
-
+    # V21.7.74: Gumbel distribution for daily maxima (EVT), not Gaussian.
+    # Daily high is a maximum of 24 hourly readings → Gumbel, not normal.
+    # beta = sigma * sqrt(6)/pi ≈ 0.78 * sigma
+    beta = sigma * math.sqrt(6.0) / math.pi
+    
     if is_dead and max_so_far is not None:
         # Dead market: temperature already locked
         settled_temp = apply_city_settlement(city, max_so_far)
@@ -637,19 +660,17 @@ def compute_reality_anchored_probability(
         else:
             prob = 1.0 if bucket_temp == settled_temp else 0.01
     elif is_threshold:
-        # V21.7.53: One-tailed CDF for threshold markets
-        # "or higher": P(T >= bucket_temp) = 1 - Phi((bucket_temp - 0.5 - mu) / sigma)
-        # "or lower":  P(T <= bucket_temp) = Phi((bucket_temp + 0.5 - mu) / sigma)
+        # V21.7.74: Gumbel CDF for threshold markets
+        # "or higher": P(T >= bucket_temp) = 1 - Gumbel_CDF(bucket_temp - 0.5; mu, beta)
+        # "or lower":  P(T <= bucket_temp) = Gumbel_CDF(bucket_temp + 0.5; mu, beta)
         if threshold_direction == "higher":
-            z = (bucket_temp - 0.5 - mu) / sigma
-            prob = 1.0 - phi(z)
+            prob = gumbel_sf(bucket_temp - 0.5, mu, beta)
         else:  # "lower"
-            z = (bucket_temp + 0.5 - mu) / sigma
-            prob = phi(z)
+            prob = gumbel_cdf(bucket_temp + 0.5, mu, beta)
     else:
-        z_low = (bucket_temp - 0.5 - mu) / sigma
-        z_high = (bucket_temp + 0.5 - mu) / sigma
-        prob = phi(z_high) - phi(z_low)
+        # V21.7.74: Gumbel for bucket probability
+        # P(bucket_temp) = F(temp+0.5) - F(temp-0.5)
+        prob = gumbel_cdf(bucket_temp + 0.5, mu, beta) - gumbel_cdf(bucket_temp - 0.5, mu, beta)
 
     # V21.7.52 FIX: Cap at 0.85 — never claim P>85% on a weather forecast.
     # V21.7.53: For threshold markets, allow cap at 0.90 since one-tailed
@@ -949,63 +970,11 @@ class WeatherBotV2:
         return pos
 
     def settle_positions(self):
-        """Check positions against settlement temperatures."""
-        import urllib.request
-        for pos in [p for p in self.positions if not p.settled]:
-            meta = CITY_REGISTRY.get(pos.city, {})
-            icao = meta.get("icao", "")
-            tz_offset = meta.get("tz", 0)
-            settle_source = meta.get("settle", "metar")
-
-            # Only check dates that have passed
-            target_dt = datetime.strptime(pos.date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            now = datetime.now(timezone.utc)
-            if now < target_dt + timedelta(hours=24):
-                continue
-
-            # Fetch METAR for settlement
-            metar = fetch_metar(icao)
-            if not metar or metar.get("temp_c") is None:
-                continue
-
-            actual_temp = metar["temp_c"]
-            settled_temp = apply_city_settlement(pos.city, actual_temp)
-
-            if settled_temp is not None:
-                # Binary settlement
-                hit = (settled_temp == pos.bucket_temp)
-                if pos.outcome == "YES":
-                    payout = pos.shares if hit else 0.0
-                else:
-                    payout = 0.0 if hit else pos.shares
-
-                pnl = payout - pos.cost_usd
-                pos.exit_ts = now.isoformat()
-                pos.exit_price = payout / pos.shares if pos.shares > 0 else 0.0
-                pos.pnl = round(pnl, 2)
-                pos.settled = True
-                pos.settlement_temp = actual_temp
-
-                self.state.bankroll += payout
-                self.state.total_pnl += pnl
-                if pnl > 0:
-                    self.state.wins += 1
-                    self.state.consecutive_losses = 0
-                else:
-                    self.state.losses += 1
-                    self.state.consecutive_losses += 1
-                    # V21.7.58: Only count LIVE trade losses against circuit breakers
-                    # Paper trade settlements must NOT inflate weekly_loss — SEPARATION FIX
-                    if not self.paper_only and getattr(pos, 'order_id', ''):
-                        self.state.weekly_loss += pnl
-                self.state.active_positions = max(0, self.state.active_positions - 1)
-
-                log.info(f"SETTLED {pos.trade_id}: {pos.city} {pos.bucket_temp}°C "
-                         f"actual={actual_temp}°C settled={settled_temp}°C "
-                         f"outcome={pos.outcome} PnL=${pnl:.2f}")
-
-        # Clean settled positions from self.positions so they don't block new entries
-        self.positions = [p for p in self.positions if not p.settled]
+        """V21.7.74: NEUTRALIZED — METAR settlement removed (13/30 fake wins).
+        V21 subclass overrides this with Gamma API settlement.
+        This parent method is kept as no-op to prevent accidental METAR settlement.
+        """
+        pass  # V21.7.74: Settlement is handled by V21 subclass via Gamma API only.
 
     def force_settle_open_positions(self):
         """V2.2 §9: Force-settle open positions by checking Polymarket resolution.
@@ -1101,17 +1070,9 @@ class WeatherBotV2:
                 # Fall back to METAR check (existing settle_positions logic)
                 continue
 
-            if not resolved:
-                # Market not yet closed on Polymarket — try METAR fallback
-                meta = CITY_REGISTRY.get(pos.city, {})
-                icao = meta.get("icao", "")
-                metar = fetch_metar(icao) if icao else None
-                if metar and metar.get("temp_c") is not None:
-                    actual_temp = metar["temp_c"]
-                    settled_temp = apply_city_settlement(pos.city, actual_temp)
-                    if settled_temp is not None:
-                        winning_bucket = "YES" if settled_temp == pos.bucket_temp else "NO"
-                        resolved = True
+            # V21.7.74: METAR FALLBACK REMOVED — was using current temp (nighttime)
+            # not daily high (Wunderground). This caused 13 fake wins out of 30.
+            # Now: if Gamma API hasn't resolved, WAIT. Don't settle with wrong data.
 
             if resolved and winning_bucket:
                 # Binary settlement
@@ -1125,7 +1086,7 @@ class WeatherBotV2:
                 pos.exit_price = payout / pos.shares if pos.shares > 0 else 0.0
                 pos.pnl = round(pnl, 2)
                 pos.settled = True
-                pos.settlement_source = "gamma" if winning_bucket else "metar"
+                pos.settlement_source = "PM_GAMMA_RESOLUTION"  # V21.7.74: Gamma only, no METAR
 
                 self.state.bankroll += payout
                 self.state.total_pnl += pnl

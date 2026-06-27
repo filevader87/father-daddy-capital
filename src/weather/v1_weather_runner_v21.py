@@ -146,22 +146,24 @@ def get_position_size(city: str, base: float = MAX_POSITION_USD,
                        edge_pp: float = 0.0, weekly_loss: float = 0.0,
                        entry_price: float = 0.0, our_prob: float = 0.0) -> float:
     """Risk-adjusted position size.
-    V21.7.73: Kelly criterion sizing — size proportional to edge, not fixed.
-    Kelly: f* = (bp - q) / b where b = payout ratio, p = our_prob, q = 1-p
+    V21.7.74: Kelly criterion FIXED — uses P(NO) for NO bets, quarter Kelly multiplier.
+    Kelly: f* = (bp - q) / b where b = payout ratio, p = P(NO), q = 1-p
     Capped at quarter Kelly for safety.
     """
     meta = CITY_REGISTRY.get(city, {})
     risk = meta.get("risk", "medium")
     size = base * RISK_PROFILES.get(risk, RISK_PROFILES["medium"])["position_mult"]
 
-    # V21.7.73: Kelly criterion
+    # V21.7.74: Kelly criterion — FIXED
+    # All trades are NO side. our_prob = P(YES) from model.
+    # Kelly needs p = P(NO wins) = 1 - our_prob
     if our_prob > 0 and entry_price > 0:
-        b = (1.0 - entry_price) / entry_price
-        p = our_prob
-        q = 1.0 - p
-        kelly = (b * p - q) / b if b > 0 else 0
-        kelly = max(0, min(0.25, kelly))
-        kelly_size = base * kelly * 4
+        b = (1.0 - entry_price) / entry_price  # payout ratio for NO bet
+        p_no = 1.0 - our_prob  # P(NO wins) — the side we're actually betting
+        q_no = 1.0 - p_no
+        kelly = (b * p_no - q_no) / b if b > 0 else 0
+        kelly = max(0, min(0.25, kelly))  # cap at full Kelly for safety
+        kelly_size = base * kelly * 0.25  # V21.7.74 FIX: was *4 (4x Kelly), now *0.25 (quarter Kelly)
         size = min(size, kelly_size)
 
     # Fallback entry-price sizing when no prob
@@ -313,64 +315,29 @@ def generate_v22_1_validation_board() -> Dict:
 ROLLING_CALIBRATION_FILE = OUTPUT_DIR / "v2_1_rolling_calibration.json"
 ROLLING_WR_WINDOW = 20  # Track last 20 NO-side outcomes
 
-CONFORMAL_CALIBRATION = {
-    (0.0, 0.10): 0.30,
-    (0.10, 0.20): 0.40,
-    (0.20, 0.30): 0.35,
-    (0.30, 0.40): 0.45,
-    (0.40, 0.50): 0.50,
-    (0.50, 0.60): 0.58,
-    (0.60, 0.70): 0.65,
-    (0.70, 0.80): 0.75,
-    (0.80, 0.90): 0.85,
-}
+# V21.7.74: CONFORMAL CALIBRATION DISABLED — hardcoded table destroyed 21.7pp edge/trade.
+# These values were guessed, not learned. They inflated P(YES)=1% to 30%, turning
+# the bot's best signals (strong NO) into marginal or negative-edge signals.
+# Pass-through until real calibration data exists (isotonic with ≥50 samples per city).
+CONFORMAL_CALIBRATION = {}  # V21.7.74: EMPTY = pass-through, no calibration applied
 
 def load_rolling_calibration() -> Dict:
-    if ROLLING_CALIBRATION_FILE.exists():
-        try:
-            with open(ROLLING_CALIBRATION_FILE) as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {"recent_no_outcomes": [], "adjustment_factor": 1.0}
+    """V21.7.74: Stub — rolling calibration disabled with conformal table."""
+    return {"recent_no_outcomes": [], "recent_no_pnls": [], "adjustment_factor": 1.0}
 
 def save_rolling_calibration(state: Dict):
-    with open(ROLLING_CALIBRATION_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    """V21.7.74: Stub — kept for backward compatibility."""
+    pass
 
 def update_rolling_calibration(win: bool, pnl: float = 0.0):
-    state = load_rolling_calibration()
-    state["recent_no_outcomes"].append(1 if win else 0)
-    state["recent_no_outcomes"] = state["recent_no_outcomes"][-ROLLING_WR_WINDOW:]
-    # V21.7.66: Track rolling PnL for EV-based gating
-    if "recent_no_pnls" not in state:
-        state["recent_no_pnls"] = []
-    state["recent_no_pnls"].append(pnl)
-    state["recent_no_pnls"] = state["recent_no_pnls"][-ROLLING_WR_WINDOW:]
-    if len(state["recent_no_outcomes"]) >= 5:
-        rolling_wr = sum(state["recent_no_outcomes"]) / len(state["recent_no_outcomes"])
-        rolling_pnl = sum(state.get("recent_no_pnls", []))
-        # V21.7.66: Only tighten when losing money (EV-negative), not just low WR
-        if rolling_wr < 0.40 and rolling_pnl < 0:
-            state["adjustment_factor"] = 0.90
-        elif rolling_wr < 0.50 and rolling_pnl < 0:
-            state["adjustment_factor"] = 0.95
-        else:
-            state["adjustment_factor"] = 1.0
-    save_rolling_calibration(state)
+    """V21.7.74: Stub — rolling calibration disabled with conformal table."""
+    pass
 
 def conformal_calibrate(raw_prob: float) -> float:
-    calib_val = raw_prob
-    for (lo, hi), empirical in CONFORMAL_CALIBRATION.items():
-        if lo <= raw_prob < hi:
-            calib_val = empirical
-            break
-    rolling = load_rolling_calibration()
-    factor = rolling.get("adjustment_factor", 1.0)
-    if factor < 1.0:
-        calib_val = calib_val * factor
-        calib_val = max(0.01, calib_val)
-    return calib_val
+    """V21.7.74: Pass-through — hardcoded calibration table removed.
+    Isotonic calibration (in compute_edge_v22) still active if data exists.
+    """
+    return raw_prob
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -513,7 +480,14 @@ def compute_edge_v22(
     # Compute probability per bucket
     from settlement_rounding import apply_city_settlement
     import math
-    phi = lambda z: 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))
+    # V21.7.74: Gumbel distribution for daily maxima (EVT), not Gaussian.
+    phi = lambda z: 0.5 * (1.0 + math.erf(z / math.sqrt(2.0)))  # kept for fallback
+    beta = sigma * math.sqrt(6.0) / math.pi  # Gumbel scale parameter
+
+    def gumbel_cdf(x, mu, b):
+        return math.exp(-math.exp(-(x - mu) / max(b, 0.01)))
+    def gumbel_sf(x, mu, b):
+        return 1.0 - gumbel_cdf(x, mu, b)
 
     signals = []
     for b in buckets:
@@ -537,17 +511,14 @@ def compute_edge_v22(
             else:
                 our_prob = 1.0 if bucket_temp == settled_temp else 0.01
         elif b_is_threshold:
-            # V21.7.53: One-tailed CDF for threshold markets
+            # V21.7.74: Gumbel CDF for threshold markets (EVT for daily maxima)
             if b_threshold_dir == "higher":
-                z = (bucket_temp - 0.5 - mu) / sigma
-                our_prob = 1.0 - phi(z)
+                our_prob = gumbel_sf(bucket_temp - 0.5, mu, beta)
             else:
-                z = (bucket_temp + 0.5 - mu) / sigma
-                our_prob = phi(z)
+                our_prob = gumbel_cdf(bucket_temp + 0.5, mu, beta)
         else:
-            z_low = (bucket_temp - 0.5 - mu) / sigma
-            z_high = (bucket_temp + 0.5 - mu) / sigma
-            our_prob = phi(z_high) - phi(z_low)
+            # V21.7.74: Gumbel for bucket probability
+            our_prob = gumbel_cdf(bucket_temp + 0.5, mu, beta) - gumbel_cdf(bucket_temp - 0.5, mu, beta)
         cap = 0.90 if b_is_threshold else 0.85
         our_prob = max(0.01, min(cap, our_prob))
 
@@ -815,6 +786,12 @@ def check_live_readiness() -> Dict:
                     if d.get("settlement_temp") is None and d.get("pnl", 0) == 0:
                         excluded_stubs += 1
                         continue
+                    # V21.7.74: Only count Gamma-verified settlements.
+                    # METAR settlements were fraudulent (13/30 fake wins).
+                    # Trades with gamma_verified=False or settlement_source=METAR are excluded.
+                    if d.get("settlement_source") == "METAR" and not d.get("gamma_verified", False):
+                        excluded_stubs += 1
+                        continue
                     resolved.append(d)
                 except Exception:
                     continue
@@ -993,6 +970,18 @@ class WeatherBotV21(WeatherBotV2):
     MAX_CITY_PNL_PCT = 0.40    # Max 40% of total PnL from any single city
     MAX_CITY_TRADES_PER_DAY = 3  # Max 3 trades/day per city (was unlimited)
 
+    # V21.7.74: Geographic cluster cap — correlated European/Asian cities
+    # share synoptic weather systems. Multiple NO bets on same cluster = one bet
+    # on "no heat wave in region". Cap concurrent exposure per cluster.
+    GEO_CLUSTERS = {
+        "europe_west": {"london", "paris", "amsterdam", "madrid", "milan", "lisbon", "dublin"},
+        "europe_east": {"warsaw", "helsinki", "istanbul", "moscow", "kiev", "prague"},
+        "middle_east": {"jeddah", "karachi", "dubai", "riyadh", "tehran"},
+        "east_asia": {"tokyo", "taipei", "chengdu", "shanghai", "seoul", "busan"},
+        "south_asia": {"lucknow", "mumbai", "delhi"},
+    }
+    MAX_CLUSTER_EXPOSURE = 6.0  # Max $6 per geographic cluster per day
+
     def __init__(self, bankroll: float = 20.0, paper_only: bool = True):
         # V21.7.67: Set _state_file BEFORE super().__init__() so _load_state()
         # reads the correct mode-specific file. Previously super().__init__()
@@ -1083,6 +1072,22 @@ class WeatherBotV21(WeatherBotV2):
                 city_pct = city_pnl_map.get(city, 0) / total_pnl
                 if city_pct > self.MAX_CITY_PNL_PCT:
                     log.info(f"SKIP {city} — PnL concentration {city_pct:.0%} > {self.MAX_CITY_PNL_PCT:.0%} cap")
+                    continue
+
+            # V21.7.74: Geographic cluster exposure cap
+            # Correlated cities share synoptic systems — treat as one risk
+            cluster_name = None
+            for cname, cities in self.GEO_CLUSTERS.items():
+                if city in cities:
+                    cluster_name = cname
+                    break
+            if cluster_name:
+                cluster_cost = sum(
+                    p.cost_usd for p in self.positions
+                    if not p.settled and p.city in self.GEO_CLUSTERS[cluster_name]
+                )
+                if cluster_cost >= self.MAX_CLUSTER_EXPOSURE:
+                    log.info(f"SKIP {city} — cluster {cluster_name} exposure ${cluster_cost:.2f} ≥ ${self.MAX_CLUSTER_EXPOSURE:.2f} cap")
                     continue
 
             # V21.7.53: Build portfolio — top signal + adjacent buckets
@@ -1397,6 +1402,23 @@ class WeatherBotV21(WeatherBotV2):
             log.info(f"Skipping {slug[:50]} — already have open position")
             return None
 
+        # V21.7.74: Disk-based slug dedup — prevents duplicate orders across restarts
+        # and between cycles where in-memory positions get cleared after settlement.
+        DEDUP_FILE = OUTPUT_DIR / "v2_1_slug_dedup.json"
+        dedup_data = {}
+        if DEDUP_FILE.exists():
+            try:
+                with open(DEDUP_FILE) as f:
+                    dedup_data = json.load(f)
+            except Exception:
+                dedup_data = {}
+        # Check if we already entered this slug today
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        slug_key = f"{slug}_{today}"
+        if slug_key in dedup_data:
+            log.warning(f"SKIP {slug[:50]} — already entered today (disk dedup)")
+            return None
+
         if trading_bankroll < position_size:
             log.warning(f"Insufficient bankroll: ${trading_bankroll:.2f} < ${position_size:.2f}")
             return None
@@ -1490,6 +1512,15 @@ class WeatherBotV21(WeatherBotV2):
         self.state.daily_trades += 1
         self.state.active_positions += 1
         self.state.total_trades += 1
+
+        # V21.7.74: Write to disk dedup — prevent duplicate entries on same slug+day
+        if slug:
+            try:
+                dedup_data[slug_key] = datetime.now(timezone.utc).isoformat()
+                with open(DEDUP_FILE, "w") as f:
+                    json.dump(dedup_data, f, indent=2)
+            except Exception:
+                pass
 
         # Write to mode-specific trades log — SEPARATION FIX
         # V21.7.70: If live order was NOT filled, write to PAPER file, not LIVE file.
