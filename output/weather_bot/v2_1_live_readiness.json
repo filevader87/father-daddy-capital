@@ -1,36 +1,36 @@
 {
   "live_blocked": true,
-  "block_reason": "V21.7.72 HALTED \u2014 settlement logic fabricating wins. On-chain: 6W/16L, PnL=-$20.70. Bot claims 25W/5L, PnL=+$123.86. Settlement audit required.",
+  "block_reason": "V21.7.72 HALTED \u2014 settlement logic fabricating wins. On-chain: 6W/17L, PnL=-$25.16. Bot claimed 25W/5L, PnL=+$123.86. Settlement audit required.",
   "excluded_stub_settlements": 0,
-  "data_source": "LIVE_TRADES",
+  "data_source": "ON_CHAIN_TRADES_API",
   "promotion_criteria": {
     "min_resolved": 25,
-    "resolved_count": 22,
+    "resolved_count": 23,
     "criteria_met": false,
     "positive_ev": false,
-    "ev_per_trade": -0.94,
-    "profit_factor": 0.527,
+    "ev_per_trade": -1.09,
+    "profit_factor": 0.477,
     "pf_met": false,
     "zero_errors": true,
     "error_count": 0
   },
   "performance": {
-    "total_resolved": 22,
+    "total_resolved": 23,
     "wins": 6,
-    "losses": 16,
-    "win_rate": 0.273,
-    "total_pnl": -20.7,
-    "gross_profit": 23.04,
-    "gross_loss": 43.74,
-    "profit_factor": 0.527,
-    "avg_ev_per_trade": -0.94
+    "losses": 17,
+    "win_rate": 0.261,
+    "total_pnl": -25.16,
+    "gross_profit": 23.05,
+    "gross_loss": 48.21,
+    "profit_factor": 0.477,
+    "avg_ev_per_trade": -1.09
   },
   "paper_comparison": {
-    "paper_resolved": 41,
-    "paper_pnl": 129.12,
-    "paper_wins": 24
+    "paper_resolved": 0,
+    "paper_pnl": 0,
+    "paper_wins": 0
   },
   "all_criteria_met": false,
   "ready_for_live": false,
-  "timestamp": "2026-06-26T12:25:00"
+  "timestamp": "2026-06-27T09:45:06.812293+00:00"
 }

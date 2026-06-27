@@ -10,7 +10,7 @@ LIVE BLOCKED until ALL promotion criteria met:
   - Profit Factor ≥ 1.25
   - Zero settlement/rule/timezone/rounding errors
 
-WEATHER_BOT_LIVE_BLOCKED = False  # V21.7.55: PROMOTED TO LIVE — all gates passed
+WEATHER_BOT_LIVE_BLOCKED = True  # V21.7.72: HALTED — settlement fabricating wins, audit required
 
 Output files (all under OUTPUT_DIR):
   v2_1_candidate_log.jsonl   — every candidate signal with full audit
@@ -21,7 +21,7 @@ Output files (all under OUTPUT_DIR):
   v2_1_live_readiness.json    — promotion criteria tracker (BLOCKED until met)
 """
 
-WEATHER_BOT_LIVE_BLOCKED = False  # V21.7.55: PROMOTED TO LIVE — all gates passed
+WEATHER_BOT_LIVE_BLOCKED = True  # V21.7.72: HALTED — settlement fabricating wins, audit required
 
 import os
 import sys
@@ -1523,12 +1523,21 @@ class WeatherBotV21(WeatherBotV2):
         outcome. The bot was reporting wins that on-chain showed as losses (0W/8L
         discrepancy). Now: if on-chain shows curPrice=0 for a position we marked
         as WON, override to LOSS.
+
+        V21.7.72: FIX on-chain verification — previous code only matched by
+        condition_id, which was empty in bot records. Now also matches by
+        market TITLE (city + temperature). This catches the 19 fake wins where
+        bot declared WON via Gamma API but position sat at curPrice=0 on-chain.
+        Also: only count wins if the position was actually REDEEMED (SELL trade
+        exists on-chain) or curPrice > 0. A win with curPrice=0 and no SELL
+        is NOT a win — it's an unredeemed loss.
         """
         import requests as _requests
         now = datetime.now(timezone.utc)
 
-        # V21.7.69: Fetch on-chain positions once per settlement cycle for verification
+        # V21.7.72: Fetch on-chain positions AND build title-based lookup
         onchain_positions = {}
+        onchain_by_title = {}  # V21.7.72: title → on-chain data
         try:
             proxy_addr = "0xaF7B21FE2B18745aE1b2fA2F6F00B0fC4EF3F70b"
             r_chain = _requests.get(
@@ -1538,14 +1547,33 @@ class WeatherBotV21(WeatherBotV2):
             if r_chain.status_code == 200:
                 for p in r_chain.json():
                     cid = p.get("conditionId", p.get("condition_id", ""))
+                    title = p.get("title", "").lower()
+                    data = {
+                        "cur_price": float(p.get("curPrice", 0) or 0),
+                        "cash_pnl": float(p.get("cashPnl", 0) or 0),
+                        "size": float(p.get("size", 0) or 0),
+                        "title": p.get("title", ""),
+                    }
                     if cid:
-                        onchain_positions[cid] = {
-                            "cur_price": float(p.get("curPrice", 0) or 0),
-                            "cash_pnl": float(p.get("cashPnl", 0) or 0),
-                            "size": float(p.get("size", 0) or 0),
-                        }
+                        onchain_positions[cid] = data
+                    if title:
+                        onchain_by_title[title] = data
         except Exception as e:
             log.warning(f"On-chain position fetch failed: {e}")
+
+        # V21.7.72: Also fetch SELL trades to verify actual redemptions
+        redeemed_titles = set()
+        try:
+            r_trades = _requests.get(
+                f"https://data-api.polymarket.com/trades?user={proxy_addr}&limit=500",
+                timeout=15,
+            )
+            if r_trades.status_code == 200:
+                for t in r_trades.json():
+                    if t.get("side") == "SELL" and ("temperature" in t.get("title", "").lower() or "temp" in t.get("title", "").lower()):
+                        redeemed_titles.add(t.get("title", "").lower())
+        except Exception as e:
+            log.warning(f"On-chain trades fetch failed: {e}")
 
         for pos in [p for p in self.positions if not p.settled]:
             # Check if enough time has passed for PM to resolve (6h grace)
@@ -1608,15 +1636,34 @@ class WeatherBotV21(WeatherBotV2):
                         cost = pos.entry_price * pos.shares
                         pnl = total_payout - cost
 
-                        # V21.7.69: On-chain verification — if we marked WON but
-                        # on-chain shows curPrice=0 (resolved at 0), override to LOSS
+                        # V21.7.72: On-chain verification — if we marked WON but
+                        # on-chain shows curPrice=0 (resolved at 0), override to LOSS.
+                        # Previous code only matched by condition_id (always empty).
+                        # Now matches by condition_id OR by market title.
                         pos_cid = getattr(pos, "condition_id", "") or ""
-                        if pnl > 0 and pos_cid and pos_cid in onchain_positions:
-                            chain = onchain_positions[pos_cid]
-                            if chain["cur_price"] == 0 and chain["size"] > 0:
+                        chain_data = None
+                        if pos_cid and pos_cid in onchain_positions:
+                            chain_data = onchain_positions[pos_cid]
+                        else:
+                            # V21.7.72: Match by title — build a title from pos fields
+                            pos_title_key = m.get("question", "").lower()
+                            if pos_title_key and pos_title_key in onchain_by_title:
+                                chain_data = onchain_by_title[pos_title_key]
+                        
+                        if pnl > 0 and chain_data:
+                            if chain_data["cur_price"] == 0 and chain_data["size"] > 0:
                                 log.warning(
                                     f"⚠️ ON-CHAIN OVERRIDE: {pos.trade_id} marked WON by Gamma "
                                     f"but on-chain curPrice=0 | overriding to LOSS"
+                                )
+                                payout_per_share = 0.0
+                                total_payout = 0.0
+                                pnl = -cost
+                            elif chain_data["cur_price"] == 0 and chain_data["size"] == 0:
+                                # Position not found on-chain at all — not redeemed
+                                log.warning(
+                                    f"⚠️ ON-CHAIN OVERRIDE: {pos.trade_id} marked WON by Gamma "
+                                    f"but not on-chain (not redeemed) | overriding to LOSS"
                                 )
                                 payout_per_share = 0.0
                                 total_payout = 0.0
@@ -1663,11 +1710,21 @@ class WeatherBotV21(WeatherBotV2):
             total_payout = audit["total_payout"]
             pnl = audit["pnl"]
 
-            # V21.7.69: On-chain verification for METAR path too
+            # V21.7.72: On-chain verification for METAR path too
+            # Same fix as Gamma path: match by condition_id OR title
             pos_cid = getattr(pos, "condition_id", "") or ""
-            if pnl > 0 and pos_cid and pos_cid in onchain_positions:
-                chain = onchain_positions[pos_cid]
-                if chain["cur_price"] == 0 and chain["size"] > 0:
+            chain_data = None
+            if pos_cid and pos_cid in onchain_positions:
+                chain_data = onchain_positions[pos_cid]
+            else:
+                # Try matching by city name in title
+                for title_key, cd in onchain_by_title.items():
+                    if pos.city.lower() in title_key and str(getattr(pos, "bucket_temp", "")) in title_key:
+                        chain_data = cd
+                        break
+            
+            if pnl > 0 and chain_data:
+                if chain_data["cur_price"] == 0 and chain_data["size"] > 0:
                     log.warning(
                         f"⚠️ ON-CHAIN OVERRIDE (METAR): {pos.trade_id} marked WON "
                         f"but on-chain curPrice=0 | overriding to LOSS"
