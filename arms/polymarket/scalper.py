@@ -68,24 +68,34 @@ PM_CLOB_WS = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
 # ═══════════════════════════════════════════════════════════════════════════
 
 CONFIG = {
-    "version": "V21.7.74",
+    "version": "V21.7.76",
     "assets": ["BTC", "ETH", "SOL", "XRP"],
-    "entry_price_lo": 0.30,    # V21.7.75: 30¢ minimum
-    "entry_price_hi": 0.50,    # V21.7.75: Lowered 70¢→50¢. Backtest: @40¢ PF=1.54, @50¢ PF=1.02, @65¢ PF=0.56. WR is constant ~52%, lower entry = more margin.
-    "position_size_usd": 1.64,  # V21.7.75: Quarter Kelly from optimal config (RSI>70 DOWN @40¢: Kelly=21.2%, ¼K=5.3%×$31=$1.64)
+    # V21.7.76: Dual entry bands — EV-optimized, not coin-flip
+    # Reversal: buy cheap (10-40¢) where payout asymmetry provides edge.
+    #   @20¢: risk 20¢ to win 80¢ (4:1) — need only 21% WR to break even.
+    #   @40¢: risk 40¢ to win 60¢ (1.5:1) — need 40% WR to break even.
+    # Certainty: buy expensive (70¢+) where signal is "this outcome will happen"
+    #   @70¢: risk 70¢ to win 30¢ (1:0.43) — need 70% WR to break even.
+    "entry_price_lo": 0.10,
+    "entry_price_hi": 0.40,    # Reversal band upper
+    "entry_price_certainty": 0.70,  # Certainty band: 70¢+
+    "position_size_usd": 1.64,  # Quarter Kelly on $31 bankroll
     "max_open_positions": 5,
-    "max_daily_trades": 15,     # Raised from 10 — more signals with WebSocket speed
+    "max_daily_trades": 15,
     "max_daily_loss_usd": 10.0,
     "max_consecutive_losses": 3,
-    "rsi_oversold": 30.0,       # Backtest: RSI<30→UP 50% WR
-    "rsi_overbought": 70.0,     # Backtest: RSI>70→DOWN 55.7% WR (best signal)
+    "max_drawdown_usd": 10.0,
+    "initial_bankroll": 50.0,
+    "rsi_oversold": 30.0,
+    "rsi_overbought": 70.0,
     "min_edge_pp": 5.0,
     "min_confidence": 0.55,
+    "min_ev_cents": 5.0,       # V21.7.76: Minimum EV in cents — reject if EV < 5¢
     "max_spread_cents": 5.0,
     "min_tte_seconds": 30,
     "max_tte_seconds": 600,
-    "preferred_tte_min": 300,   # Backtest: 300-600s TTE = 100% WR
-    "scan_interval_seconds": 2.0,  # Reduced from 5s — WebSocket makes us faster
+    "preferred_tte_min": 300,
+    "scan_interval_seconds": 2.0,
     "ws_reconnect_seconds": 5,
 }
 
@@ -298,60 +308,94 @@ def compute_indicators(feed: BinanceWSFeed, asset: str) -> Dict:
         "n_candles": len(closes),
     }
 
-def detect_reversal(indicators: Dict) -> Tuple[str, float, float]:
-    """RSI-based reversal detection. Returns (direction, confidence, edge).
+def detect_reversal(indicators: Dict) -> Tuple[str, float, float, str]:
+    """V21.7.76: Dual-mode signal detection. Returns (direction, confidence, edge, signal_type).
     
-    Backtest-validated:
-      RSI < 30 → UP reversal: 50% WR (marginal)
-      RSI > 70 → DOWN reversal: 55.7% WR, PF 1.26 (BEST signal)
+    Two signal modes:
+    1. REVERSAL — RSI extreme → opposite direction. Buy cheap (10-40¢).
+       RSI<25 → UP (deep oversold), RSI>75 → DOWN (deep overbought).
+       Edge comes from payout asymmetry: @20¢ you risk 20¢ to win 80¢.
+    2. CERTAINTY — Strong momentum + RSI alignment → same direction. Buy expensive (70¢+).
+       RSI>70 + positive momentum → UP continuation. RSI<30 + negative momentum → DOWN continuation.
+       Edge comes from high-probability outcome: @70¢ you need 70% WR.
+    
+    Confidence is now signal-quality based, not price-distance based.
     """
     rsi = indicators["rsi"]
     momentum = indicators["momentum"]
     trend = indicators["trend"]
-    
-    up_score = 0.0
-    down_score = 0.0
-    total = 0.0
-    
-    # RSI (primary signal — backtest-validated thresholds)
-    if rsi < 30:
-        strength = (30 - rsi) / 20.0
-        up_score += 1.5 + strength
-    elif rsi > 70:
-        strength = (rsi - 70) / 20.0
-        down_score += 1.5 + strength
-    total += 2.0
-    
-    # Momentum exhaustion
-    if momentum < -0.001:
-        up_score += 1.0
-    elif momentum > 0.001:
-        down_score += 1.0
-    total += 1.0
-    
-    # Mean reversion (trend counter)
-    if trend < -0.0003:
-        up_score += 0.5
-    elif trend > 0.0003:
-        down_score += 0.5
-    total += 0.5
-    
-    if up_score > down_score:
-        direction = "UP"
-        confidence = up_score / (up_score + down_score + 0.1)
-    elif down_score > up_score:
-        direction = "DOWN"
-        confidence = down_score / (up_score + down_score + 0.1)
-    else:
-        return "NONE", 0.0, 0.0
-    
-    # Volatility penalty
     vol = indicators.get("volatility", 0)
+    
+    direction = "NONE"
+    confidence = 0.0
+    signal_type = "NONE"
+    
+    # ── REVERSAL signals ─────────────────────────────────────────────
+    # Deep RSI extremes only — tighter thresholds for real reversals
+    if rsi < 25:
+        strength = (25 - rsi) / 15.0  # 0 at RSI=25, 1.0 at RSI=10
+        # Momentum must confirm exhaustion (negative momentum = selling exhausted)
+        mom_confirm = 1.0 if momentum < -0.0005 else 0.5
+        confidence = 0.55 + strength * 0.25 + mom_confirm * 0.10
+        confidence = min(0.85, confidence)
+        direction = "UP"
+        signal_type = "REVERSAL"
+        
+    elif rsi > 75:
+        strength = (rsi - 75) / 15.0  # 0 at RSI=75, 1.0 at RSI=90
+        mom_confirm = 1.0 if momentum > 0.0005 else 0.5
+        confidence = 0.55 + strength * 0.25 + mom_confirm * 0.10
+        confidence = min(0.85, confidence)
+        direction = "DOWN"
+        signal_type = "REVERSAL"
+    
+    # ── CERTAINTY signals ─────────────────────────────────────────────
+    # Strong trend continuation — RSI + momentum aligned, high conviction
+    # RSI 60-75 (strong but not overbought) + positive momentum → UP
+    if rsi > 60 and rsi < 80 and momentum > 0.0008 and trend > 0.0002:
+        strength = min((momentum / 0.003), 1.0)  # Scale by momentum strength
+        confidence = 0.65 + strength * 0.20
+        confidence = min(0.90, confidence)
+        direction = "UP"
+        signal_type = "CERTAINTY"
+        
+    # RSI 20-40 (strong but not oversold) + negative momentum → DOWN  
+    elif rsi < 40 and rsi > 15 and momentum < -0.0008 and trend < -0.0002:
+        strength = min(abs(momentum) / 0.003, 1.0)
+        confidence = 0.65 + strength * 0.20
+        confidence = min(0.90, confidence)
+        direction = "DOWN"
+        signal_type = "CERTAINTY"
+    
+    if direction == "NONE":
+        return "NONE", 0.0, 0.0, "NONE"
+    
+    # Volatility penalty — high volatility reduces signal reliability
     vol_penalty = min(vol * 2 * 0.5, 0.15)
-    confidence = max(0.50, min(0.95, confidence - vol_penalty))
+    confidence = max(0.50, confidence - vol_penalty)
+    
+    # Edge = confidence above 50% baseline, in percentage points
     edge = (confidence - 0.5) * 100
     
-    return direction, confidence, edge
+    return direction, confidence, edge, signal_type
+
+
+def compute_ev(direction: str, entry_price: float, confidence: float, shares: float) -> float:
+    """V21.7.76: Expected value in cents.
+    
+    EV = P(win) × payout_win - P(loss) × cost_loss
+    P(win) = confidence, P(loss) = 1 - confidence
+    payout_win = (1.0 - entry_price) × shares  (win: get $1 per share, paid entry_price)
+    cost_loss = entry_price × shares           (lose: lose what you paid)
+    
+    Returns EV in cents (positive = profitable, negative = unprofitable).
+    """
+    p_win = confidence
+    p_loss = 1.0 - confidence
+    payout_win = (1.0 - entry_price) * shares  # dollars
+    cost_loss = entry_price * shares            # dollars
+    ev_usd = p_win * payout_win - p_loss * cost_loss
+    return ev_usd * 100  # convert to cents
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -493,6 +537,30 @@ def get_clob_client():
         log.info("CLOB client initialized (POLY_1271) with L2 API creds")
     return _clob_client
 
+# ── Balance tracking ──────────────────────────────────────────────────────
+_balance_cache = {"balance": None, "ts": 0.0}
+_failed_slugs: set = set()  # Slugs that had order failures this cycle — prevents API spam
+
+def get_usdc_balance() -> Optional[float]:
+    """Get current USDC balance from CLOB. Cached 30s. Returns human-readable USDC."""
+    if time.time() - _balance_cache["ts"] < 30:
+        return _balance_cache["balance"]
+    try:
+        from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
+        clob = get_clob_client()
+        params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL, signature_type=1)
+        bal_info = clob.get_balance_allowance(params)
+        raw = float(bal_info.get("balance", 0))
+        # CLOB returns balance in raw units (6 decimals for USDC)
+        balance = raw / 1_000_000
+        _balance_cache["balance"] = balance
+        _balance_cache["ts"] = time.time()
+        log.debug(f"USDC balance: ${balance:.2f} (raw={raw})")
+        return balance
+    except Exception as e:
+        log.debug(f"Balance check failed: {e}")
+        return _balance_cache["balance"]
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # STATE
@@ -563,12 +631,32 @@ def execute_order(market: Dict, side: str, token_id: str, best_ask: float,
         return result
     
     # LIVE execution
+    # ── Pre-flight balance check ────────────────────────────────────────
+    balance = get_usdc_balance()
+    if balance is not None and balance < size_usd:
+        result["status"] = "INSUFFICIENT_BALANCE"
+        result["error"] = f"Balance ${balance:.2f} < order ${size_usd:.2f}"
+        log.warning(f"SKIP: {side} {market['asset']} | balance ${balance:.2f} < ${size_usd:.2f}")
+        # Force halt — no point continuing to scan with no funds
+        state.halted = True
+        state.halt_reason = f"Insufficient balance (${balance:.2f})"
+        return result
+    
     try:
         from py_clob_client_v2 import OrderArgsV2, CreateOrderOptions, OrderType
         shares = max(int(round(size_usd / max(best_ask, 0.01))), 1)
         actual_cost = shares * best_ask
         result["shares"] = shares
         result["actual_cost"] = round(actual_cost, 2)
+        
+        # Double-check balance vs actual_cost (raw units)
+        if balance is not None and balance < actual_cost:
+            result["status"] = "INSUFFICIENT_BALANCE"
+            result["error"] = f"Balance ${balance:.2f} < cost ${actual_cost:.2f}"
+            log.warning(f"SKIP: {side} {market['asset']} | balance ${balance:.2f} < cost ${actual_cost:.2f}")
+            state.halted = True
+            state.halt_reason = f"Insufficient balance (${balance:.2f})"
+            return result
         
         order_args = OrderArgsV2(token_id=token_id, price=best_ask, size=shares, side="BUY")
         options = CreateOrderOptions(tick_size="0.01", neg_risk=market.get("neg_risk", False))
@@ -592,6 +680,8 @@ def execute_order(market: Dict, side: str, token_id: str, best_ask: float,
         if result["fill_status"] in ("live", "matched"):
             log.info(f"LIVE FILL: {side} {market['asset']} @ {best_ask*100:.1f}¢ | "
                      f"{shares} shares | ${actual_cost:.2f}")
+            # Invalidate balance cache after fill
+            _balance_cache["ts"] = 0.0
         else:
             log.warning(f"ORDER NOT FILLED: status={result['fill_status']}")
             result["status"] = "NOT_FILLED"
@@ -722,10 +812,10 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
     """Main event-driven scalper loop."""
     global _shutdown
     
-    log.info(f"V21.7.74 WebSocket Scalper starting | paper={paper_mode}")
-    log.info(f"Strategy: RSI reversal | Both directions | WS speed | Kelly-sized")
-    log.info(f"Position: ${CONFIG['position_size_usd']} | Entry: {CONFIG['entry_price_lo']}-{CONFIG['entry_price_hi']}¢ | "
-             f"RSI: <{CONFIG['rsi_oversold']}/{CONFIG['rsi_overbought']}>")
+    log.info(f"V21.7.76 WebSocket Scalper starting | paper={paper_mode}")
+    log.info(f"Strategy: Dual-mode (REVERSAL + CERTAINTY) | EV-ranked | Kelly-sized")
+    log.info(f"Position: ${CONFIG['position_size_usd']} | Reversal: {CONFIG['entry_price_lo']}-{CONFIG['entry_price_hi']}¢ | Certainty: {CONFIG['entry_price_certainty']}¢+")
+    log.info(f"Min EV: {CONFIG['min_ev_cents']}¢ | RSI reversal: <{CONFIG['rsi_oversold']}/{CONFIG['rsi_overbought']}> | Hard floor: ${CONFIG['initial_bankroll'] - CONFIG['max_drawdown_usd']:.0f}")
     
     # Start Binance WebSocket feed
     feed = BinanceWSFeed(CONFIG["assets"])
@@ -758,6 +848,7 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                 state.daily_trades = 0
                 state.daily_loss_usd = 0.0
                 state.daily_reset = today
+                _failed_slugs.clear()  # Reset failed slug tracking on new day
             
             # Halt check
             if state.halted:
@@ -767,10 +858,28 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                 state.halted = True
                 state.halt_reason = f"Max consecutive losses ({state.consecutive_losses})"
                 break
+            # V21.7.75: Hard drawdown floor — permanent halt, requires manual state wipe + code review
+            if not paper_mode:
+                drawdown = state.total_pnl + CONFIG["initial_bankroll"]
+                if drawdown <= (CONFIG["initial_bankroll"] - CONFIG["max_drawdown_usd"]):
+                    state.halted = True
+                    state.halt_reason = f"HARD FLOOR: drawdown ${CONFIG['initial_bankroll'] - drawdown:.2f} exceeded ${CONFIG['max_drawdown_usd']:.2f} max"
+                    log.error(f"HALTED: {state.halt_reason}")
+                    break
             
             can_trade = (state.daily_trades < CONFIG["max_daily_trades"] and
                          state.open_positions < CONFIG["max_open_positions"] and
                          state.daily_loss_usd < CONFIG["max_daily_loss_usd"])
+            
+            # Live mode: check balance before attempting any trade
+            if can_trade and not paper_mode:
+                bal = get_usdc_balance()
+                if bal is not None and bal < CONFIG["position_size_usd"]:
+                    can_trade = False
+                    if not state.halted:
+                        log.warning(f"Balance ${bal:.2f} too low for ${CONFIG['position_size_usd']} trades — blocking new orders")
+                        state.halted = True
+                        state.halt_reason = f"Insufficient balance (${bal:.2f})"
             
             # Discover markets (cached, ~0ms if cache fresh)
             markets = discover_5m_markets()
@@ -792,7 +901,7 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                 if indicators["n_candles"] < 20:
                     continue
                 
-                direction, confidence, edge = detect_reversal(indicators)
+                direction, confidence, edge, signal_type = detect_reversal(indicators)
                 if direction == "NONE" or edge < CONFIG["min_edge_pp"]:
                     continue
                 if confidence < CONFIG["min_confidence"]:
@@ -814,29 +923,46 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                 best_ask = book["best_ask"]
                 spread = book.get("spread", 1.0)
                 
-                # Entry price band check
-                if not (CONFIG["entry_price_lo"] <= best_ask <= CONFIG["entry_price_hi"]):
-                    continue
+                # V21.7.76: Dual entry band check
+                # REVERSAL: 10-40¢ (buy cheap, asymmetric payout)
+                # CERTAINTY: 70¢+ (buy expensive, high probability)
+                if signal_type == "REVERSAL":
+                    if not (CONFIG["entry_price_lo"] <= best_ask <= CONFIG["entry_price_hi"]):
+                        continue
+                elif signal_type == "CERTAINTY":
+                    if best_ask < CONFIG["entry_price_certainty"]:
+                        continue
+                else:
+                    continue  # Unknown signal type, skip
+                
                 if spread and spread * 100 > CONFIG["max_spread_cents"]:
+                    continue
+                
+                # V21.7.76: EV check — reject if expected value < min_ev_cents
+                size_usd = CONFIG["position_size_usd"]
+                shares = size_usd / best_ask
+                ev_cents = compute_ev(direction, best_ask, confidence, shares)
+                if ev_cents < CONFIG["min_ev_cents"]:
                     continue
                 
                 signals.append({
                     "market": market, "side": direction, "token_id": token_id,
                     "best_ask": best_ask, "spread": spread,
                     "confidence": confidence, "edge_pp": edge,
-                    "indicators": indicators, "tte": tte,
+                    "indicators": indicators, "tte": tte, "signal_type": signal_type,
+                    "ev_cents": round(ev_cents, 2),
                     "signal_age_ms": (time.time() - feed.last_trade_ts.get(asset, 0)) * 1000,
                 })
             
-            # Sort by edge (highest first), then by TTE (longer = better)
-            signals.sort(key=lambda x: (x["edge_pp"], x["tte"]), reverse=True)
+            # Sort by EV (highest first) — EV is the top marker, not WR or edge
+            signals.sort(key=lambda x: (x["ev_cents"], x["tte"]), reverse=True)
             
             # Log top signals
             for i, sig in enumerate(signals[:3]):
                 log.info(f"  #{i+1} {sig['side']:4} {sig['market']['asset']} | "
-                         f"ask={sig['best_ask']*100:.1f}¢ edge={sig['edge_pp']:.1f}pp "
-                         f"conf={sig['confidence']:.1%} RSI={sig['indicators']['rsi']:.0f} "
-                         f"TTE={sig['tte']:.0f}s")
+                         f"{sig['signal_type']:9} ask={sig['best_ask']*100:.1f}¢ "
+                         f"EV={sig['ev_cents']:.1f}¢ conf={sig['confidence']:.1%} "
+                         f"RSI={sig['indicators']['rsi']:.0f} TTE={sig['tte']:.0f}s")
             
             # Log signals
             if signals:
@@ -847,6 +973,8 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                             "market_slug": sig["market"]["slug"],
                             "asset": sig["market"]["asset"],
                             "side": sig["side"], "ask": sig["best_ask"],
+                            "signal_type": sig["signal_type"],
+                            "ev_cents": sig["ev_cents"],
                             "confidence": sig["confidence"], "edge_pp": sig["edge_pp"],
                             "rsi": sig["indicators"]["rsi"],
                             "tte": sig["tte"],
@@ -856,7 +984,13 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
             if can_trade and signals:
                 best = signals[0]
                 existing_slugs = {p.get("market_slug", "") for p in state.positions}
-                if best["market"]["slug"] not in existing_slugs:
+                # Skip slugs that already had a failed order this cycle (prevent API spam)
+                slug = best["market"]["slug"]
+                if slug in existing_slugs:
+                    pass  # Already have a position on this market
+                elif slug in _failed_slugs:
+                    pass  # Already tried and failed this cycle — don't re-fire
+                else:
                     order_result = execute_order(
                         best["market"], best["side"], best["token_id"], best["best_ask"],
                         paper_mode, best["indicators"], best["confidence"], state
@@ -892,11 +1026,16 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                         }
                         state.positions.append(pos)
                         
-                        write_target = pos_file if order_result["status"] == "PAPER_FILLED" else (
-                            pos_file if order_result.get("fill_status") not in ("live", "matched") else pos_file
-                        )
-                        with open(write_target, "a") as f:
+                        with open(pos_file, "a") as f:
                             f.write(json.dumps(pos, default=str) + "\n")
+                    else:
+                        # Track failed slug to prevent re-firing same signal
+                        _failed_slugs.add(slug)
+                        # If balance-related error, halt will be set by execute_order
+                        if order_result["status"] in ("INSUFFICIENT_BALANCE", "EMERGENCY_HALT"):
+                            log.error(f"HALTING: {order_result['status']} — {order_result.get('error','')}")
+                        else:
+                            log.warning(f"Order failed: {order_result['status']} — {order_result.get('error','')[:80]}")
             
             # Settle expired positions via Gamma API
             for pos in list(state.positions):
@@ -950,16 +1089,20 @@ def scalper_loop(state: ScalperState, paper_mode: bool):
                 import statistics
                 p50 = statistics.median(state.signal_latency_ms) if state.signal_latency_ms else 0
                 wr = state.wins / max(1, state.wins + state.losses) * 100
+                bal_str = ""
+                if not paper_mode:
+                    bal = get_usdc_balance()
+                    bal_str = f" bal=${bal:.2f}" if bal is not None else ""
                 log.info(f"HB: loop={state.loop_count} scan={loop_ms:.0f}ms "
                          f"mkts={state.markets_scanned} sigs={state.signals_generated} "
                          f"trades={state.daily_trades}/{CONFIG['max_daily_trades']} "
                          f"pos={state.open_positions} W/L={state.wins}/{state.losses} "
                          f"WR={wr:.0f}% PnL=${state.total_pnl:.2f} "
-                         f"p50_scan={p50:.0f}ms")
+                         f"p50_scan={p50:.0f}ms{bal_str}")
                 
                 # Supervisor status
                 sup = {
-                    "timestamp": now.isoformat(), "version": "V21.7.74",
+                    "timestamp": now.isoformat(), "version": "V21.7.76",
                     "running": not _shutdown, "paper_mode": paper_mode,
                     "loop_count": state.loop_count,
                     "markets_scanned": state.markets_scanned,

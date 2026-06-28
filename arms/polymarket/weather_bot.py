@@ -58,11 +58,10 @@ def load_halt_config() -> dict:
 TEMPERATURE_ENTRIES_HALTED = load_halt_config().get("disable_new_weather_temperature_entries", False)
 
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-# §MCP: Add v217_live to path for MCP bridge
-sys.path.insert(0, str(PROJECT_ROOT / "src" / "v217_live"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # arms/polymarket/ — finds weather_lib.py, city_registry.py, etc.
+sys.path.insert(0, str(PROJECT_ROOT / "src" / "weather"))
 try:
-    from v1_weather_runner_v2 import (
+    from weather_lib import (
         CITY_REGISTRY, RISK_PROFILES,
         WeatherBotV2, WeatherPosition, WeatherState,
         fetch_open_meteo_forecast, fetch_open_meteo_ensemble, fetch_metar,
@@ -72,7 +71,7 @@ try:
     )
     HAS_V2 = True
 except ImportError as e:
-    print(f"FATAL: Cannot import v1_weather_runner_v2: {e}")
+    print(f"FATAL: Cannot import weather_lib: {e}")
     HAS_V2 = False
     sys.exit(1)
 
@@ -86,7 +85,7 @@ fetch_ensemble_forecast = None
 build_deb_forecasts = None
 
 try:
-    from fdc_pm_live import (
+    from pm_live import (
         build_dry_run_order,
         submit_tracked_order,
     )
@@ -494,7 +493,7 @@ def compute_edge_v22(
 
         # Isotonic calibration
         try:
-            from src.weather.isotonic_calibration import calibrate_prob
+            from isotonic_calibration import calibrate_prob
             direction = "over" if b_threshold_dir == "higher" else "under"
             our_prob = calibrate_prob(city, bucket_temp, our_prob, direction)
             our_prob = max(0.01, min(0.99, our_prob))

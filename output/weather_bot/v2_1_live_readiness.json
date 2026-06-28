@@ -5,25 +5,25 @@
   "data_source": "PAPER_TRADES",
   "promotion_criteria": {
     "min_resolved": 25,
-    "resolved_count": 8,
+    "resolved_count": 14,
     "criteria_met": false,
     "positive_ev": true,
-    "ev_per_trade": 2.2788,
-    "profit_factor": 4.1594,
+    "ev_per_trade": 2.395,
+    "profit_factor": 6.3477,
     "pf_met": true,
     "zero_errors": true,
     "error_count": 0
   },
   "performance": {
-    "total_resolved": 8,
-    "wins": 4,
-    "losses": 4,
-    "win_rate": 0.5,
-    "total_pnl": 18.23,
-    "gross_profit": 24.0,
-    "gross_loss": 5.77,
-    "profit_factor": 4.1594,
-    "avg_ev_per_trade": 2.2788
+    "total_resolved": 14,
+    "wins": 9,
+    "losses": 5,
+    "win_rate": 0.6429,
+    "total_pnl": 33.53,
+    "gross_profit": 39.8,
+    "gross_loss": 6.27,
+    "profit_factor": 6.3477,
+    "avg_ev_per_trade": 2.395
   },
   "paper_comparison": {
     "paper_resolved": 0,
@@ -32,5 +32,5 @@
   },
   "all_criteria_met": false,
   "ready_for_live": false,
-  "timestamp": "2026-06-27T14:08:48.537609+00:00"
+  "timestamp": "2026-06-28T10:13:32.098908+00:00"
 }
